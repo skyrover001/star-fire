@@ -14,6 +14,25 @@ func (oc *ChatClient) Chat() (err error) {
 	// Ensure ConvertOllamaResponseToOpenAIResponse accepts *api.ChatResponse and returns the correct type
 	respFunc := func(resp api.ChatResponse) error {
 		fmt.Println("resp:...........", resp.Message.Content, "oc=", oc)
+		if *oc.ChatReq.Request.Stream {
+			// Stream response
+			openAIResp, _ := ConvertOllamaResponseToOpenAIResponse(&resp)
+			err = oc.ResponseConn.WriteJSON(public.WSMessage{
+				Type:    public.MESSAGE_STREAM,
+				Content: openAIResp,
+			})
+			if err != nil {
+				log.Fatalf("通过 WebSocket 发送消息失败: %v", err)
+				fmt.Println("发送关闭链接消息")
+				err = oc.ResponseConn.WriteJSON(public.WSMessage{
+					Type:    public.CLOSE,
+					Content: nil,
+				})
+				fmt.Println("发送关闭链接消息完成")
+				return err
+			}
+			return nil
+		}
 		if resp.Done {
 			openAIResp, err := ConvertOllamaResponseToOpenAIResponse(&resp)
 			if err != nil {
