@@ -3,11 +3,12 @@ package ollama
 import (
 	"context"
 	"fmt"
+	"log"
+	"time"
+
 	"github.com/gorilla/websocket"
 	"github.com/ollama/ollama/api"
 	"github.com/sashabaranov/go-openai"
-	"log"
-	"time"
 )
 
 const ENV_CLIENT = "ENV"
@@ -70,36 +71,26 @@ func ConvertOpenAIToOllamaRequest(request *openai.ChatCompletionRequest) (*api.C
 	return &ollamaRequest, nil
 }
 
-func ConvertOllamaResponseToOpenAIResponse(respone *api.ChatResponse) (*openai.ChatCompletionResponse, error) {
+func ConvertOllamaResponseToOpenAIResponse(response *api.ChatResponse) (*openai.ChatCompletionResponse, error) {
 	// Convert Ollama response to OpenAI response
-	openaiResponse := openai.ChatCompletionResponse{
-		ID:      string(time.Now().Unix()),
-		Object:  "chat.completion",
-		Created: respone.CreatedAt.Unix(),
-		Model:   respone.Model,
-		Choices: make([]openai.ChatCompletionChoice, 0),
-		Usage: openai.Usage{
-			PromptTokens:     respone.PromptEvalCount,
-			CompletionTokens: respone.EvalCount,
-			TotalTokens:      respone.PromptEvalCount + respone.EvalCount,
-		},
-	}
-	openaiResponse.Choices = append(openaiResponse.Choices, openai.ChatCompletionChoice{
+	choices := make([]openai.ChatCompletionChoice, 1)
+	choices[0] = openai.ChatCompletionChoice{
 		Index: 0,
 		Message: openai.ChatCompletionMessage{
-			Role:             respone.Message.Role,
-			Content:          respone.Message.Content,
-			Refusal:          "",
-			MultiContent:     nil,
-			Name:             "",
-			ReasoningContent: "",
-			FunctionCall:     nil,
-			ToolCalls:        nil, // 如果ollama支持函数调用，可以在这里填充
-			ToolCallID:       "",
+			Role:    response.Message.Role,
+			Content: response.Message.Content,
 		},
-		FinishReason:         "",
-		LogProbs:             nil,
-		ContentFilterResults: openai.ContentFilterResults{},
-	})
-	return &openaiResponse, nil
+		FinishReason: openai.FinishReason(response.DoneReason),
+	}
+	return &openai.ChatCompletionResponse{
+		ID:      "chatcmpl-12345",
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Choices: choices,
+		Usage: openai.Usage{
+			PromptTokens:     response.PromptEvalCount,
+			CompletionTokens: response.EvalCount,
+			TotalTokens:      response.PromptEvalCount + response.EvalCount,
+		},
+	}, nil
 }

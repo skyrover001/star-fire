@@ -11,17 +11,35 @@ import (
 )
 
 func (oc *ChatClient) Chat() (err error) {
-	var response api.ChatResponse
+	// Ensure ConvertOllamaResponseToOpenAIResponse accepts *api.ChatResponse and returns the correct type
 	respFunc := func(resp api.ChatResponse) error {
-		fmt.Print(resp.Message.Content)
+		fmt.Println("resp:...........", resp.Message.Content, "oc=", oc)
 		if resp.Done {
-			if resp.DoneReason == "stop" {
-				return nil
-			} else {
-				return fmt.Errorf("chat error: %s", resp.DoneReason)
+			openAIResp, err := ConvertOllamaResponseToOpenAIResponse(&resp)
+			if err != nil {
+				return err
 			}
+			log.Println("ollama chat response:", resp)
+			err = oc.ResponseConn.WriteJSON(public.WSMessage{
+				Type:    public.MESSAGE,
+				Content: openAIResp,
+			})
+			if err != nil {
+				log.Fatalf("通过 WebSocket 发送消息失败: %v", err)
+				fmt.Println("发送关闭链接消息")
+				err = oc.ResponseConn.WriteJSON(public.WSMessage{
+					Type:    public.CLOSE,
+					Content: nil,
+				})
+				fmt.Println("发送关闭链接消息完成")
+				return err
+			}
+			fmt.Println("发送关闭链接消息")
+			return oc.ResponseConn.WriteJSON(public.WSMessage{
+				Type:    public.CLOSE,
+				Content: nil,
+			})
 		}
-		response = resp
 		return nil
 	}
 	ctx := context.Background()
@@ -29,18 +47,6 @@ func (oc *ChatClient) Chat() (err error) {
 	if err != nil {
 		log.Println("ollama chat error:", err)
 		return err
-	}
-	resp, err := ConvertOllamaResponseToOpenAIResponse(&response)
-	if err != nil {
-		return err
-	}
-	message := resp.Choices[0].Message.Content
-	err = oc.ResponseConn.WriteJSON(public.WSMessage{
-		Type:    public.MESSAGE,
-		Content: message,
-	})
-	if err != nil {
-		log.Fatalf("通过 WebSocket 发送消息失败: %v", err)
 	}
 	return nil
 }

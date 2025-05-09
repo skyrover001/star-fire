@@ -7,10 +7,6 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
-	"github.com/ollama/ollama/api"
-	"github.com/sashabaranov/go-openai"
 	"log"
 	"net"
 	"net/url"
@@ -18,6 +14,11 @@ import (
 	sfopenai "star-fire/client/openai"
 	"star-fire/public"
 	"strings"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
+	"github.com/ollama/ollama/api"
+	"github.com/sashabaranov/go-openai"
 )
 
 type Client struct {
@@ -137,6 +138,18 @@ func Chat(c Client, Fingerprint string, request *openai.ChatCompletionRequest) e
 	if c.Ollama != nil {
 		picked := false
 		for _, cl := range c.Ollama.Clients {
+			if cl.Type != ollama.ENV_CLIENT {
+				continue
+			}
+			tmpClient, err := api.ClientFromEnvironment()
+			if err != nil {
+				log.Println("ollama client from environment error:", err)
+				continue
+			}
+			cl.ChatClient = &ollama.ChatClient{
+				ReqClient:    tmpClient,
+				ResponseConn: nil,
+			}
 			resp, err := cl.ChatClient.ReqClient.ListRunning(c.Ctx)
 			if err != nil {
 				log.Println("list models:", err)
@@ -153,6 +166,10 @@ func Chat(c Client, Fingerprint string, request *openai.ChatCompletionRequest) e
 		if picked {
 			log.Println("ollama chat.................")
 			ollamaReq, err := ollama.ConvertOpenAIToOllamaRequest(request)
+			if err != nil {
+				log.Println("convert request error:", err)
+				return err
+			}
 			ollamaClient := &ollama.ChatClient{
 				ChatReq: &ollama.ChatRequest{
 					FingerPrint: Fingerprint,
@@ -171,6 +188,8 @@ func Chat(c Client, Fingerprint string, request *openai.ChatCompletionRequest) e
 				log.Println("ollama chat error:", err)
 				return err
 			}
+			log.Println("ollama chat success")
+			return nil
 		} else {
 			log.Println("no ollama model found")
 		}
