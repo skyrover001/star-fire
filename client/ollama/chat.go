@@ -16,7 +16,7 @@ func (oc *ChatClient) Chat() (err error) {
 		fmt.Println("resp:...........", resp.Message.Content, "oc=", oc)
 		if *oc.ChatReq.Request.Stream {
 			// Stream response
-			openAIResp, _ := ConvertOllamaResponseToOpenAIResponse(&resp)
+			_, openAIResp, _ := ConvertOllamaResponseToOpenAIResponse(&resp, *oc.ChatReq.Request.Stream)
 			err = oc.ResponseConn.WriteJSON(public.WSMessage{
 				Type:    public.MESSAGE_STREAM,
 				Content: openAIResp,
@@ -34,7 +34,7 @@ func (oc *ChatClient) Chat() (err error) {
 			return nil
 		}
 		if resp.Done {
-			openAIResp, err := ConvertOllamaResponseToOpenAIResponse(&resp)
+			openAIResp, _, err := ConvertOllamaResponseToOpenAIResponse(&resp, false)
 			if err != nil {
 				return err
 			}

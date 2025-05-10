@@ -306,7 +306,7 @@ func main() {
 		panic(err)
 	}
 	client := &Client{
-		StarFireHost: "localhost:8080",
+		StarFireHost: "1.94.239.51:8080",
 	}
 	client.RegisterClient()
 	client.Serving()

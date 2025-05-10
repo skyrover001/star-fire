@@ -6,6 +6,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 	"github.com/ollama/ollama/api"
 	"github.com/sashabaranov/go-openai"
@@ -71,8 +72,35 @@ func ConvertOpenAIToOllamaRequest(request *openai.ChatCompletionRequest) (*api.C
 	return &ollamaRequest, nil
 }
 
-func ConvertOllamaResponseToOpenAIResponse(response *api.ChatResponse) (*openai.ChatCompletionResponse, error) {
-	// Convert Ollama response to OpenAI response
+func ConvertOllamaResponseToOpenAIResponse(response *api.ChatResponse, stream bool) (*openai.ChatCompletionResponse, *openai.ChatCompletionStreamResponse, error) {
+	if stream {
+		// For streaming responses, use Delta instead of Message
+		choices := make([]openai.ChatCompletionStreamChoice, 1)
+		choices[0] = openai.ChatCompletionStreamChoice{
+			Index: 0,
+			Delta: openai.ChatCompletionStreamChoiceDelta{
+				Role:    response.Message.Role,
+				Content: response.Message.Content,
+			},
+			FinishReason: openai.FinishReason(response.DoneReason),
+		}
+
+		return nil, &openai.ChatCompletionStreamResponse{
+			ID:      fmt.Sprintf("chatcmpl-%v", uuid.NewString()),
+			Object:  "chat.completion.chunk",
+			Created: time.Now().Unix(),
+			Choices: choices,
+			Model:   response.Model,
+			Usage: &openai.Usage{
+				PromptTokens:     response.PromptEvalCount,
+				CompletionTokens: response.EvalCount,
+				TotalTokens:      response.PromptEvalCount + response.EvalCount,
+			},
+		}, nil
+
+	}
+
+	// For non-streaming responses, use Message as before
 	choices := make([]openai.ChatCompletionChoice, 1)
 	choices[0] = openai.ChatCompletionChoice{
 		Index: 0,
@@ -82,15 +110,17 @@ func ConvertOllamaResponseToOpenAIResponse(response *api.ChatResponse) (*openai.
 		},
 		FinishReason: openai.FinishReason(response.DoneReason),
 	}
+
 	return &openai.ChatCompletionResponse{
-		ID:      "chatcmpl-12345",
-		Object:  "chat.completion",
+		ID:      fmt.Sprintf("chatcmpl-%v", uuid.NewString()),
+		Object:  "chat.completion", // Fixed the trailing dot
 		Created: time.Now().Unix(),
 		Choices: choices,
+		Model:   response.Model,
 		Usage: openai.Usage{
 			PromptTokens:     response.PromptEvalCount,
 			CompletionTokens: response.EvalCount,
 			TotalTokens:      response.PromptEvalCount + response.EvalCount,
 		},
-	}, nil
+	}, nil, nil
 }
