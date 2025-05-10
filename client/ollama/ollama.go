@@ -55,6 +55,17 @@ func (o *Ollama) Init() {
 	o.Clients = []*Client{&client}
 }
 
+func ConvertOpenAIModelToOllamaModel(model api.ProcessModelResponse) openai.Model {
+	return openai.Model{
+		CreatedAt: time.Now().Unix(),
+		ID:        model.Name,
+		Object:    model.Digest,
+		OwnedBy:   model.Details.Family,
+		Root:      model.Details.Family,
+		Parent:    model.Details.ParentModel,
+	}
+}
+
 func ConvertOpenAIToOllamaRequest(request *openai.ChatCompletionRequest) (*api.ChatRequest, error) {
 	// Convert OpenAI request to Ollama request
 	ollamaRequest := api.ChatRequest{

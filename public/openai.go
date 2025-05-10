@@ -1,5 +1,7 @@
 package public
 
+import "github.com/sashabaranov/go-openai"
+
 type OpenAIMessage struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
@@ -39,8 +41,9 @@ type OpenAIResponse struct {
 }
 
 type Model struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
-	Size string `json:"size"`
-	Arch string `json:"arch"`
+	Name        string       `json:"name"`
+	Type        string       `json:"type"`
+	Size        string       `json:"size"`
+	Arch        string       `json:"arch"`
+	OpenAIModel openai.Model `json:"openai_model"`
 }

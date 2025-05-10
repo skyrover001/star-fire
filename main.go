@@ -6,14 +6,15 @@ package main
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/ollama/ollama/api"
-	"github.com/sashabaranov/go-openai"
 	"log"
 	"net/http"
 	"star-fire/public"
 	"strconv"
 	"time"
+
+	"github.com/google/uuid"
+	"github.com/ollama/ollama/api"
+	"github.com/sashabaranov/go-openai"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gorilla/websocket"
@@ -73,6 +74,15 @@ func (c *Client) KeepAlive(conn *websocket.Conn) {
 				}
 			} else {
 				log.Printf("Client latency is normal: %d", c.Latency)
+				// update available models
+				availableModels := make([]*public.Model, 0)
+				for _, model := range c.Models {
+					if model.Name == pong.AvaliableModels[0].Name {
+						availableModels = append(availableModels, model)
+					}
+				}
+				c.Models = availableModels
+				log.Printf("Client available models: %v", c.Models)
 			}
 		}
 	}
@@ -105,11 +115,34 @@ func (c *Client) HandleMessage() {
 		case public.KEEPALIVE:
 			log.Println("Received keepalive message", message)
 			if content, ok := message.Content.(map[string]interface{}); ok {
-				pong := &public.PPMessage{
-					Type:      content["type"].(string),
-					Timestamp: content["timestamp"].(string),
+				var pong public.PPMessage
+				if err := parseJSON(content, &pong); err != nil {
+					log.Println("Error mapping content to PPMessage struct:", err)
+					return
 				}
-				c.PongChan <- pong
+				log.Println("Pong message:", pong)
+				timestamp, err := strconv.ParseInt(pong.Timestamp, 10, 64)
+				if err != nil {
+					log.Println("Error parsing pong.Timestamp:", err)
+					return
+				}
+				c.Latency = int(time.Now().Unix() - timestamp)
+				log.Printf("Client latency: %d", c.Latency)
+				if c.Latency > public.MAXLATENCE {
+					log.Println("Client latency is too high, closing connection")
+					err := c.ControlConn.Close()
+					if err != nil {
+						log.Println("Error while closing connection:", err)
+						return
+					}
+					c.Status = "offline"
+					log.Printf("Client %s is offline", c.ID)
+					return
+				}
+				pong.Timestamp = strconv.Itoa(int(time.Now().Unix()))
+				pong.Type = public.PONG
+				log.Println("Sending pong message:", pong)
+				c.PongChan <- &pong
 			} else {
 				log.Println("Invalid message content format")
 				return
@@ -129,8 +162,7 @@ func (c *Client) HandleMessage() {
 				c.Status = "online"
 				c.RegisterTime = time.Now().Format("2006-01-02 15:04:05")
 				c.Latency = public.MAXLATENCE
-				log.Printf("Client registered: %s", c.ID, c)
-
+				log.Printf("Client registered: %s", c.ID)
 				for _, m := range c.Models {
 					fmt.Println("model:", m)
 					model := public.Model{

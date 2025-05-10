@@ -20,8 +20,9 @@ type WSMessage struct {
 }
 
 type PPMessage struct {
-	Type      string `json:"type"`
-	Timestamp string `json:"timestamp"`
+	Type            string   `json:"type"`
+	Timestamp       string   `json:"timestamp"`
+	AvaliableModels []*Model `json:"update_model"`
 }
 
 func ISStrINArray(str string, arr []string) bool {

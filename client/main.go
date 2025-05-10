@@ -49,9 +49,7 @@ func (c *Client) GenerateClientID() error {
 }
 
 func (c *Client) ScanModels() {
-	if c.Models == nil {
-		c.Models = make([]*public.Model, 0)
-	}
+	c.Models = make([]*public.Model, 0)
 	log.Println("scan models:....", c.Openai)
 	if c.Ollama != nil {
 		for _, cl := range c.Ollama.Clients {
@@ -66,10 +64,11 @@ func (c *Client) ScanModels() {
 					log.Println("ollama list models:", err)
 					for _, model := range resp.Models {
 						c.Models = append(c.Models, &public.Model{
-							Name: model.Name,
-							Type: model.Digest,
-							Size: strings.Split(model.Name, ":")[1],
-							Arch: model.Details.QuantizationLevel,
+							Name:        model.Name,
+							Type:        model.Digest,
+							Size:        strings.Split(model.Name, ":")[1],
+							Arch:        model.Details.QuantizationLevel,
+							OpenAIModel: ollama.ConvertOpenAIModelToOllamaModel(model),
 						})
 					}
 				}
@@ -263,9 +262,11 @@ func (c *Client) Serving() {
 		}
 		if message.Type == public.KEEPALIVE {
 			log.Printf("keepalive: %s", message.Content)
+			c.ScanModels()
 			pong := public.PPMessage{
-				Type:      public.PONG,
-				Timestamp: message.Content.(map[string]interface{})["timestamp"].(string),
+				Type:            public.PONG,
+				Timestamp:       message.Content.(map[string]interface{})["timestamp"].(string),
+				AvaliableModels: c.Models,
 			}
 			err = c.ControlConn.WriteJSON(public.WSMessage{
 				Type:    public.KEEPALIVE,
@@ -306,7 +307,8 @@ func main() {
 		panic(err)
 	}
 	client := &Client{
-		StarFireHost: "1.94.239.51:8080",
+		//StarFireHost: "1.94.239.51:8080",
+		StarFireHost: "localhost:8080",
 	}
 	client.RegisterClient()
 	client.Serving()
