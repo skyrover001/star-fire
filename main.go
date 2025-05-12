@@ -398,6 +398,15 @@ func (s *Server) Chat(c *gin.Context) {
 	}
 }
 
+// get all models
+func (s *Server) Models(c *gin.Context) {
+	var models []*public.Model
+	for _, client := range s.Clients {
+		models = append(models, client.Models...)
+	}
+	c.JSON(http.StatusOK, models)
+}
+
 var server *Server
 
 func main() {
@@ -410,6 +419,7 @@ func main() {
 	r.GET("/register/:id", server.Register)
 	r.GET("/response/:fingerprint", server.Response)
 	r.POST("/v1/chat/completions", server.Chat)
+	r.POST("/v1/models", server.Models)
 	err := r.Run(server.Port)
 	if err != nil {
 		log.Fatal("Error while starting server:", err)
