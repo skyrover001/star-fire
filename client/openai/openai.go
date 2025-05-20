@@ -29,18 +29,18 @@ type Client struct {
 
 func (oa *Openai) Init() {
 	oa.Clients = make([]*Client, 0)
-	m := openai.Model{ID: "moonshot-v1-8k"}
-	c := &Client{
-		Models:  []openai.Model{m},
-		BaseURL: "https://api.moonshot.cn/v1",
-		ApiKey:  "sk-mOpHCEZ6vFp462K9txFwQgBylTfQcDsKAM5EV574iqJnuWLS",
-	}
-	oa.Clients = append(oa.Clients, c)
-	m = openai.Model{ID: "deepseek-r1-1.5B"}
-	c = &Client{
-		Models:  []openai.Model{m},
-		BaseURL: "https://hcc-subcenter2.tianhe-tech.com/maas/service/c96a3a6b8cb7/v1/completions",
-		ApiKey:  "d73f81ca4b9ce65411eb39e84772ff3e",
-	}
-	oa.Clients = append(oa.Clients, c)
+	//m := openai.Model{ID: "moonshot-v1-8k"}
+	//c := &Client{
+	//	Models:  []openai.Model{m},
+	//	BaseURL: "https://api.moonshot.cn/v1",
+	//	ApiKey:  "sk-mOpHCEZ6vFp462K9txFwQgBylTfQcDsKAM5EV574iqJnuWLS",
+	//}
+	//oa.Clients = append(oa.Clients, c)
+	//m = openai.Model{ID: "deepseek-r1-1.5B"}
+	//c = &Client{
+	//	Models:  []openai.Model{m},
+	//	BaseURL: "https://hcc-subcenter2.tianhe-tech.com/maas/service/c96a3a6b8cb7/v1/completions",
+	//	ApiKey:  "d73f81ca4b9ce65411eb39e84772ff3e",
+	//}
+	//oa.Clients = append(oa.Clients, c)
 }

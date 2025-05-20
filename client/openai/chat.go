@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"io"
 	"log"
-	"star-fire/public"
+	"star-fire/pkg/public"
 )
 
 func (oc *ChatClient) Chat() error {

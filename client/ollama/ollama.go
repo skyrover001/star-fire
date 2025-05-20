@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"log"
+	//"net/http"
+	//"net/url"
+	//"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,21 +39,31 @@ type Ollama struct {
 }
 
 func (o *Ollama) Init() {
-	fmt.Println("init ollama client")
-	oClient, err := api.ClientFromEnvironment()
+	ollamaClient, err := api.ClientFromEnvironment()
 	if err != nil {
 		log.Println("ollama client init error:", err)
 	}
-	ctx := context.Background()
-	models, err := oClient.ListRunning(ctx)
+	// 验证连接
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	err = ollamaClient.Heartbeat(ctx)
+	if err != nil {
+		log.Println("ollama client heartbeat error:", err)
+		return
+	}
+	models, err := ollamaClient.ListRunning(ctx)
+	fmt.Println("models.................................:", models)
 	if err != nil {
 		log.Println("ollama client list error:", err)
 		return
 	}
 	client := Client{
-		Models:     models.Models,
-		Type:       ENV_CLIENT,
-		ChatClient: nil,
+		Models: models.Models,
+		Type:   ENV_CLIENT,
+		ChatClient: &ChatClient{
+			ReqClient: ollamaClient,
+		},
 	}
 	o.Clients = []*Client{&client}
 }

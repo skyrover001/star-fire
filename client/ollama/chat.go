@@ -4,10 +4,9 @@ package ollama
 import (
 	"context"
 	"fmt"
-	"log"
-	"star-fire/public"
-
 	"github.com/ollama/ollama/api"
+	"log"
+	"star-fire/pkg/public"
 )
 
 func (oc *ChatClient) Chat() (err error) {

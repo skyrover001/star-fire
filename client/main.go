@@ -6,14 +6,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"star-fire/client/ollama"
 	sfopenai "star-fire/client/openai"
-	"star-fire/public"
+	public "star-fire/pkg/public"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -27,8 +30,9 @@ type Client struct {
 	Openai       *sfopenai.Openai
 	ControlConn  *websocket.Conn
 	StarFireHost string
+	JoinToken    string
 	Models       []*public.Model `json:"models"`
-	Ctx          context.Context
+	Ctx          *context.Context
 }
 
 func (c *Client) GenerateClientID() error {
@@ -59,9 +63,16 @@ func (c *Client) ScanModels() {
 					log.Println("ollama client from environment error:", err)
 					continue
 				}
-				resp, err := tmpClient.ListRunning(c.Ctx)
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				err = tmpClient.Heartbeat(ctx)
+				if err != nil {
+					log.Println("ollama client heartbeat error:", err)
+					return
+				}
+				resp, err := tmpClient.ListRunning(ctx)
 				if err == nil {
-					log.Println("ollama list models:", err)
+					log.Println("ollama list models:", err, resp)
 					for _, model := range resp.Models {
 						c.Models = append(c.Models, &public.Model{
 							Name:        model.Name,
@@ -93,7 +104,7 @@ func (c *Client) ScanModels() {
 func (c *Client) init() {
 	log.Println("init client")
 	ctx := context.Background()
-	c.Ctx = ctx
+	c.Ctx = &ctx
 	c.Ollama = &ollama.Ollama{}
 	c.Ollama.Init()
 	c.Openai = &sfopenai.Openai{}
@@ -110,8 +121,10 @@ func (c *Client) RegisterClient() {
 	}
 	u := url.URL{Scheme: "ws", Host: c.StarFireHost, Path: fmt.Sprintf("/register/%s", c.ID)}
 	log.Printf("connecting to %s", u.String())
+	requestHeader := http.Header{}
+	requestHeader.Set("X-Registration-Token", c.JoinToken)
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)
+	conn, _, err := websocket.DefaultDialer.Dial(u.String(), requestHeader)
 	if err != nil {
 		log.Fatal("dial:", err)
 	}
@@ -128,70 +141,54 @@ func (c *Client) RegisterClient() {
 	}
 }
 
-func Chat(c Client, Fingerprint string, request *openai.ChatCompletionRequest) error {
+func (c *Client) PickOllamaClient(modelName string) (*ollama.ChatClient, error) {
+	if c.Ollama == nil {
+		return nil, fmt.Errorf("no ollama client")
+	}
+	for _, cl := range c.Ollama.Clients {
+		if cl.Type != ollama.ENV_CLIENT {
+			continue
+		}
+		tmpClient, err := api.ClientFromEnvironment()
+		if err != nil {
+			log.Println("ollama client from environment error:", err)
+			continue
+		}
+		resp, err := tmpClient.ListRunning(*c.Ctx)
+		if err != nil {
+			log.Println("ollama list models error:", err)
+			continue
+		}
+		for _, model := range resp.Models {
+			if model.Name == modelName {
+				return &ollama.ChatClient{
+					ReqClient:    tmpClient,
+					ResponseConn: nil,
+				}, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no ollama model found")
+}
+
+func (c *Client) PickOpenAIClient(modelName string) (*sfopenai.Client, error) {
+	if c.Openai == nil {
+		return nil, fmt.Errorf("no openai client")
+	}
+	for _, cl := range c.Openai.Clients {
+		for _, model := range cl.Models {
+			if model.ID == modelName {
+				return cl, nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("no openai client found")
+}
+
+func Chat(c *Client, Fingerprint string, request *openai.ChatCompletionRequest) error {
 	if c.Ollama == nil && c.Openai == nil {
 		log.Println("no local model found")
 		return fmt.Errorf("no local model found")
-	}
-	// 首选ollama
-	if c.Ollama != nil {
-		picked := false
-		for _, cl := range c.Ollama.Clients {
-			if cl.Type != ollama.ENV_CLIENT {
-				continue
-			}
-			tmpClient, err := api.ClientFromEnvironment()
-			if err != nil {
-				log.Println("ollama client from environment error:", err)
-				continue
-			}
-			cl.ChatClient = &ollama.ChatClient{
-				ReqClient:    tmpClient,
-				ResponseConn: nil,
-			}
-			resp, err := cl.ChatClient.ReqClient.ListRunning(c.Ctx)
-			if err != nil {
-				log.Println("list models:", err)
-			}
-			if resp != nil {
-				for _, model := range resp.Models {
-					if model.Name == request.Model {
-						picked = true
-						break
-					}
-				}
-			}
-		}
-		if picked {
-			log.Println("ollama chat.................")
-			ollamaReq, err := ollama.ConvertOpenAIToOllamaRequest(request)
-			if err != nil {
-				log.Println("convert request error:", err)
-				return err
-			}
-			ollamaClient := &ollama.ChatClient{
-				ChatReq: &ollama.ChatRequest{
-					FingerPrint: Fingerprint,
-					Request:     ollamaReq,
-				},
-				ReqClient:    c.Ollama.Clients[0].ChatClient.ReqClient,
-				ResponseConn: nil,
-			}
-			ollamaClient.ResponseConn, err = c.OpenResponseConn(Fingerprint)
-			if err != nil {
-				log.Println("open response conn:", err)
-				return err
-			}
-			err = ollamaClient.Chat()
-			if err != nil {
-				log.Println("ollama chat error:", err)
-				return err
-			}
-			log.Println("ollama chat success")
-			return nil
-		} else {
-			log.Println("no ollama model found")
-		}
 	}
 	if c.Openai != nil {
 		log.Println("openai chat.................")
@@ -288,7 +285,7 @@ func (c *Client) Serving() {
 			}
 			log.Println("openaiReq:", openaiReq)
 			go func(fingerPrint string, openaiReq *openai.ChatCompletionRequest) {
-				err := Chat(*c, fingerPrint, openaiReq)
+				err := Chat(c, fingerPrint, openaiReq)
 				if err != nil {
 					log.Println("chat error:", err)
 				}
@@ -300,16 +297,26 @@ func (c *Client) Serving() {
 	}
 }
 
+var StarFireHost string
+var JoinToken string
+var LocalInferenceEngine string
+
 func main() {
-	model := ollama.Model{Name: "qwen3:0.6b"}
-	err := model.Run()
-	if err != nil {
-		panic(err)
+	//使用flag接受用户输入的参数包括:远程服务端地址，接入令牌和本地inference engine
+	flag.StringVar(&StarFireHost, "host", "", "StarFire server host")
+	flag.StringVar(&JoinToken, "token", "", "StarFire server join token")
+	flag.StringVar(&LocalInferenceEngine, "engine", "ollama", "local inference engine")
+	flag.Parse()
+	log.Println("StarFireHost:", StarFireHost)
+	if StarFireHost == "" || JoinToken == "" {
+		flag.Usage()
+		return
 	}
 	client := &Client{
-		StarFireHost: "1.94.239.51:8080",
-		//StarFireHost: "localhost:8080",
+		StarFireHost: StarFireHost,
+		JoinToken:    JoinToken,
 	}
+
 	client.RegisterClient()
 	client.Serving()
 }
