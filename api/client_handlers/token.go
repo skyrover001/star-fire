@@ -7,19 +7,19 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TokenHandler 处理注册Token相关HTTP请求
+// TokenHandler
 type TokenHandler struct {
 	tokenService *service.TokenService
 }
 
-// NewTokenHandler 创建一个新的Token处理器
+// NewTokenHandler
 func NewTokenHandler(tokenService *service.TokenService) *TokenHandler {
 	return &TokenHandler{
 		tokenService: tokenService,
 	}
 }
 
-// GenerateRegisterToken 处理生成注册Token请求
+// GenerateRegisterToken
 func (h *TokenHandler) GenerateRegisterToken(c *gin.Context) {
 	// for text e.g. :curl -X POST http://localhost:8080/api/user/register-token -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
 	userID, exists := c.Get("user_id")
@@ -29,8 +29,6 @@ func (h *TokenHandler) GenerateRegisterToken(c *gin.Context) {
 		})
 		return
 	}
-
-	// 生成注册Token
 	resp, err := h.tokenService.GenerateRegisterToken(userID.(string))
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{

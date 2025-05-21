@@ -14,19 +14,23 @@ import (
 
 func HandleClientConnection(client *models.Client, server *models.Server) {
 	// if client is registered then keep the connection alive
-	go keepAliveClient(client)
-
-	// 处理客户端消息
+	go keepAliveClient(client, server)
 	handleClientMessages(client, server)
 }
 
-func keepAliveClient(client *models.Client) {
+func keepAliveClient(client *models.Client, server *models.Server) {
 	ticker := time.NewTicker(public.KEEPALIVE_TIME * time.Second)
 	defer ticker.Stop()
 
 	for {
 		select {
 		case <-ticker.C:
+			// 如果客户端连接断开，则关闭连接
+			if client.ControlConn == nil {
+				log.Println("Client control connection is nil, closing connection")
+				client.Status = "offline"
+				return
+			}
 			err := client.ControlConn.WriteJSON(public.WSMessage{
 				Type: public.KEEPALIVE,
 				Content: public.PPMessage{
@@ -41,6 +45,7 @@ func keepAliveClient(client *models.Client) {
 			}
 
 		case pong := <-client.PongChan:
+			fmt.Println("<UNK>:", pong)
 			if pong == nil {
 				log.Println("Client pong message is nil")
 				client.Status = "offline"
@@ -51,6 +56,7 @@ func keepAliveClient(client *models.Client) {
 			timestamp, _ := strconv.ParseInt(pong.Timestamp, 10, 64)
 			latency := end.Unix() - timestamp
 			client.Latency = int(latency)
+			fmt.Println("Client latency:", client.Latency)
 
 			if latency > public.MAXLATENCE {
 				log.Println("Client latency is too high, closing connection")
@@ -59,6 +65,10 @@ func keepAliveClient(client *models.Client) {
 				return
 			} else {
 				client.Models = pong.AvaliableModels
+				for _, m := range client.Models {
+					server.RegisterModel(m, client)
+					fmt.Println("Client available model:", m.Name, m)
+				}
 				client.Status = "online"
 			}
 		}
@@ -134,6 +144,7 @@ func handleKeepAliveMessage(client *models.Client, message public.WSMessage) {
 
 // handle client register message
 func handleRegisterMessage(client *models.Client, server *models.Server, message public.WSMessage) {
+	fmt.Println("Registering client:", message)
 	if content, ok := message.Content.(map[string]interface{}); ok {
 		var registerInfo models.Client
 		if err := utils.ParseJSON(content, &registerInfo); err != nil {
@@ -150,6 +161,7 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 
 		// 注册客户端的所有模型
 		for _, m := range client.Models {
+			fmt.Println("Registering model:", m.Name, m)
 			model := public.Model{
 				Name: m.Name,
 				Type: m.Type,
