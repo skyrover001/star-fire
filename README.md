@@ -2,14 +2,13 @@
    <strong>中文</strong> | <a href="./README.en.md">English</a>
 </p>
 <div align="center">
-
 ![start-fire](/unit/img/logo.png)
 
 # Start Fire
 
 MaaS层个人算力服务平台
 
-
+</div>
 ## 项目说明
 
 > [!NOTE]  
@@ -31,7 +30,6 @@ Star-fire提供了丰富的功能:
 3. 支持按模型进行负载均衡，支持stream格式对话
 4. 支持用户登录、注册、token管理
 5. 支持按用户、模型对tokens进行统计
-6. 
 ## inference支持
 目前支持的推理引擎有：
 1. ollama
