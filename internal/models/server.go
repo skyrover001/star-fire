@@ -2,14 +2,21 @@ package models
 
 import (
 	"github.com/gorilla/websocket"
+	"log"
 	"star-fire/pkg/public"
+	"sync"
 	"time"
 )
 
 type Server struct {
-	Clients     map[*public.Model]*Client
-	Port        string
-	RespClients map[string]*websocket.Conn
+	clientsMu sync.RWMutex // 保护Clients映射
+	Clients   map[string]*Client
+
+	respClientsMu sync.RWMutex // 保护RespClients映射
+	RespClients   map[string]*websocket.Conn
+
+	Port string
+
 	UserStore   *UserStore
 	APIKeyStore *APIKeyStore
 	TokenStore  *TokenStore
@@ -17,7 +24,7 @@ type Server struct {
 
 func NewServer() *Server {
 	server := &Server{
-		Clients:     make(map[*public.Model]*Client),
+		Clients:     make(map[string]*Client),
 		Port:        ":8080",
 		RespClients: make(map[string]*websocket.Conn),
 		UserStore:   NewUserStore(),
@@ -36,30 +43,87 @@ func NewServer() *Server {
 	return server
 }
 
-// model load balance
+// 模型负载均衡
 func (s *Server) LoadBalance(model string) *Client {
-	// simple load balance
-	for k, v := range s.Clients {
-		// TODO: check model
-		if k.Name == model && v.Status == "online" && v.Latency < public.MAXLATENCE && v.ControlConn != nil {
-			return v
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+
+	log.Println("查找模型:", model)
+	for k := range s.Clients {
+		if k == model {
+			for _, c := range s.Clients {
+				for _, m := range c.Models {
+					if m.Name == model && c.Status == "online" && c.ControlConn != nil && c.Latency < public.MAXLATENCE {
+						return c
+					}
+				}
+			}
 		}
 	}
 	return nil
 }
 
-// register model on reflection
+// 注册模型
 func (s *Server) RegisterModel(model *public.Model, client *Client) {
-	s.Clients[model] = client
+	s.clientsMu.Lock()
+	defer s.clientsMu.Unlock()
+
+	s.Clients[model.Name] = client
+	log.Printf("已注册模型 %s 到客户端 %s", model.Name, client.ID)
 }
 
-// get all available models
+// 获取所有可用模型
 func (s *Server) GetAllModels() []*public.Model {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+
 	var models []*public.Model
-	for m, client := range s.Clients {
+	for _, client := range s.Clients {
 		if client.Status == "online" && client.ControlConn != nil {
-			models = append(models, m)
+			models = append(models, client.Models...)
 		}
 	}
+
+	// 移除重复模型
+	modelMap := make(map[string]*public.Model)
+	for _, model := range models {
+		modelMap[model.Name] = model
+	}
+	models = make([]*public.Model, 0, len(modelMap))
+	for _, model := range modelMap {
+		models = append(models, model)
+	}
 	return models
+}
+
+// 添加响应客户端
+func (s *Server) AddRespClient(id string, conn *websocket.Conn) {
+	s.respClientsMu.Lock()
+	defer s.respClientsMu.Unlock()
+
+	s.RespClients[id] = conn
+}
+
+// 获取响应客户端
+func (s *Server) GetRespClient(id string) (*websocket.Conn, bool) {
+	s.respClientsMu.RLock()
+	defer s.respClientsMu.RUnlock()
+
+	conn, ok := s.RespClients[id]
+	return conn, ok
+}
+
+// 删除响应客户端
+func (s *Server) RemoveRespClient(id string) {
+	s.respClientsMu.Lock()
+	defer s.respClientsMu.Unlock()
+
+	delete(s.RespClients, id)
+}
+
+func (s *Server) RemoveClient(modelName string) {
+	s.clientsMu.Lock()
+	defer s.clientsMu.Unlock()
+
+	delete(s.Clients, modelName)
 }

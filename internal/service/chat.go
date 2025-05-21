@@ -83,21 +83,21 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 		case public.CLOSE:
 			log.Println("Client closed connection")
 			server.RespClients[fingerPrint].Close()
-			delete(server.RespClients, fingerPrint)
+			server.RemoveRespClient(fingerPrint)
 			return
 
 		case public.MODEL_ERROR:
 			log.Println("Model error:", response.Content)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Model error: " + response.Content.(string)})
 			server.RespClients[fingerPrint].Close()
-			delete(server.RespClients, fingerPrint)
+			server.RemoveRespClient(fingerPrint)
 			return
 
 		default:
 			log.Println("Unknown message type:", response.Type)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unknown message type: " + response.Type})
 			server.RespClients[fingerPrint].Close()
-			delete(server.RespClients, fingerPrint)
+			server.RemoveRespClient(fingerPrint)
 			return
 		}
 
@@ -106,7 +106,7 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 			log.Println("Chat timeout")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Chat timeout"})
 			server.RespClients[fingerPrint].Close()
-			delete(server.RespClients, fingerPrint)
+			server.RemoveRespClient(fingerPrint)
 			return
 		}
 	}
@@ -118,7 +118,8 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			delete(server.RespClients, fingerPrint)
+			server.RespClients[fingerPrint].Close()
+			server.RemoveRespClient(fingerPrint)
 			return
 		}
 
@@ -126,14 +127,16 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		err = json.Unmarshal(jsonData, &chatResponse)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			delete(server.RespClients, fingerPrint)
+			server.RespClients[fingerPrint].Close()
+			server.RemoveRespClient(fingerPrint)
 			return
 		}
 
 		c.JSON(http.StatusOK, content)
 	} else {
 		log.Println("Invalid message content format")
-		delete(server.RespClients, fingerPrint)
+		server.RespClients[fingerPrint].Close()
+		server.RemoveRespClient(fingerPrint)
 	}
 }
 
@@ -143,7 +146,8 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			delete(server.RespClients, fingerPrint)
+			server.RespClients[fingerPrint].Close()
+			server.RemoveRespClient(fingerPrint)
 			return true
 		}
 
@@ -151,14 +155,16 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		err = json.Unmarshal(jsonData, &chatResponse)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			delete(server.RespClients, fingerPrint)
+			server.RespClients[fingerPrint].Close()
+			server.RemoveRespClient(fingerPrint)
 			return true
 		}
 
 		_, err = c.Writer.Write([]byte("data: " + string(jsonData) + "\n\n"))
 		if err != nil {
 			log.Println("Error while writing response:", err)
-			delete(server.RespClients, fingerPrint)
+			server.RespClients[fingerPrint].Close()
+			server.RemoveRespClient(fingerPrint)
 			return true
 		}
 		c.Writer.Flush()
@@ -166,14 +172,15 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		if chatResponse.Choices[0].FinishReason == "stop" {
 			_, err = c.Writer.Write([]byte("data:[DONE]\n\n"))
 			server.RespClients[fingerPrint].Close()
-			delete(server.RespClients, fingerPrint)
+			server.RemoveRespClient(fingerPrint)
 			return true
 		}
 
 		return false
 	} else {
 		log.Println("Invalid message content format")
-		delete(server.RespClients, fingerPrint)
+		server.RespClients[fingerPrint].Close()
+		server.RemoveRespClient(fingerPrint)
 		return true
 	}
 }

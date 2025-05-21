@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"sync"
+	"star-fire/cache"
 	"time"
 )
 
@@ -16,13 +16,12 @@ type RegisterToken struct {
 }
 
 type TokenStore struct {
-	tokens map[string]*RegisterToken
-	mutex  sync.RWMutex
+	cache *cache.Cache
 }
 
 func NewTokenStore() *TokenStore {
 	return &TokenStore{
-		tokens: make(map[string]*RegisterToken),
+		cache: cache.NewCache(),
 	}
 }
 
@@ -40,41 +39,47 @@ func (s *TokenStore) GenerateToken(userID string) (*RegisterToken, error) {
 		Used:      false,
 	}
 
-	s.mutex.Lock()
-	s.tokens[tokenString] = token
-	s.mutex.Unlock()
-
+	s.cache.Set(tokenString, token)
 	return token, nil
 }
 
 func (s *TokenStore) ValidateAndUseToken(tokenString string) (string, error) {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
-
-	token, exists := s.tokens[tokenString]
+	value, exists := s.cache.Get(tokenString)
 	if !exists {
-		return "", errors.New("invalid token")
+		return "", errors.New("无效的令牌")
+	}
+
+	token, ok := value.(*RegisterToken)
+	if !ok {
+		return "", errors.New("缓存中存储了无效的令牌类型")
 	}
 
 	if token.Used {
-		return "", errors.New("token has already been used")
+		return "", errors.New("令牌已被使用")
 	}
 
 	if time.Since(token.CreatedAt) > 10*time.Minute {
-		return "", errors.New("token has expired")
+		return "", errors.New("令牌已过期")
 	}
 
+	// 更新已使用状态
 	token.Used = true
+	s.cache.Set(tokenString, token)
+
 	return token.UserID, nil
 }
 
 func (s *TokenStore) CleanupExpiredTokens() {
-	s.mutex.Lock()
-	defer s.mutex.Unlock()
+	allTokens := s.cache.GetAll()
 
-	for key, token := range s.tokens {
+	for key, value := range allTokens {
+		token, ok := value.(*RegisterToken)
+		if !ok {
+			continue
+		}
+
 		if token.Used || time.Since(token.CreatedAt) > 24*time.Hour {
-			delete(s.tokens, key)
+			s.cache.Delete(key)
 		}
 	}
 }
