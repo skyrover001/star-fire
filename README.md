@@ -32,8 +32,32 @@ Star-fire提供了丰富的功能:
 3. 支持按模型进行负载均衡，支持stream格式对话
 4. 支持用户登录、注册、token管理
 5. 支持按用户、模型对tokens进行统计
+
 ## inference支持
 目前支持的推理引擎有：
 1. ollama
 2. vllm 
 
+## 使用方法
+
+### server端
+
+1. go环境运行：go run main.go 
+2. 编译后运行：go build -o server main.go & ./server
+3. 使用dockerfile 进行build->run
+
+### client端
+
+主程序在client/cmd目录下
+
+1. 登录用户:目前可使用curl方式进行测试用户登录，返回jwt
+2. 使用jwt换取join token
+3. 注册客户端 go ruan main.go -host localhost:8080 -engine all -token {join token}
+4. 客户端用户 使用vllm或ollama运行模型，客户端会自动将模型信息推送到server端，并创建和server端的websocket链接
+
+### 用户使用
+
+1. 登录
+2. 使用jwt换取 openai api的key
+3. 使用 /v1/models 获取所有模型列表
+4. 使用 /v1/chat/completions 对话
