@@ -61,7 +61,3 @@ Star-fire提供了丰富的功能:
 2. 使用jwt换取 openai api的key
 3. 使用 /v1/models 获取所有模型列表
 4. 使用 /v1/chat/completions 对话
-
-
-
-go run main.go -host localhost:8080 -engine all -token
