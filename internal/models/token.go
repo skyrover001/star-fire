@@ -4,7 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"errors"
-	"star-fire/cache"
+	"star-fire/pkg/utils"
 	"time"
 )
 
@@ -16,12 +16,12 @@ type RegisterToken struct {
 }
 
 type TokenStore struct {
-	cache *cache.Cache
+	cache *utils.Cache
 }
 
 func NewTokenStore() *TokenStore {
 	return &TokenStore{
-		cache: cache.NewCache(),
+		cache: utils.NewCache(),
 	}
 }
 

@@ -1,5 +1,5 @@
 // 用户一些中间消息和KV数据存储，后续可替换为redis
-package cache
+package utils
 
 import (
 	"sync"
