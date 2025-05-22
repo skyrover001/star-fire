@@ -81,7 +81,6 @@ func (s *UserStore) AddUser(user *User) error {
 		return errors.New("username already exists")
 	}
 
-	// 哈希密码
 	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
 	if err != nil {
 		return err

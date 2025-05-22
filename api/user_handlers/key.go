@@ -48,7 +48,6 @@ func (h *APIKeyHandler) CreateAPIKey(c *gin.Context) {
 }
 
 func (h *APIKeyHandler) GetAPIKeys(c *gin.Context) {
-	// 从上下文中获取用户ID
 	userID, exists := c.Get("user_id")
 	if !exists {
 		c.JSON(http.StatusUnauthorized, gin.H{

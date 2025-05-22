@@ -43,7 +43,6 @@ func NewServer() *Server {
 	return server
 }
 
-// 模型负载均衡
 func (s *Server) LoadBalance(model string) *Client {
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
@@ -63,16 +62,14 @@ func (s *Server) LoadBalance(model string) *Client {
 	return nil
 }
 
-// 注册模型
 func (s *Server) RegisterModel(model *public.Model, client *Client) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
 	s.Clients[model.Name] = client
-	log.Printf("已注册模型 %s 到客户端 %s", model.Name, client.ID)
+	log.Printf("register models %s to client: %s", model.Name, client.ID)
 }
 
-// 获取所有可用模型
 func (s *Server) GetAllModels() []*public.Model {
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
@@ -84,7 +81,6 @@ func (s *Server) GetAllModels() []*public.Model {
 		}
 	}
 
-	// 移除重复模型
 	modelMap := make(map[string]*public.Model)
 	for _, model := range models {
 		modelMap[model.Name] = model
@@ -96,7 +92,6 @@ func (s *Server) GetAllModels() []*public.Model {
 	return models
 }
 
-// 添加响应客户端
 func (s *Server) AddRespClient(id string, conn *websocket.Conn) {
 	s.respClientsMu.Lock()
 	defer s.respClientsMu.Unlock()
@@ -104,7 +99,6 @@ func (s *Server) AddRespClient(id string, conn *websocket.Conn) {
 	s.RespClients[id] = conn
 }
 
-// 获取响应客户端
 func (s *Server) GetRespClient(id string) (*websocket.Conn, bool) {
 	s.respClientsMu.RLock()
 	defer s.respClientsMu.RUnlock()
@@ -113,7 +107,6 @@ func (s *Server) GetRespClient(id string) (*websocket.Conn, bool) {
 	return conn, ok
 }
 
-// 删除响应客户端
 func (s *Server) RemoveRespClient(id string) {
 	s.respClientsMu.Lock()
 	defer s.respClientsMu.Unlock()

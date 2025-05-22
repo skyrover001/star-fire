@@ -46,23 +46,22 @@ func (s *TokenStore) GenerateToken(userID string) (*RegisterToken, error) {
 func (s *TokenStore) ValidateAndUseToken(tokenString string) (string, error) {
 	value, exists := s.cache.Get(tokenString)
 	if !exists {
-		return "", errors.New("无效的令牌")
+		return "", errors.New("invalid token")
 	}
 
 	token, ok := value.(*RegisterToken)
 	if !ok {
-		return "", errors.New("缓存中存储了无效的令牌类型")
+		return "", errors.New("cached token is not valid")
 	}
 
 	if token.Used {
-		return "", errors.New("令牌已被使用")
+		return "", errors.New("token already used")
 	}
 
 	if time.Since(token.CreatedAt) > 10*time.Minute {
-		return "", errors.New("令牌已过期")
+		return "", errors.New("token expired")
 	}
 
-	// 更新已使用状态
 	token.Used = true
 	s.cache.Set(tokenString, token)
 

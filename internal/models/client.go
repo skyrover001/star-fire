@@ -8,7 +8,7 @@ import (
 	"github.com/ollama/ollama/api"
 )
 
-// Client 表示一个连接的客户端
+// Client
 type Client struct {
 	ID     string          `json:"id"`
 	IP     string          `json:"ip"`
