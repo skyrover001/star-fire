@@ -59,19 +59,14 @@ func AuthRequired(apiKeyService *service.APIKeyService) gin.HandlerFunc {
 		tokenType := parts[0]
 		token := parts[1]
 
-		// 根据不同的认证类型选择不同的处理方式
 		if tokenType == "Bearer" {
-			// 检查是否是JWT格式
 			if strings.Count(token, ".") == 2 {
-				// 调用JWT验证
 				jwtAuth := JWTAuth()
 				jwtAuth(c)
 			} else {
-				// 调用API Key验证
 				apiKeyAuth := APIKeyAuth(apiKeyService)
 				apiKeyAuth(c)
 			}
-			// 检查是否已经中止
 			if c.IsAborted() {
 				return
 			}

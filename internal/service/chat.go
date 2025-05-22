@@ -24,14 +24,12 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
-	// 负载均衡选择客户端
 	client := server.LoadBalance(request.Model)
 	if client == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No available client"})
 		return
 	}
 
-	// 发送请求到客户端
 	err = client.ControlConn.WriteJSON(public.WSMessage{
 		Type:        public.MESSAGE,
 		Content:     request,
@@ -42,7 +40,6 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
-	// 设置流式响应头部
 	if request.Stream {
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")
@@ -56,7 +53,6 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 // handle chat response
 func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time) {
 	for {
-		// 等待响应连接建立
 		if server.RespClients[fingerPrint] == nil {
 			time.Sleep(1 * time.Millisecond)
 			continue
@@ -101,7 +97,6 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 			return
 		}
 
-		// 检查超时
 		if time.Since(waitStart) > public.CHAT_MAX_TIME*time.Second {
 			log.Println("Chat timeout")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Chat timeout"})
