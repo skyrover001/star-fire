@@ -1,35 +1,79 @@
 package models
 
 import (
+	"github.com/glebarez/sqlite"
 	"github.com/gorilla/websocket"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 	"log"
+	"os"
+	configs "star-fire/config"
 	"star-fire/pkg/public"
 	"sync"
 	"time"
 )
 
 type Server struct {
-	clientsMu sync.RWMutex // 保护Clients映射
+	clientsMu sync.RWMutex
 	Clients   map[string]*Client
 
-	respClientsMu sync.RWMutex // 保护RespClients映射
+	respClientsMu sync.RWMutex
 	RespClients   map[string]*websocket.Conn
 
-	Port string
+	Port               string
+	RegisterTokenStore *RegisterTokenStore
 
-	UserStore   *UserStore
-	APIKeyStore *APIKeyStore
-	TokenStore  *TokenStore
+	DB                  *gorm.DB
+	APIKeyDB            *APIKeyDB
+	UserDB              *UserDB
+	TokenUsageDB        *TokenUsageDB
+	ClientDB            *ClientDB
+	ClientFingerprintDB *ClientFingerprintDB
 }
 
 func NewServer() *Server {
+	err := os.MkdirAll("./data", 0755)
+	if err != nil {
+		log.Fatalf("create data directory failed: %v", err)
+	}
+
+	gormDB, err := gorm.Open(sqlite.Open("./data/star_fire.db"), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		log.Fatalf("init database failed: %v", err)
+	}
+	sqlDB, err := gormDB.DB()
+	if err == nil {
+		sqlDB.SetMaxIdleConns(10)
+		sqlDB.SetMaxOpenConns(100)
+		sqlDB.SetConnMaxLifetime(time.Hour)
+	}
+
+	apiKeyDB := NewAPIKeyDB(gormDB)
+	tokenUsageDB := NewTokenUsageDB(gormDB)
+	userDB := NewUserDB(gormDB)
+	clientDB := NewClientDB(gormDB)
+	clientFingerprintDB := NewClientFingerprintDB(gormDB)
+
+	// 初始化默认用户
+	err = userDB.InitDefaultUsers()
+	if err != nil {
+		log.Printf("init default user failed: %v", err)
+	}
+
 	server := &Server{
 		Clients:     make(map[string]*Client),
-		Port:        ":8080",
+		Port:        configs.Config.ServerPort,
 		RespClients: make(map[string]*websocket.Conn),
-		UserStore:   NewUserStore(),
-		APIKeyStore: NewAPIKeyStore(),
-		TokenStore:  NewTokenStore(),
+
+		DB:                  gormDB,
+		APIKeyDB:            apiKeyDB,
+		UserDB:              userDB,
+		TokenUsageDB:        tokenUsageDB,
+		RegisterTokenStore:  NewRegisterTokenStore(),
+		ClientDB:            clientDB,
+		ClientFingerprintDB: clientFingerprintDB,
 	}
 
 	go func() {
@@ -37,7 +81,7 @@ func NewServer() *Server {
 		defer ticker.Stop()
 
 		for range ticker.C {
-			server.TokenStore.CleanupExpiredTokens()
+			server.RegisterTokenStore.CleanupExpiredTokens()
 		}
 	}()
 	return server
@@ -47,7 +91,7 @@ func (s *Server) LoadBalance(model string) *Client {
 	s.clientsMu.RLock()
 	defer s.clientsMu.RUnlock()
 
-	log.Println("查找模型:", model)
+	log.Println("search models:", model)
 	for k := range s.Clients {
 		if k == model {
 			for _, c := range s.Clients {

@@ -2,6 +2,7 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"star-fire/internal/models"
@@ -28,6 +29,10 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	if client == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No available client"})
 		return
+	}
+
+	if err := server.ClientFingerprintDB.SaveFingerprint(fingerPrint, client.ID); err != nil {
+		log.Printf("save fingerprint and client relation failed: %v", err)
 	}
 
 	err = client.ControlConn.WriteJSON(public.WSMessage{
@@ -128,6 +133,10 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		}
 
 		c.JSON(http.StatusOK, content)
+
+		recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
+			chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
+			chatResponse.Usage.TotalTokens)
 	} else {
 		log.Println("Invalid message content format")
 		server.RespClients[fingerPrint].Close()
@@ -148,6 +157,9 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 		var chatResponse openai.ChatCompletionStreamResponse
 		err = json.Unmarshal(jsonData, &chatResponse)
+		fmt.Println("chatResponse:", chatResponse, "chatResponse.Choices:", chatResponse.Choices,
+			" chatResponse.Choices[0].Delta:", chatResponse.Choices[0].Delta, " chatResponse.Choices[0].FinishReason:",
+			chatResponse.Choices[0].FinishReason)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
 			server.RespClients[fingerPrint].Close()
@@ -166,6 +178,16 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 		if chatResponse.Choices[0].FinishReason == "stop" {
 			_, err = c.Writer.Write([]byte("data:[DONE]\n\n"))
+			if usage, hasUsage := content["usage"].(map[string]interface{}); hasUsage {
+				promptTokens := int(usage["prompt_tokens"].(float64))
+				completionTokens := int(usage["completion_tokens"].(float64))
+				totalTokens := int(usage["total_tokens"].(float64))
+				// Record token usage
+				fmt.Println("chatResponse:", chatResponse, " promptTokens:", promptTokens,
+					" completionTokens:", completionTokens, " totalTokens:", totalTokens)
+				recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
+					promptTokens, completionTokens, totalTokens)
+			}
 			server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return true
@@ -177,5 +199,44 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		server.RespClients[fingerPrint].Close()
 		server.RemoveRespClient(fingerPrint)
 		return true
+	}
+}
+
+func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, model string, inputTokens, outputTokens, totalTokens int) {
+	if server.TokenUsageDB == nil {
+		log.Println("Token usage database not initialized")
+		return
+	}
+
+	userID, exists := c.Get("user_id")
+	if !exists {
+		log.Println("User ID not found in context")
+		return
+	}
+
+	apiKeyID := ""
+	if id, exists := c.Get("api_key_id"); exists {
+		apiKeyID = id.(string)
+	}
+
+	clientIP := c.ClientIP()
+
+	usage := &models.TokenUsage{
+		RequestID:    requestID,
+		UserID:       userID.(string),
+		APIKey:       apiKeyID,
+		ClientIP:     clientIP,
+		Model:        model,
+		InputTokens:  inputTokens,
+		OutputTokens: outputTokens,
+		TotalTokens:  totalTokens,
+		Timestamp:    time.Now(),
+	}
+
+	err := server.TokenUsageDB.SaveTokenUsage(usage)
+	if err != nil {
+		log.Printf("保存token使用记录失败: %v", err)
+	} else {
+		log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
 	}
 }

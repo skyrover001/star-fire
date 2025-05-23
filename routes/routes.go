@@ -11,50 +11,53 @@ import (
 )
 
 func SetupRoutes(r *gin.Engine, server *models.Server) {
-	authService := service.NewAuthService(server.UserStore)
-	apiKeyService := service.NewAPIKeyService(server.APIKeyStore)
-	tokenService := service.NewTokenService(server.TokenStore, server.UserStore)
+	authService := service.NewAuthService(server.UserDB)
+	apiKeyService := service.NewAPIKeyService(server.APIKeyDB)
+	registerTokenService := service.NewRegisterTokenService(server.RegisterTokenStore, server.UserDB)
 
 	authHandler := user_handlers.NewAuthHandler(authService)
 	apiKeyHandler := user_handlers.NewAPIKeyHandler(apiKeyService)
-	tokenHandler := client_handlers.NewTokenHandler(tokenService)
-	clientHandler := client_handlers.NewClientHandler(server, tokenService)
 
-	// login route
+	clientHandler := client_handlers.NewClientHandler(server, registerTokenService)
+	tokenUsageHandler := user_handlers.NewTokenUsageHandler(server)
+
+	// 登录路由
 	r.POST("/api/login", authHandler.Login)
 
-	// client routes
+	// 客户端路由
 	r.GET("/register/:id", clientHandler.RegisterClient)
 	r.GET("/response/:fingerprint", clientHandler.ResponseClient)
 
-	// user routes
+	// 用户路由
 	userAPI := r.Group("/api/user")
-	userAPI.Use(middleware.JWTAuth())
+	userAPI.Use(middleware.JWTAuth(server.UserDB))
 	{
-		userAPI.POST("/register-token", tokenHandler.GenerateRegisterToken)
+		userAPI.POST("/register-token", clientHandler.GenerateRegisterToken)
 
 		userAPI.POST("/keys", apiKeyHandler.CreateAPIKey)
 		userAPI.GET("/keys", apiKeyHandler.GetAPIKeys)
 		userAPI.DELETE("/keys/:id", apiKeyHandler.RevokeAPIKey)
+
+		userAPI.GET("/token-usage", tokenUsageHandler.GetUserTokenUsage)
 	}
 
 	api := r.Group("/v1")
-	api.Use(middleware.AuthRequired(apiKeyService))
+	api.Use(middleware.AuthRequired(apiKeyService, server.UserDB))
 	{
-		// chat
+		// 聊天
 		api.POST("/chat/completions", func(c *gin.Context) {
-			user_handlers.ChatHandler(c, server)
+			service.HandleChatRequest(c, server)
 		})
-		// models
+		// 模型
 		api.POST("/models", func(c *gin.Context) {
 			user_handlers.ModelsHandler(c, server)
 		})
 	}
 
-	// TODO: Admin routes
+	// 管理员路由
 	admin := r.Group("/admin")
-	admin.Use(middleware.JWTAuth(), middleware.AdminRequired())
+	admin.Use(middleware.JWTAuth(server.UserDB), middleware.AdminRequired())
 	{
-		// admin handler
+		// 管理员处理器
 	}
 }

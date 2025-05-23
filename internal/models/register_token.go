@@ -15,17 +15,17 @@ type RegisterToken struct {
 	Used      bool      `json:"used"`
 }
 
-type TokenStore struct {
+type RegisterTokenStore struct {
 	cache *utils.Cache
 }
 
-func NewTokenStore() *TokenStore {
-	return &TokenStore{
+func NewRegisterTokenStore() *RegisterTokenStore {
+	return &RegisterTokenStore{
 		cache: utils.NewCache(),
 	}
 }
 
-func (s *TokenStore) GenerateToken(userID string) (*RegisterToken, error) {
+func (s *RegisterTokenStore) GenerateToken(userID string) (*RegisterToken, error) {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, err
@@ -43,7 +43,7 @@ func (s *TokenStore) GenerateToken(userID string) (*RegisterToken, error) {
 	return token, nil
 }
 
-func (s *TokenStore) ValidateAndUseToken(tokenString string) (string, error) {
+func (s *RegisterTokenStore) ValidateAndUseToken(tokenString string) (string, error) {
 	value, exists := s.cache.Get(tokenString)
 	if !exists {
 		return "", errors.New("invalid token")
@@ -68,7 +68,7 @@ func (s *TokenStore) ValidateAndUseToken(tokenString string) (string, error) {
 	return token.UserID, nil
 }
 
-func (s *TokenStore) CleanupExpiredTokens() {
+func (s *RegisterTokenStore) CleanupExpiredTokens() {
 	allTokens := s.cache.GetAll()
 
 	for key, value := range allTokens {

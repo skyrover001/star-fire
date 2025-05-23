@@ -157,7 +157,7 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 		client.Token = registerInfo.Token
 		client.Models = registerInfo.Models
 		client.Status = "online"
-		client.RegisterTime = time.Now().Format("2006-01-02 15:04:05")
+		client.RegisterTime = time.Now()
 
 		// 注册客户端的所有模型
 		for _, m := range client.Models {
@@ -193,4 +193,13 @@ func handleChatMessage(client *models.Client, message public.WSMessage) {
 
 		client.MessageChan <- &chatResponse
 	}
+}
+
+func getClientByFingerprint(server *models.Server, fingerprint string) (*models.Client, error) {
+	clientID, err := server.ClientFingerprintDB.GetClientID(fingerprint)
+	if err != nil {
+		return nil, fmt.Errorf("获取客户端ID失败: %w", err)
+	}
+
+	return server.ClientDB.GetClient(clientID)
 }

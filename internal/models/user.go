@@ -5,28 +5,107 @@ import (
 	"time"
 
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 )
 
 type User struct {
-	ID        string    `json:"id"`
-	Username  string    `json:"username"`
-	Password  string    `json:"-"` // 不返回给客户端
-	Email     string    `json:"email"`
-	Role      string    `json:"role"` // "admin" 或 "user"
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string    `gorm:"primaryKey" json:"id"`
+	Username  string    `gorm:"uniqueIndex;not null" json:"username"`
+	Password  string    `gorm:"not null" json:"-"`
+	Email     string    `gorm:"index" json:"email"`
+	Role      string    `gorm:"default:user;not null" json:"role"`
+	CreatedAt time.Time `gorm:"not null" json:"created_at"`
+	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
 }
 
-type UserStore struct {
-	users map[string]*User // username -> user
+// UserDB
+type UserDB struct {
+	db *gorm.DB
 }
 
-func NewUserStore() *UserStore {
-	store := &UserStore{
-		users: make(map[string]*User),
+// NewUserDB
+func NewUserDB(db *gorm.DB) *UserDB {
+	db.AutoMigrate(&User{})
+	return &UserDB{db: db}
+}
+
+// GetUser
+func (udb *UserDB) GetUser(username string) (*User, error) {
+	var user User
+	result := udb.db.Where("username = ?", username).First(&user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
+// ValidatePassword
+func (udb *UserDB) ValidatePassword(username, password string) (*User, error) {
+	user, err := udb.GetUser(username)
+	if err != nil {
+		return nil, err
 	}
 
-	// e.g. user:admin pwd: admin123
+	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
+	if err != nil {
+		return nil, errors.New("password is incorrect")
+	}
+
+	return user, nil
+}
+
+// AddUser
+func (udb *UserDB) AddUser(user *User) error {
+	var count int64
+	udb.db.Model(&User{}).Where("username = ?", user.Username).Count(&count)
+	if count > 0 {
+		return errors.New("user is already exists")
+	}
+
+	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
+	if err != nil {
+		return err
+	}
+
+	user.Password = string(hashedPassword)
+	if user.CreatedAt.IsZero() {
+		user.CreatedAt = time.Now()
+	}
+	user.UpdatedAt = time.Now()
+
+	return udb.db.Create(user).Error
+}
+
+// GetUserByID
+func (udb *UserDB) GetUserByID(id string) (*User, error) {
+	var user User
+	result := udb.db.Where("id = ?", id).First(&user)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, errors.New("user not found")
+		}
+		return nil, result.Error
+	}
+	return &user, nil
+}
+
+// UpdateUser
+func (udb *UserDB) UpdateUser(user *User) error {
+	user.UpdatedAt = time.Now()
+	return udb.db.Save(user).Error
+}
+
+// InitDefaultUsers
+func (udb *UserDB) InitDefaultUsers() error {
+	var count int64
+	udb.db.Model(&User{}).Count(&count)
+	if count > 0 {
+		return nil
+	}
+
 	adminPwd, _ := bcrypt.GenerateFromPassword([]byte("admin123"), bcrypt.DefaultCost)
 	admin := &User{
 		ID:        "1",
@@ -37,7 +116,6 @@ func NewUserStore() *UserStore {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	store.users[admin.Username] = admin
 
 	userPwd, _ := bcrypt.GenerateFromPassword([]byte("user123"), bcrypt.DefaultCost)
 	user := &User{
@@ -49,56 +127,6 @@ func NewUserStore() *UserStore {
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
-	store.users[user.Username] = user
 
-	return store
-}
-
-func (s *UserStore) GetUser(username string) (*User, error) {
-	user, ok := s.users[username]
-	if !ok {
-		return nil, errors.New("user not found")
-	}
-	return user, nil
-}
-
-func (s *UserStore) ValidatePassword(username, password string) (*User, error) {
-	user, err := s.GetUser(username)
-	if err != nil {
-		return nil, err
-	}
-
-	err = bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(password))
-	if err != nil {
-		return nil, errors.New("invalid password")
-	}
-
-	return user, nil
-}
-
-func (s *UserStore) AddUser(user *User) error {
-	if _, ok := s.users[user.Username]; ok {
-		return errors.New("username already exists")
-	}
-
-	hashedPassword, err := bcrypt.GenerateFromPassword([]byte(user.Password), bcrypt.DefaultCost)
-	if err != nil {
-		return err
-	}
-
-	user.Password = string(hashedPassword)
-	user.CreatedAt = time.Now()
-	user.UpdatedAt = time.Now()
-
-	s.users[user.Username] = user
-	return nil
-}
-
-func (s *UserStore) GetUserByID(id string) (*User, error) {
-	for _, user := range s.users {
-		if user.ID == id {
-			return user, nil
-		}
-	}
-	return nil, errors.New("user not found")
+	return udb.db.Create([]*User{admin, user}).Error
 }

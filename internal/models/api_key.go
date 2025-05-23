@@ -1,126 +1,89 @@
+// internal/models/api_key.go
 package models
 
 import (
-	"crypto/rand"
-	"encoding/base64"
 	"errors"
-	"fmt"
-	configs "star-fire/config"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 type APIKey struct {
-	ID        string    `json:"id"`
-	UserID    string    `json:"user_id"`
-	Name      string    `json:"name"`
-	Key       string    `json:"key,omitempty"`
-	Prefix    string    `json:"prefix"`
-	LastUsed  time.Time `json:"last_used,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Revoked   bool      `json:"revoked"`
+	ID        string `gorm:"primaryKey"`
+	UserID    string `gorm:"index;not null"`
+	Name      string `gorm:"not null"`
+	Key       string `gorm:"column:key_value;uniqueIndex;not null"`
+	Prefix    string `gorm:"not null"`
+	LastUsed  *time.Time
+	CreatedAt time.Time `gorm:"not null"`
+	ExpiresAt time.Time `gorm:"not null"`
+	Revoked   bool      `gorm:"default:false;not null"`
 }
 
-// 注意：生产环境应使用数据库
-type APIKeyStore struct {
-	keys        map[string]*APIKey
-	keysByUser  map[string][]*APIKey
-	keysByValue map[string]*APIKey
+type APIKeyDB struct {
+	db *gorm.DB
 }
 
-// NewAPIKeyStore
-func NewAPIKeyStore() *APIKeyStore {
-	return &APIKeyStore{
-		keys:        make(map[string]*APIKey),
-		keysByUser:  make(map[string][]*APIKey),
-		keysByValue: make(map[string]*APIKey),
-	}
+func NewAPIKeyDB(db *gorm.DB) *APIKeyDB {
+	db.AutoMigrate(&APIKey{})
+	return &APIKeyDB{db: db}
 }
 
-// GenerateAPIKey
-func (s *APIKeyStore) GenerateAPIKey(userID, name string, expiryDays int) (*APIKey, error) {
-	if keys, ok := s.keysByUser[userID]; ok && len(keys) >= configs.Config.MaxAPIKeysPerUser {
-		return nil, errors.New("maximum number of API keys reached for this user")
+func (kdb *APIKeyDB) SaveAPIKey(key *APIKey) error {
+	return kdb.db.Create(key).Error
+}
+
+func (kdb *APIKeyDB) GetAPIKeyByValue(keyValue string) (*APIKey, error) {
+	var key APIKey
+	result := kdb.db.Where("key_value = ?", keyValue).First(&key)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, errors.New("API key not found")
+		}
+		return nil, result.Error
 	}
+	return &key, nil
+}
 
-	keyBytes := make([]byte, 32)
-	_, err := rand.Read(keyBytes)
-	if err != nil {
-		return nil, err
+func (kdb *APIKeyDB) GetAPIKeysByUser(userID string) ([]*APIKey, error) {
+	var keys []*APIKey
+	result := kdb.db.Where("user_id = ?", userID).
+		Order("created_at DESC").
+		Find(&keys)
+	if result.Error != nil {
+		return nil, result.Error
 	}
+	return keys, nil
+}
 
-	keyString := "sk-" + base64.StdEncoding.EncodeToString(keyBytes)
-	prefix := keyString[:10]
-
+func (kdb *APIKeyDB) UpdateLastUsed(keyID string) error {
 	now := time.Now()
-	apiKey := &APIKey{
-		ID:        fmt.Sprintf("key-%d", time.Now().UnixNano()),
-		UserID:    userID,
-		Name:      name,
-		Key:       keyString,
-		Prefix:    prefix,
-		CreatedAt: now,
-		ExpiresAt: now.AddDate(0, 0, expiryDays),
-		Revoked:   false,
-	}
-
-	s.keys[apiKey.ID] = apiKey
-	s.keysByValue[keyString] = apiKey
-
-	if _, ok := s.keysByUser[userID]; !ok {
-		s.keysByUser[userID] = []*APIKey{}
-	}
-	s.keysByUser[userID] = append(s.keysByUser[userID], apiKey)
-
-	return apiKey, nil
+	return kdb.db.Model(&APIKey{}).
+		Where("id = ?", keyID).
+		Update("last_used", now).Error
 }
 
-// GetAPIKeysByUser
-func (s *APIKeyStore) GetAPIKeysByUser(userID string) []*APIKey {
-	keys, ok := s.keysByUser[userID]
-	if !ok {
-		return []*APIKey{}
+func (kdb *APIKeyDB) RevokeAPIKey(userID string, keyID string) error {
+	result := kdb.db.Model(&APIKey{}).
+		Where("id = ? AND user_id = ?", keyID, userID).
+		Update("revoked", true)
+
+	if result.Error != nil {
+		return result.Error
 	}
 
-	safeKeys := make([]*APIKey, len(keys))
-	for i, k := range keys {
-		keyCopy := *k
-		keyCopy.Key = ""
-		safeKeys[i] = &keyCopy
+	if result.RowsAffected == 0 {
+		return errors.New("API key not found or not authorized")
 	}
 
-	return safeKeys
-}
-
-// ValidateAPIKey
-func (s *APIKeyStore) ValidateAPIKey(keyString string) (*APIKey, error) {
-	key, ok := s.keysByValue[keyString]
-	if !ok {
-		return nil, errors.New("invalid API key")
-	}
-
-	if key.Revoked {
-		return nil, errors.New("API key has been revoked")
-	}
-	if time.Now().After(key.ExpiresAt) {
-		return nil, errors.New("API key has expired")
-	}
-
-	key.LastUsed = time.Now()
-	return key, nil
-}
-
-// RevokeAPIKey
-func (s *APIKeyStore) RevokeAPIKey(userID, keyID string) error {
-	key, ok := s.keys[keyID]
-	if !ok {
-		return errors.New("API key not found")
-	}
-
-	if key.UserID != userID {
-		return errors.New("unauthorized to revoke this API key")
-	}
-
-	key.Revoked = true
 	return nil
+}
+
+func (kdb *APIKeyDB) CountUserAPIKeys(userID string) (int, error) {
+	var count int64
+	result := kdb.db.Model(&APIKey{}).
+		Where("user_id = ? AND revoked = ?", userID, false).
+		Count(&count)
+
+	return int(count), result.Error
 }
