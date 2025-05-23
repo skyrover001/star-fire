@@ -92,7 +92,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat complation error: %v", err)
 			log.Printf("[%s] %s", fingerprint, errMsg)
-			responseConn.WriteJSON(public.WSMessage{
+			err = responseConn.WriteJSON(public.WSMessage{
 				Type:        public.MODEL_ERROR,
 				Content:     errMsg,
 				FingerPrint: fingerprint,
@@ -111,13 +111,15 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 				errMsg := fmt.Sprintf("read stream error: %v", err)
 				log.Printf("[%s] %s", fingerprint, errMsg)
 
-				responseConn.WriteJSON(public.WSMessage{
+				err = responseConn.WriteJSON(public.WSMessage{
 					Type:        public.MODEL_ERROR,
 					Content:     errMsg,
 					FingerPrint: fingerprint,
 				})
 				return err
 			}
+			fmt.Println("stream response:", response, "response.Choices[0].FinishReason:", response.Choices[0].FinishReason,
+				"response.usage:", response.Usage, "response.choices:", response.Choices)
 			wsResp := public.WSMessage{
 				Type:        public.MESSAGE_STREAM,
 				Content:     response,
@@ -140,7 +142,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat error: %v", err)
 			log.Printf("[%s] %s", fingerprint, errMsg)
-			responseConn.WriteJSON(public.WSMessage{
+			err = responseConn.WriteJSON(public.WSMessage{
 				Type:        public.MODEL_ERROR,
 				Content:     errMsg,
 				FingerPrint: fingerprint,

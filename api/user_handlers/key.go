@@ -56,7 +56,13 @@ func (h *APIKeyHandler) GetAPIKeys(c *gin.Context) {
 		return
 	}
 
-	keys := h.apiKeyService.GetUserKeys(userID.(string))
+	keys, err := h.apiKeyService.GetUserKeys(userID.(string))
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{
+			"error": "获取API密钥失败: " + err.Error(),
+		})
+		return
+	}
 
 	c.JSON(http.StatusOK, gin.H{
 		"keys": keys,

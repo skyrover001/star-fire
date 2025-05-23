@@ -116,7 +116,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			})
 			if err != nil {
 				log.Printf("send message with websocket error: %v", err)
-				responseConn.WriteJSON(public.WSMessage{
+				err = responseConn.WriteJSON(public.WSMessage{
 					Type:        public.CLOSE,
 					Content:     nil,
 					FingerPrint: fingerprint,
@@ -141,18 +141,13 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			})
 		}
 
-		if resp.Done && request.Stream {
-			finishMsg := constructFinishMessage(fingerprint, request.Model)
-			return responseConn.WriteJSON(finishMsg)
-		}
-
 		return nil
 	}
 
 	err := e.client.Chat(ctx, ollamaReq, respFunc)
 	if err != nil {
 		log.Printf("Ollama chat error: %v", err)
-		responseConn.WriteJSON(public.WSMessage{
+		err = responseConn.WriteJSON(public.WSMessage{
 			Type:        public.MODEL_ERROR,
 			Content:     err.Error(),
 			FingerPrint: fingerprint,
@@ -174,64 +169,66 @@ func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Mess
 	return ollamaMessages
 }
 
-func convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) map[string]interface{} {
-	return map[string]interface{}{
-		"id":      fingerprint,
-		"object":  "chat.completion.chunk",
-		"created": time.Now().Unix(),
-		"model":   resp.Model,
-		"choices": []map[string]interface{}{
+func convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) openai.ChatCompletionStreamResponse {
+	var finishReason openai.FinishReason
+	if resp.Done {
+		finishReason = openai.FinishReasonStop
+	}
+
+	realResp := openai.ChatCompletionStreamResponse{
+		ID:      fingerprint,
+		Object:  "chat.completion.chunk",
+		Created: time.Now().Unix(),
+		Model:   resp.Model,
+		Choices: []openai.ChatCompletionStreamChoice{
 			{
-				"index": 0,
-				"delta": map[string]string{
-					"content": resp.Message.Content,
+				Index: 0,
+				Delta: openai.ChatCompletionStreamChoiceDelta{
+					Content: resp.Message.Content,
+					Role: func() string {
+						if !resp.Done && resp.Message.Content == resp.Message.Content {
+							return "assistant"
+						}
+						return ""
+					}(),
 				},
-				"finish_reason": nil,
+				FinishReason: finishReason,
 			},
 		},
 	}
+	if resp.Done {
+		realResp.Usage = &openai.Usage{
+			PromptTokens:     resp.PromptEvalCount,
+			CompletionTokens: resp.EvalCount,
+			TotalTokens:      resp.PromptEvalCount + resp.EvalCount,
+		}
+	}
+	return realResp
 }
 
-func convertToOpenAIResponse(resp *api.ChatResponse, fingerprint string) map[string]interface{} {
-	return map[string]interface{}{
-		"id":      fingerprint,
-		"object":  "chat.completion",
-		"created": time.Now().Unix(),
-		"model":   resp.Model,
-		"choices": []map[string]interface{}{
+func convertToOpenAIResponse(resp *api.ChatResponse, fingerprint string) openai.ChatCompletionResponse {
+	realResp := openai.ChatCompletionResponse{
+		ID:      fingerprint,
+		Object:  "chat.completion",
+		Created: time.Now().Unix(),
+		Model:   resp.Model,
+		Choices: []openai.ChatCompletionChoice{
 			{
-				"index": 0,
-				"message": map[string]string{
-					"role":    "assistant",
-					"content": resp.Message.Content,
+				Index: 0,
+				Message: openai.ChatCompletionMessage{
+					Role:    resp.Message.Role,
+					Content: resp.Message.Content,
 				},
-				"finish_reason": "stop",
+				FinishReason: openai.FinishReasonStop,
 			},
 		},
-		"usage": map[string]int{
-			"prompt_tokens":     resp.PromptEvalCount,
-			"completion_tokens": resp.EvalCount,
-			"total_tokens":      resp.PromptEvalCount + resp.EvalCount,
-		},
 	}
-}
-
-func constructFinishMessage(fingerprint, model string) public.WSMessage {
-	return public.WSMessage{
-		Type: public.MESSAGE,
-		Content: map[string]interface{}{
-			"id":      fingerprint,
-			"object":  "chat.completion.chunk",
-			"created": time.Now().Unix(),
-			"model":   model,
-			"choices": []map[string]interface{}{
-				{
-					"index":         0,
-					"delta":         map[string]string{},
-					"finish_reason": "stop",
-				},
-			},
-		},
-		FingerPrint: fingerprint,
+	if resp.Done {
+		realResp.Usage = openai.Usage{
+			PromptTokens:     resp.PromptEvalCount,
+			CompletionTokens: resp.EvalCount,
+			TotalTokens:      resp.PromptEvalCount + resp.EvalCount,
+		}
 	}
+	return realResp
 }

@@ -7,12 +7,12 @@ import (
 )
 
 type AuthService struct {
-	userStore *models.UserStore
+	userDB *models.UserDB
 }
 
-func NewAuthService(userStore *models.UserStore) *AuthService {
+func NewAuthService(userDB *models.UserDB) *AuthService {
 	return &AuthService{
-		userStore: userStore,
+		userDB: userDB,
 	}
 }
 
@@ -28,20 +28,21 @@ type LoginResponse struct {
 }
 
 func (s *AuthService) Login(req *LoginRequest) (*LoginResponse, error) {
-	user, err := s.userStore.ValidatePassword(req.Username, req.Password)
+	// 使用UserDB验证用户名和密码
+	user, err := s.userDB.ValidatePassword(req.Username, req.Password)
 	if err != nil {
-		return nil, errors.New("invalid username or password")
+		return nil, errors.New("用户名或密码无效")
 	}
 
-	// generate JWT token
+	// 生成JWT令牌
 	token, err := utils.GenerateToken(user.ID, user.Username, user.Role)
 	if err != nil {
-		return nil, errors.New("failed to generate token")
+		return nil, errors.New("生成令牌失败")
 	}
 
 	return &LoginResponse{
 		Token:     token,
 		User:      user,
-		ExpiresIn: 86400, // 24 hours
+		ExpiresIn: 86400, // 24小时
 	}, nil
 }
