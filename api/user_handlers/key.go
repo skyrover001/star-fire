@@ -90,3 +90,23 @@ func (h *APIKeyHandler) RevokeAPIKey(c *gin.Context) {
 		"message": "API key revoked successfully",
 	})
 }
+
+// deleteAPIKey handles the deletion of an API key
+func (h *APIKeyHandler) DeleteAPIKey(c *gin.Context) {
+	keyID := c.Param("id")
+	userID, exists := c.Get("user_id")
+	if !exists {
+		c.JSON(http.StatusUnauthorized, gin.H{
+			"error": "Unauthorized",
+		})
+		return
+	}
+
+	err := h.apiKeyService.DeleteAPIKey(userID.(string), keyID)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+}

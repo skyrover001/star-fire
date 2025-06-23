@@ -7,6 +7,7 @@ import (
 	"star-fire/internal/models"
 	"star-fire/internal/service"
 	"star-fire/internal/websocket"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -49,6 +50,23 @@ func (h *ClientHandler) RegisterClient(c *gin.Context) {
 	client := models.NewClient(id, c.ClientIP(), conn)
 
 	client.SetUser(user)
+
+	log.Printf("Client %s registered with user %s", client.ID, user.Username)
+	now := time.Now().Format("2006-01-02 15:04:05")
+	trend := models.Trend{
+		Name:        fmt.Sprintf("%s_%s", user.Username, "register"),
+		Description: "新用户上线了",
+		CreatedAt:   now,
+		UpdatedAt:   "",
+		DeletedAt:   "",
+		Active:      true,
+		User:        user,
+		Client:      client,
+	}
+	if err := h.server.TrendDB.SaveTrend(&trend); err != nil {
+		log.Printf("save trend to database failed: %v", err)
+	}
+
 	if err := h.server.ClientDB.SaveClient(client); err != nil {
 		log.Printf("save client to database failed: %v", err)
 	}

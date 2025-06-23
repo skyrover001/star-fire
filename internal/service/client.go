@@ -68,6 +68,21 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				for _, m := range client.Models {
 					server.RegisterModel(m, client)
 					fmt.Println("Client available model:", m.Name, m)
+					// add trend for client keep alive
+					trend := models.Trend{
+						Name:        fmt.Sprintf("%s_%s", client.User.Username, "keep alive model: "+m.Name),
+						Description: "用户 " + client.User.Username + " 保持模型: " + m.Name + " 在线",
+						CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
+						UpdatedAt:   "",
+						DeletedAt:   "",
+						Active:      true,
+						User:        client.User,
+					}
+					if err := server.TrendDB.SaveTrend(&trend); err != nil {
+						log.Println("Error saving trend:", err)
+					} else {
+						log.Println("Trend saved successfully:", trend.Name)
+					}
 				}
 				client.Status = "online"
 			}
@@ -159,7 +174,6 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 		client.Status = "online"
 		client.RegisterTime = time.Now()
 
-		// 注册客户端的所有模型
 		for _, m := range client.Models {
 			fmt.Println("Registering model:", m.Name, m)
 			model := public.Model{
@@ -169,6 +183,22 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 				Arch: m.Arch,
 			}
 			server.RegisterModel(&model, client)
+			// add trend for new client registration
+			trend := models.Trend{
+				Name:        fmt.Sprintf("%s_%s", client.User.Username, "register model: "+m.Name),
+				Description: "用户 " + client.User.Username + " 贡献了模型: " + m.Name,
+				CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
+				UpdatedAt:   "",
+				DeletedAt:   "",
+				Active:      true,
+				User:        client.User,
+				Client:      client,
+			}
+			if err := server.TrendDB.SaveTrend(&trend); err != nil {
+				log.Println("Error saving trend:", err)
+			} else {
+				log.Println("Trend saved successfully:", trend.Name)
+			}
 		}
 	}
 }

@@ -3,9 +3,11 @@ package models
 import (
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/websocket"
+	"github.com/sashabaranov/go-openai"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	"log"
+	"math/rand"
 	"os"
 	configs "star-fire/config"
 	"star-fire/pkg/public"
@@ -15,7 +17,7 @@ import (
 
 type Server struct {
 	clientsMu sync.RWMutex
-	Clients   map[string]*Client
+	Clients   map[string]map[string]*Client
 
 	respClientsMu sync.RWMutex
 	RespClients   map[string]*websocket.Conn
@@ -29,6 +31,7 @@ type Server struct {
 	TokenUsageDB        *TokenUsageDB
 	ClientDB            *ClientDB
 	ClientFingerprintDB *ClientFingerprintDB
+	TrendDB             *TrendDB
 }
 
 func NewServer() *Server {
@@ -55,6 +58,7 @@ func NewServer() *Server {
 	userDB := NewUserDB(gormDB)
 	clientDB := NewClientDB(gormDB)
 	clientFingerprintDB := NewClientFingerprintDB(gormDB)
+	trendDB := NewTrendDB(gormDB)
 
 	// 初始化默认用户
 	err = userDB.InitDefaultUsers()
@@ -63,7 +67,7 @@ func NewServer() *Server {
 	}
 
 	server := &Server{
-		Clients:     make(map[string]*Client),
+		Clients:     make(map[string]map[string]*Client),
 		Port:        configs.Config.ServerPort,
 		RespClients: make(map[string]*websocket.Conn),
 
@@ -74,6 +78,7 @@ func NewServer() *Server {
 		RegisterTokenStore:  NewRegisterTokenStore(),
 		ClientDB:            clientDB,
 		ClientFingerprintDB: clientFingerprintDB,
+		TrendDB:             trendDB,
 	}
 
 	go func() {
@@ -89,51 +94,190 @@ func NewServer() *Server {
 
 func (s *Server) LoadBalance(model string) *Client {
 	s.clientsMu.RLock()
-	defer s.clientsMu.RUnlock()
-
-	log.Println("search models:", model)
-	for k := range s.Clients {
-		if k == model {
-			for _, c := range s.Clients {
-				for _, m := range c.Models {
-					if m.Name == model && c.Status == "online" && c.ControlConn != nil && c.Latency < public.MAXLATENCE {
-						return c
+	clientsCopy := make(map[string]map[string]*Client)
+	for modelName, clients := range s.Clients {
+		clientsCopy[modelName] = make(map[string]*Client)
+		for clientID, client := range clients {
+			clientsCopy[modelName][clientID] = client
+		}
+	}
+	s.clientsMu.RUnlock()
+	var toRemove []struct{ model, client string }
+	for modelName, clients := range clientsCopy {
+		if modelName == model {
+			log.Println("found model:", modelName, "clients:", len(clients))
+			for clientID, client := range clients {
+				if client.Models == nil {
+					log.Println("client models is nil, skip client:", client.ID)
+					continue
+				}
+				existModel := false
+				for _, m := range client.Models {
+					if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
+						log.Println("found online client for model:", modelName, "client:", client.ID)
+						existModel = true
 					}
+				}
+				if !existModel {
+					toRemove = append(toRemove, struct{ model, client string }{modelName, clientID})
 				}
 			}
 		}
 	}
-	return nil
+
+	for _, item := range toRemove {
+		s.RemoveClient(item.model, item.client)
+	}
+
+	if len(s.Clients[model]) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(s.Clients[model]))
+	for k := range s.Clients[model] {
+		keys = append(keys, k)
+	}
+	rand.Seed(time.Now().UnixNano())
+	randomIndex := rand.Intn(len(keys))
+	randomKey := keys[randomIndex]
+	client := s.Clients[model][randomKey]
+	return client
 }
 
 func (s *Server) RegisterModel(model *public.Model, client *Client) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	s.Clients[model.Name] = client
-	log.Printf("register models %s to client: %s", model.Name, client.ID)
+	if _, exists := s.Clients[model.Name]; !exists {
+		s.Clients[model.Name] = make(map[string]*Client)
+	}
+	if _, exists := s.Clients[model.Name][client.ID]; !exists {
+		s.Clients[model.Name][client.ID] = client
+		log.Println("register model:", model.Name, "for client:", client.ID)
+	} else {
+		log.Println("model:", model.Name, "already registered for client:", client.ID)
+	}
 }
 
-func (s *Server) GetAllModels() []*public.Model {
+// for model marketplace
+func (s *Server) GetAllModels() []*MarketplaceModel {
 	s.clientsMu.RLock()
-	defer s.clientsMu.RUnlock()
+	clientsCopy := make(map[string]map[string]*Client)
+	for modelName, clients := range s.Clients {
+		clientsCopy[modelName] = make(map[string]*Client)
+		for clientID, client := range clients {
+			clientsCopy[modelName][clientID] = client
+		}
+	}
+	s.clientsMu.RUnlock()
+
+	var marketplaceModels []*MarketplaceModel
+	var toRemove []struct{ model, client string }
+	for modelName, clientMaps := range s.Clients {
+		if len(clientMaps) == 0 {
+			continue
+		}
+
+		model := &MarketplaceModel{
+			Name:         modelName,
+			Type:         "model",
+			Size:         "unknown",
+			ClientModels: make([]*ClientModel, 0, len(clientMaps)),
+		}
+
+		for clientID, client := range clientMaps {
+			existModel := false
+			for _, m := range client.Models {
+				if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
+					existModel = true
+					model.Size = m.Size
+					model.Type = m.Type
+					model.Quantization = m.Arch
+					model.ClientModels = append(model.ClientModels, &ClientModel{
+						Client: client,
+						Model:  m,
+					})
+				}
+			}
+			if !existModel {
+				toRemove = append(toRemove, struct{ model, client string }{modelName, clientID})
+			}
+		}
+		marketplaceModels = append(marketplaceModels, model)
+	}
+	for _, item := range toRemove {
+		s.RemoveClient(item.model, item.client)
+	}
+	return marketplaceModels
+}
+
+// for openAI api compatibility
+func (s *Server) GetModels() map[string]interface{} {
+	s.clientsMu.RLock()
+	clientsCopy := make(map[string]map[string]*Client)
+	for modelName, clients := range s.Clients {
+		clientsCopy[modelName] = make(map[string]*Client)
+		for clientID, client := range clients {
+			clientsCopy[modelName][clientID] = client
+		}
+	}
+	s.clientsMu.RUnlock()
 
 	var models []*public.Model
-	for _, client := range s.Clients {
-		if client.Status == "online" && client.ControlConn != nil {
-			models = append(models, client.Models...)
+	var toRemove []struct{ model, client string }
+	for modelName, clientMaps := range clientsCopy {
+		for clientID, client := range clientMaps {
+			existModel := false
+			for _, m := range client.Models {
+				if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
+					existModel = true
+					models = append(models, &public.Model{
+						Name: m.Name,
+						Type: m.Type,
+						Size: m.Size,
+						Arch: m.Arch,
+					})
+					break
+				}
+			}
+			if !existModel {
+				toRemove = append(toRemove, struct{ model, client string }{modelName, clientID})
+			}
 		}
+	}
+
+	for _, item := range toRemove {
+		s.RemoveClient(item.model, item.client)
 	}
 
 	modelMap := make(map[string]*public.Model)
 	for _, model := range models {
 		modelMap[model.Name] = model
 	}
-	models = make([]*public.Model, 0, len(modelMap))
+	resultModels := make([]*openai.Model, 0, len(modelMap))
 	for _, model := range modelMap {
-		models = append(models, model)
+		resultModels = append(resultModels, &openai.Model{
+			ID:        model.Name,
+			Object:    "model",
+			OwnedBy:   "star-fire",
+			CreatedAt: time.Now().Unix(),
+			Root:      "",
+			Permission: []openai.Permission{
+				{
+					ID:                 model.Name + "-permission",
+					Object:             "permission",
+					AllowCreateEngine:  true,
+					AllowSampling:      true,
+					AllowLogprobs:      true,
+					AllowSearchIndices: false,
+					AllowView:          true,
+				},
+			},
+		})
 	}
-	return models
+	result := make(map[string]interface{})
+	result["data"] = resultModels
+	result["object"] = "list"
+	return result
 }
 
 func (s *Server) AddRespClient(id string, conn *websocket.Conn) {
@@ -158,9 +302,25 @@ func (s *Server) RemoveRespClient(id string) {
 	delete(s.RespClients, id)
 }
 
-func (s *Server) RemoveClient(modelName string) {
+func (s *Server) RemoveClient(modelName string, clientID string) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	delete(s.Clients, modelName)
+	if clients, exists := s.Clients[modelName]; exists {
+		delete(clients, clientID)
+	}
+}
+
+func (s *Server) GetTrends(startDate, endDate string) []*Trend {
+	if startDate == "" || endDate == "" {
+		// use today 00:00:00 as start date today 23:59:59 as end date
+		startDate = time.Now().Format("2006-01-02")
+		endDate = time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	}
+	trends, err := s.TrendDB.GetTrendsByTimeRange(startDate, endDate)
+	if err != nil {
+		log.Printf("get trends failed: %v", err)
+		return nil
+	}
+	return trends
 }

@@ -21,12 +21,28 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	clientHandler := client_handlers.NewClientHandler(server, registerTokenService)
 	tokenUsageHandler := user_handlers.NewTokenUsageHandler(server)
 
-	// 登录路由
+	marketHandler := user_handlers.NewMarketHandler(server)
+
+	// 登录和注册路由
 	r.POST("/api/login", authHandler.Login)
+	r.POST("/api/send-code", func(c *gin.Context) {
+		user_handlers.SendVerificationCode(c)
+	})
+	r.POST("/api/register", func(c *gin.Context) {
+		user_handlers.Register(c, server)
+	})
 
 	// 客户端路由
 	r.GET("/register/:id", clientHandler.RegisterClient)
 	r.GET("/response/:fingerprint", clientHandler.ResponseClient)
+
+	marketAPI := r.Group("/api/market")
+	marketAPI.Use(middleware.JWTAuth(server.UserDB))
+	{
+		marketAPI.GET("/models", marketHandler.ModelsHandler)
+		marketAPI.GET("/trends", marketHandler.TrendsHandler)
+		// marketAPI.POST("/messages", apiKeyHandler.CreateAPIKey)
+	}
 
 	// 用户路由
 	userAPI := r.Group("/api/user")
@@ -36,7 +52,8 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 
 		userAPI.POST("/keys", apiKeyHandler.CreateAPIKey)
 		userAPI.GET("/keys", apiKeyHandler.GetAPIKeys)
-		userAPI.DELETE("/keys/:id", apiKeyHandler.RevokeAPIKey)
+		userAPI.PUT("/keys/:id", apiKeyHandler.RevokeAPIKey)
+		userAPI.DELETE("/keys/:id", apiKeyHandler.DeleteAPIKey)
 
 		userAPI.GET("/token-usage", tokenUsageHandler.GetUserTokenUsage)
 	}
@@ -49,7 +66,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 			service.HandleChatRequest(c, server)
 		})
 		// 模型
-		api.POST("/models", func(c *gin.Context) {
+		api.GET("/models", func(c *gin.Context) {
 			user_handlers.ModelsHandler(c, server)
 		})
 	}

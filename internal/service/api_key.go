@@ -116,3 +116,28 @@ func (s *APIKeyService) ValidateAPIKey(apiKey string) (*models.APIKey, error) {
 
 	return key, nil
 }
+
+// delete API Key
+func (s *APIKeyService) DeleteAPIKey(userID, keyID string) error {
+	if keyID == "" {
+		return errors.New("API Key ID不能为空")
+	}
+
+	// 检查API Key是否存在
+	key, err := s.apiKeyDB.GetAPIKeyByID(keyID)
+	if err != nil {
+		return fmt.Errorf("获取API Key失败: %w", err)
+	}
+
+	if key.UserID != userID {
+		return errors.New("无权删除此API Key")
+	}
+
+	// 删除API Key
+	err = s.apiKeyDB.DeleteAPIKey(keyID)
+	if err != nil {
+		return fmt.Errorf("删除API Key失败: %w", err)
+	}
+
+	return nil
+}

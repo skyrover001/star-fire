@@ -52,11 +52,11 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	}
 
 	waitStart := time.Now()
-	handleChatResponse(c, server, fingerPrint, waitStart)
+	handleChatResponse(c, server, fingerPrint, waitStart, client.ID)
 }
 
 // handle chat response
-func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time) {
+func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string) {
 	for {
 		if server.RespClients[fingerPrint] == nil {
 			time.Sleep(1 * time.Millisecond)
@@ -72,11 +72,11 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 
 		switch response.Type {
 		case public.MESSAGE:
-			handleStandardChatResponse(c, server, fingerPrint, response)
+			handleStandardChatResponse(c, server, fingerPrint, response, clientID)
 			return
 
 		case public.MESSAGE_STREAM:
-			finished := handleStreamChatResponse(c, server, fingerPrint, response)
+			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID)
 			if finished {
 				return
 			}
@@ -113,7 +113,7 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 }
 
 // handle standard chat response
-func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage) {
+func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string) {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
@@ -136,7 +136,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 
 		recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
 			chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
-			chatResponse.Usage.TotalTokens)
+			chatResponse.Usage.TotalTokens, clientID)
 	} else {
 		log.Println("Invalid message content format")
 		server.RespClients[fingerPrint].Close()
@@ -145,7 +145,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 }
 
 // handle stream chat response
-func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage) bool {
+func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string) bool {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
@@ -186,7 +186,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 				fmt.Println("chatResponse:", chatResponse, " promptTokens:", promptTokens,
 					" completionTokens:", completionTokens, " totalTokens:", totalTokens)
 				recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
-					promptTokens, completionTokens, totalTokens)
+					promptTokens, completionTokens, totalTokens, clientID)
 			}
 			server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
@@ -202,7 +202,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 	}
 }
 
-func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, model string, inputTokens, outputTokens, totalTokens int) {
+func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, model string, inputTokens, outputTokens, totalTokens int, clientID string) {
 	if server.TokenUsageDB == nil {
 		log.Println("Token usage database not initialized")
 		return
@@ -226,6 +226,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		UserID:       userID.(string),
 		APIKey:       apiKeyID,
 		ClientIP:     clientIP,
+		ClientID:     clientID,
 		Model:        model,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
