@@ -56,6 +56,41 @@ func (kdb *APIKeyDB) GetAPIKeysByUser(userID string) ([]*APIKey, error) {
 	return keys, nil
 }
 
+func (kdb *APIKeyDB) GetAPIKeysByUserID(userID string) ([]*APIKey, error) {
+	var keys []*APIKey
+	result := kdb.db.Where("user_id = ? AND revoked = ?", userID, false).
+		Order("created_at DESC").
+		Find(&keys)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	return keys, nil
+}
+
+func (kdb *APIKeyDB) GetAPIKeyByID(keyID string) (*APIKey, error) {
+	var key APIKey
+	result := kdb.db.Where("id = ?", keyID).First(&key)
+	if result.Error != nil {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
+			return nil, errors.New("API key not found")
+		}
+		return nil, result.Error
+	}
+	return &key, nil
+
+}
+
+func (kdb *APIKeyDB) DeleteAPIKey(keyID string) error {
+	result := kdb.db.Where("id = ?", keyID).Delete(&APIKey{})
+	if result.Error != nil {
+		return result.Error
+	}
+	if result.RowsAffected == 0 {
+		return errors.New("API key not found")
+	}
+	return nil
+}
+
 func (kdb *APIKeyDB) UpdateLastUsed(keyID string) error {
 	now := time.Now()
 	return kdb.db.Model(&APIKey{}).

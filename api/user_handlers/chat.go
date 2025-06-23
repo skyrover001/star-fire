@@ -17,6 +17,6 @@ func ChatHandler(c *gin.Context, server *models.Server) {
 // model handler
 func ModelsHandler(c *gin.Context, server *models.Server) {
 	// for test e.g. : curl -X POST http://localhost:8080/v1/models -H "Authorization: Bearer sk-dAr989DwY+YOxQjOdUJiIicHWEAvasoFlPHkflNF4Nw="
-	allModels := server.GetAllModels()
+	allModels := server.GetModels()
 	c.JSON(http.StatusOK, allModels)
 }
