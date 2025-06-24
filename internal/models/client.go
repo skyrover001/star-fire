@@ -91,6 +91,20 @@ func (cdb *ClientDB) GetActiveClients() ([]*Client, error) {
 	return clients, result.Error
 }
 
+func (cdb *ClientDB) GetClientsByUserID(userID string) ([]*Client, error) {
+	var clients []*Client
+	result := cdb.db.Where("user_id = ?", userID).Find(&clients)
+	if result.Error != nil {
+		return nil, result.Error
+	}
+	for _, client := range clients {
+		if err := client.AfterFind(cdb.db); err != nil {
+			log.Printf("after find client error: %v", err)
+		}
+	}
+	return clients, nil
+}
+
 func NewClient(id, ip string, conn *websocket.Conn) *Client {
 	return &Client{
 		ID:           id,
@@ -107,6 +121,7 @@ func NewClient(id, ip string, conn *websocket.Conn) *Client {
 
 func (c *Client) SetUser(user *User) {
 	c.User = user
+	c.UserID = user.ID
 }
 
 type ClientFingerprint struct {

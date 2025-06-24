@@ -56,6 +56,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		userAPI.DELETE("/keys/:id", apiKeyHandler.DeleteAPIKey)
 
 		userAPI.GET("/token-usage", tokenUsageHandler.GetUserTokenUsage)
+		userAPI.GET("/income", tokenUsageHandler.GetUserIncome)
 	}
 
 	api := r.Group("/v1")
