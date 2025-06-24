@@ -61,3 +61,6 @@ Star-fire提供了丰富的功能:
 2. 使用jwt换取 openai api的key
 3. 使用 /v1/models 获取所有模型列表
 4. 使用 /v1/chat/completions 对话
+
+### 体验地址
+http://1.94.239.51/
