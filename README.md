@@ -42,25 +42,28 @@ Star-fire提供了丰富的功能:
 
 ### server端
 
-1. go环境运行：go run main.go 
+1. go环境运行：go run main.go （默认端口8080）
 2. 编译后运行：go build -o server main.go & ./server
 3. 使用dockerfile 进行build->run
 
-### client端
 
-主程序在client/cmd目录下
+### user端
 
-1. 登录用户:目前可使用curl方式进行测试用户登录，返回jwt
-2. 使用jwt换取join token
-3. 注册客户端 go ruan main.go -host localhost:8080 -engine all -token {join token}
-4. 客户端用户 使用vllm或ollama运行模型，客户端会自动将模型信息推送到server端，并创建和server端的websocket链接
+1. 使用邮箱注册并登录
 
-### 用户使用
+#### 分享模型
+1. 下载客户端，或本地编译 make client （build/client目录下） 
+2. 在模型广场页面点击注册到Star Fire 获取注册token
+3. 注册客户端（windows）： sfc_windows_amd64.exe -host 1.94.239.51 -token {register token}
+4. 本地使用ollama 运行模型，客户端会自动将模型信息推送到server端，准备提供服务 
+5. 可以在我的收益页面查看自己所有提供模型的收益情况（目前是模拟收益，固定倍率）
 
-1. 登录
-2. 使用jwt换取 openai api的key
+#### 使用模型
+1. 在模型广场页面选择模型
+2. 在API密钥页面创建获取API密钥 
 3. 使用 /v1/models 获取所有模型列表
 4. 使用 /v1/chat/completions 对话
+5. 可以在我的使用页面查看自己使用模型的情况（目前是模拟使用，固定倍率）
 
 ### 体验地址
 http://1.94.239.51/

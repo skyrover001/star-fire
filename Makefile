@@ -1,8 +1,11 @@
-# 项目信息
 PROJECT_NAME = star-fire
-SERVER_BINARY = server
-CLIENT_BINARY = client
+SERVER_BINARY = sfs
+CLIENT_BINARY = sfc
 BUILD_DIR = build
+
+# 源码路径 - 根据实际项目结构修改这些路径
+SERVER_SRC = ./
+CLIENT_SRC = ./client/cmd
 
 # Go编译环境
 GOCMD = go
@@ -30,24 +33,25 @@ $(BUILD_DIR):
 
 # 构建服务端
 server: $(BUILD_DIR)
-	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(SERVER_BINARY) ./cmd/server
+	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/server/$(SERVER_BINARY) $(SERVER_SRC)
 
 # 构建所有客户端
 client: client-windows-amd64 client-darwin-amd64 client-darwin-arm64
 
 # 构建Windows客户端
 client-windows-amd64: $(BUILD_DIR)
-	$(WINDOWS_AMD64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(CLIENT_BINARY)_windows_amd64.exe ./cmd/client
+	$(WINDOWS_AMD64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/client/$(CLIENT_BINARY)_windows_amd64.exe $(CLIENT_SRC)
 
 # 构建Mac Intel客户端
 client-darwin-amd64: $(BUILD_DIR)
-	$(DARWIN_AMD64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(CLIENT_BINARY)_darwin_amd64 ./cmd/client
+	$(DARWIN_AMD64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/client/$(CLIENT_BINARY)_darwin_amd64 $(CLIENT_SRC)
 
 # 构建Mac M系列芯片客户端
 client-darwin-arm64: $(BUILD_DIR)
-	$(DARWIN_ARM64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/$(CLIENT_BINARY)_darwin_arm64 ./cmd/client
+	$(DARWIN_ARM64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/client/$(CLIENT_BINARY)_darwin_arm64 $(CLIENT_SRC)
 
 # 清理构建文件
 clean:
 	$(GOCLEAN)
 	rm -rf $(BUILD_DIR)
+
