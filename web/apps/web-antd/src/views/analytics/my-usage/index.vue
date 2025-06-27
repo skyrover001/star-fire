@@ -455,12 +455,12 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">总收益</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">总消费</p>
             <p class="text-2xl font-semibold text-green-600 dark:text-green-400">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>¥{{ incomeStats.total.toFixed(3) }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">累计收益</p>
+            <p class="text-xs text-[var(--text-tertiary)]">累计消费</p>
           </div>
         </div>
       </div>
@@ -473,7 +473,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">今日收益</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">今日消费</p>
             <p class="text-2xl font-semibold text-green-600 dark:text-green-400">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>¥{{ incomeStats.today.toFixed(3) }}</span>

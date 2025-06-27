@@ -670,7 +670,7 @@ const usageGuideHtml = computed(() => {
                 <div class="relative">
                   <code
                     class="block w-full rounded-lg bg-gray-100 dark:bg-gray-800 p-3 text-sm font-mono text-gray-900 dark:text-gray-100 pr-12 break-all">
-                  starfire.exe -host localhost:8080 -token {{ currentToken }}
+                  starfire.exe -host localhost:8080 -token {{ currentToken }} 
                 </code>
                   <button @click="copyCommand"
                     class="absolute top-2 right-2 rounded p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
@@ -701,9 +701,9 @@ const usageGuideHtml = computed(() => {
                 <h4 class="text-sm font-medium text-yellow-800 dark:text-yellow-200 mb-1">重要提示</h4>
                 <ul class="text-sm text-yellow-700 dark:text-yellow-300 space-y-1">
                   <li>• 注册Token单次有效，请不要将自己Token泄露给其他人</li>
-                  <li>• 一个客户端只需要一个Token，运行时会自动发现本地运行的模型</li>
+                  <li>• 根据您的本地配置，可适当设置并发数（ollam: OLLAMA_NUM_PARALLEL=4），提升模型被调用概率</li>
                   <li>• Token注册成功后，您的模型将自动加入Star Fire算力网络</li>
-                  <li>• 系统会根据模型调用次数给予相应的算力收益</li>
+                  <li>• 系统会根据您贡献模型的被调用tokens数给予相应的算力收益</li>
                 </ul>
               </div>
             </div>
