@@ -163,7 +163,7 @@
                   收益
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  客户端ID
+                  调用者
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                   请求ID
@@ -203,7 +203,7 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="text-sm text-[var(--text-secondary)] font-mono">
-                    {{ record.ClientID }}
+                    {{ record.UserID }}
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
