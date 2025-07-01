@@ -4,7 +4,6 @@ import type { NotificationItem } from '@vben/layouts';
 import { computed, ref, watch } from 'vue';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
-import { VBEN_DOC_URL, VBEN_GITHUB_URL } from '@vben/constants';
 import { useWatermark } from '@vben/hooks';
 import { BookOpenText, CircleHelp, MdiGithub } from '@vben/icons';
 import {
@@ -63,7 +62,7 @@ const showDot = computed(() =>
 const menus = computed(() => [
   {
     handler: () => {
-      openWindow(VBEN_DOC_URL, {
+      openWindow('https://github.com/skyrover001/star-fire', {
         target: '_blank',
       });
     },
@@ -72,7 +71,7 @@ const menus = computed(() => [
   },
   {
     handler: () => {
-      openWindow(VBEN_GITHUB_URL, {
+      openWindow('https://github.com/skyrover001/star-fire', {
         target: '_blank',
       });
     },
@@ -81,7 +80,7 @@ const menus = computed(() => [
   },
   {
     handler: () => {
-      openWindow(`${VBEN_GITHUB_URL}/issues`, {
+      openWindow('https://github.com/skyrover001/star-fire/issues', {
         target: '_blank',
       });
     },
@@ -92,6 +91,19 @@ const menus = computed(() => [
 
 const avatar = computed(() => {
   return userStore.userInfo?.avatar ?? preferences.app.defaultAvatar;
+});
+
+// 计算用户信息显示
+const userDescription = computed(() => {
+  return userStore.userInfo?.email || 'user@example.com';
+});
+
+const userTagText = computed(() => {
+  return userStore.userInfo?.roles?.[0] || 'User';
+});
+
+const userName = computed(() => {
+  return userStore.userInfo?.realName || userStore.userInfo?.username || '用户';
 });
 
 async function handleLogout() {
@@ -128,9 +140,9 @@ watch(
       <UserDropdown
         :avatar
         :menus
-        :text="userStore.userInfo?.realName"
-        description="ann.vben@gmail.com"
-        tag-text="Pro"
+        :text="userName"
+        :description="userDescription"
+        :tag-text="userTagText"
         @logout="handleLogout"
       />
     </template>

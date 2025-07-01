@@ -1,7 +1,6 @@
 import type { Recordable, UserInfo } from '@vben/types';
 
 import { ref } from 'vue';
-import { useRouter } from 'vue-router';
 
 import { LOGIN_PATH } from '@vben/constants';
 import { preferences } from '@vben/preferences';
@@ -10,13 +9,13 @@ import { resetAllStores, useAccessStore, useUserStore } from '@vben/stores';
 import { notification } from 'ant-design-vue';
 import { defineStore } from 'pinia';
 
-import { getAccessCodesApi, getUserInfoApi, loginApi, logoutApi } from '#/api';
+import { loginApi, logoutApi } from '#/api';
 import { $t } from '#/locales';
+import { router } from '#/router';
 
 export const useAuthStore = defineStore('auth', () => {
   const accessStore = useAccessStore();
   const userStore = useUserStore();
-  const router = useRouter();
 
   const loginLoading = ref(false);
 
@@ -33,7 +32,7 @@ export const useAuthStore = defineStore('auth', () => {
     let userInfo: null | UserInfo = null;
     try {
       loginLoading.value = true;
-      const { token, user, expires_in } = await loginApi(params);
+      const { token, user, expires_in } = await loginApi(params as any);
       console.log('authLogin', params, 'token:', token, 'user:', user, 'expires_in:', expires_in);
 
       // 如果成功获取到 accessToken
@@ -48,11 +47,23 @@ export const useAuthStore = defineStore('auth', () => {
         // ]);
         // userInfo = fetchUserInfoResult;
 
-        userInfo = user;
+        // 转换用户信息格式以匹配 UserInfo 接口
+        userInfo = {
+          userId: user.id,
+          username: user.username,
+          realName: user.username,
+          avatar: '',
+          roles: [user.role],
+          desc: '',
+          homePath: preferences.app.defaultHomePath,
+          token: token,
+          email: user.email,
+        } as UserInfo;
+        
         userStore.setUserInfo(userInfo);
         accessStore.setLoginExpired(false);
         // 设置用户权限码
-        accessStore.setAccessCodes(user?.accessCodes || []);
+        accessStore.setAccessCodes([]);
 
         // const accessCodes = await getAccessCodesApi();
         // accessStore.setAccessCodes(accessCodes);
@@ -64,7 +75,7 @@ export const useAuthStore = defineStore('auth', () => {
           onSuccess
             ? await onSuccess?.()
             : await router.push(
-                userInfo.homePath || preferences.app.defaultHomePath,
+                userInfo?.homePath || preferences.app.defaultHomePath,
               );
         }
 

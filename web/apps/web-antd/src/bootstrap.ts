@@ -46,6 +46,22 @@ async function bootstrap(namespace: string) {
   // 配置 pinia-tore
   await initStores(app, { namespace });
 
+  // 尝试获取用户信息（如果用户已登录）
+  try {
+    const { useAuthStore } = await import('#/store');
+    const { useAccessStore } = await import('@vben/stores');
+    
+    const authStore = useAuthStore();
+    const accessStore = useAccessStore();
+    
+    // 如果用户已经有token，尝试获取用户信息
+    if (accessStore.accessToken) {
+      await authStore.fetchUserInfo();
+    }
+  } catch (error) {
+    console.warn('获取用户信息失败:', error);
+  }
+
   // 安装权限指令
   registerAccessDirective(app);
 

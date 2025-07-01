@@ -47,7 +47,7 @@ const formSchema = computed((): VbenFormSchema[] => {
     {
       component: 'VbenInput',
       componentProps: {
-        placeholder: '用户名或邮箱',
+        placeholder: '邮箱',
       },
       dependencies: {
         trigger(values, form) {
@@ -67,7 +67,7 @@ const formSchema = computed((): VbenFormSchema[] => {
       },
       fieldName: 'username',
       label: '账号',
-      rules: z.string().min(1, { message: '请输入用户名或邮箱' }),
+      rules: z.string().min(1, { message: '请输入邮箱' }),
     },
     {
       component: 'VbenInputPassword',
