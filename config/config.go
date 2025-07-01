@@ -15,6 +15,7 @@ type Configuration struct {
 	JWTExpiry         int
 	MaxAPIKeysPerUser int
 	DefaultKeyExpiry  int
+	LBA               string
 }
 
 var Config = loadConfig()
@@ -29,6 +30,7 @@ func loadConfig() Configuration {
 	jwtExpiry, _ := strconv.Atoi(getEnv("JWT_EXPIRY", "24"))
 	maxAPIKeysPerUser, _ := strconv.Atoi(getEnv("MAX_API_KEYS_PER_USER", "3"))
 	defaultKeyExpiry, _ := strconv.Atoi(getEnv("DEFAULT_KEY_EXPIRY", "30"))
+	lba := getEnv("LBA", "min-conn")
 
 	return Configuration{
 		ServerPort:        port,
@@ -40,6 +42,7 @@ func loadConfig() Configuration {
 		JWTExpiry:         jwtExpiry,
 		MaxAPIKeysPerUser: maxAPIKeysPerUser,
 		DefaultKeyExpiry:  defaultKeyExpiry,
+		LBA:               lba,
 	}
 }
 

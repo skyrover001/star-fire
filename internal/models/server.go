@@ -32,6 +32,8 @@ type Server struct {
 	ClientDB            *ClientDB
 	ClientFingerprintDB *ClientFingerprintDB
 	TrendDB             *TrendDB
+
+	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
 }
 
 func NewServer() *Server {
@@ -71,14 +73,15 @@ func NewServer() *Server {
 		Port:        configs.Config.ServerPort,
 		RespClients: make(map[string]*websocket.Conn),
 
-		DB:                  gormDB,
-		APIKeyDB:            apiKeyDB,
-		UserDB:              userDB,
-		TokenUsageDB:        tokenUsageDB,
-		RegisterTokenStore:  NewRegisterTokenStore(),
-		ClientDB:            clientDB,
-		ClientFingerprintDB: clientFingerprintDB,
-		TrendDB:             trendDB,
+		DB:                   gormDB,
+		APIKeyDB:             apiKeyDB,
+		UserDB:               userDB,
+		TokenUsageDB:         tokenUsageDB,
+		RegisterTokenStore:   NewRegisterTokenStore(),
+		ClientDB:             clientDB,
+		ClientFingerprintDB:  clientFingerprintDB,
+		TrendDB:              trendDB,
+		LoadBalanceAlgorithm: configs.Config.LBA, // default load balancing algorithm
 	}
 
 	go func() {
@@ -129,18 +132,46 @@ func (s *Server) LoadBalance(model string) *Client {
 		s.RemoveClient(item.model, item.client)
 	}
 
-	if len(s.Clients[model]) == 0 {
+	switch s.LoadBalanceAlgorithm {
+	case "random":
+		// randomly select a client for the model
+		if len(s.Clients[model]) == 0 {
+			return nil
+		}
+		keys := make([]string, 0, len(s.Clients[model]))
+		for k := range s.Clients[model] {
+			keys = append(keys, k)
+		}
+		rand.Seed(time.Now().UnixNano())
+		randomIndex := rand.Intn(len(keys))
+		randomKey := keys[randomIndex]
+		client := s.Clients[model][randomKey]
+		return client
+	case "min-conn":
+		// minimize usage(connections) of clients
+		clientIDs := make([]string, 0, len(s.Clients[model]))
+		for k := range s.Clients[model] {
+			clientIDs = append(clientIDs, k)
+		}
+		clientID, err := s.ClientFingerprintDB.GetMinConnectionsClient(clientIDs)
+		log.Println("clientID:", clientID, "for model:", model)
+		if err != nil {
+			log.Println("get min connections client error:", err)
+			return nil
+		}
+		if clientID != "" {
+			if c, exists := s.Clients[model][clientID]; exists {
+				log.Println("found client:", c.ID, "for model:", model)
+				return c
+			} else {
+				log.Println("client:", clientID, "not found for model:", model)
+				return nil
+			}
+		}
 		return nil
 	}
-	keys := make([]string, 0, len(s.Clients[model]))
-	for k := range s.Clients[model] {
-		keys = append(keys, k)
-	}
-	rand.Seed(time.Now().UnixNano())
-	randomIndex := rand.Intn(len(keys))
-	randomKey := keys[randomIndex]
-	client := s.Clients[model][randomKey]
-	return client
+	log.Println("unknown load balance algorithm:", s.LoadBalanceAlgorithm)
+	return nil
 }
 
 func (s *Server) RegisterModel(model *public.Model, client *Client) {

@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"star-fire/pkg/public"
 	"time"
@@ -127,6 +128,7 @@ func (c *Client) SetUser(user *User) {
 type ClientFingerprint struct {
 	Fingerprint string `json:"fingerprint" gorm:"primaryKey"`
 	ClientID    string `json:"client_id" gorm:"index"`
+	Status      string `json:"status"` // e.g. "preparing", "transmitting", "completed"
 }
 
 type ClientFingerprintDB struct {
@@ -140,14 +142,79 @@ func NewClientFingerprintDB(db *gorm.DB) *ClientFingerprintDB {
 	return &ClientFingerprintDB{db: db}
 }
 
-func (cfdb *ClientFingerprintDB) SaveFingerprint(fingerprint, clientID string) error {
+func (cfdb *ClientFingerprintDB) SaveFingerprint(fingerprint, clientID, status string) error {
 	cf := &ClientFingerprint{
 		Fingerprint: fingerprint,
 		ClientID:    clientID,
+		Status:      status,
 	}
 	return cfdb.db.Save(cf).Error
 }
 
+func (cfdb *ClientFingerprintDB) UpdateFingerprint(fingerprint, clientID, status string) error {
+	cf := &ClientFingerprint{
+		Fingerprint: fingerprint,
+		ClientID:    clientID,
+		Status:      status,
+	}
+	result := cfdb.db.Where("fingerprint = ?", fingerprint).FirstOrCreate(cf)
+	if result.Error != nil {
+		return result.Error
+	}
+	return cfdb.db.Model(cf).Update("status", status).Error
+}
+func (cfdb *ClientFingerprintDB) GetMinConnectionsClient(clientIDs []string) (string, error) {
+	// 如果没有可用的客户端，返回错误
+	if len(clientIDs) == 0 {
+		return "", fmt.Errorf("没有可用的客户端")
+	}
+
+	// 定义结果结构
+	type Result struct {
+		ClientID string
+		Count    int
+	}
+
+	var results []Result
+
+	// 查询每个客户端状态为"transmitting"的连接数
+	err := cfdb.db.Model(&ClientFingerprint{}).
+		Select("client_id, count(*) as count").
+		Where("client_id IN ? AND status = ?", clientIDs, "transmitting").
+		Group("client_id").
+		Find(&results).Error
+
+	if err != nil {
+		return "", err
+	}
+
+	// 创建映射，记录每个客户端的连接数
+	connectionCounts := make(map[string]int)
+	for _, result := range results {
+		connectionCounts[result.ClientID] = result.Count
+	}
+
+	// 确保所有提供的clientID都在映射中
+	for _, clientID := range clientIDs {
+		if _, exists := connectionCounts[clientID]; !exists {
+			connectionCounts[clientID] = 0
+		}
+	}
+
+	// 找到连接数最少的客户端
+	minClientID := clientIDs[0]
+	minCount := connectionCounts[minClientID]
+
+	for _, clientID := range clientIDs {
+		if connectionCounts[clientID] < minCount {
+			minClientID = clientID
+			minCount = connectionCounts[clientID]
+		}
+	}
+
+	log.Println("find min connections client:", minClientID, "with count:", minCount)
+	return minClientID, nil
+}
 func (cfdb *ClientFingerprintDB) GetClientID(fingerprint string) (string, error) {
 	var cf ClientFingerprint
 	result := cfdb.db.Where("fingerprint = ?", fingerprint).First(&cf)

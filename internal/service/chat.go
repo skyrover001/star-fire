@@ -31,7 +31,7 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
-	if err := server.ClientFingerprintDB.SaveFingerprint(fingerPrint, client.ID); err != nil {
+	if err := server.ClientFingerprintDB.SaveFingerprint(fingerPrint, client.ID, "preparing"); err != nil {
 		log.Printf("save fingerprint and client relation failed: %v", err)
 	}
 
@@ -61,6 +61,14 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 		if server.RespClients[fingerPrint] == nil {
 			time.Sleep(1 * time.Millisecond)
 			continue
+		}
+
+		// save fingerprint and client relation and connect status to database
+		if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "transmitting"); err != nil {
+			log.Printf("save fingerprint and client relation failed: %v", err)
+			server.RespClients[fingerPrint].Close()
+			server.RemoveRespClient(fingerPrint)
+			return
 		}
 
 		var response public.WSMessage
@@ -129,6 +137,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
 			server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
+			server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return
 		}
 
@@ -190,6 +199,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			}
 			server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
+			server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return true
 		}
 
