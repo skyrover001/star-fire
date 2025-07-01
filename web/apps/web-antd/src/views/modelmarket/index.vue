@@ -211,17 +211,34 @@ const copyToken = async () => {
   if (!currentToken.value) return;
 
   try {
-    await navigator.clipboard.writeText(currentToken.value);
-    message.success('Token已复制到剪贴板');
-  } catch (error) {
-    // 降级到传统方法
+    // 优先使用现代 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(currentToken.value);
+      message.success('Token已复制到剪贴板');
+      return;
+    }
+    
+    // Fallback: 使用传统方法
     const textArea = document.createElement('textarea');
     textArea.value = currentToken.value;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
     document.body.appendChild(textArea);
+    textArea.focus();
     textArea.select();
-    document.execCommand('copy');
+    
+    const successful = document.execCommand('copy');
     document.body.removeChild(textArea);
-    message.success('Token已复制到剪贴板');
+    
+    if (successful) {
+      message.success('Token已复制到剪贴板');
+    } else {
+      throw new Error('Copy failed');
+    }
+  } catch (error) {
+    console.error('复制失败:', error);
+    message.error('复制失败，请手动复制');
   }
 };
 
@@ -232,17 +249,34 @@ const copyCommand = async () => {
   const command = `starfire.exe -host localhost:8080 -token ${currentToken.value}`;
 
   try {
-    await navigator.clipboard.writeText(command);
-    message.success('使用命令已复制到剪贴板');
-  } catch (error) {
-    // 降级到传统方法
+    // 优先使用现代 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(command);
+      message.success('使用命令已复制到剪贴板');
+      return;
+    }
+    
+    // Fallback: 使用传统方法
     const textArea = document.createElement('textarea');
     textArea.value = command;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
     document.body.appendChild(textArea);
+    textArea.focus();
     textArea.select();
-    document.execCommand('copy');
+    
+    const successful = document.execCommand('copy');
     document.body.removeChild(textArea);
-    message.success('使用命令已复制到剪贴板');
+    
+    if (successful) {
+      message.success('使用命令已复制到剪贴板');
+    } else {
+      throw new Error('Copy failed');
+    }
+  } catch (error) {
+    console.error('复制失败:', error);
+    message.error('复制失败，请手动复制');
   }
 };
 

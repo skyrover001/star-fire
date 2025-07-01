@@ -734,11 +734,58 @@ const deleteApiKey = async (apiKey: DisplayApiKey) => {
 // 复制到剪贴板
 const copyToClipboard = async (text: string) => {
   try {
-    await navigator.clipboard.writeText(text);
-    message.success('已复制到剪贴板');
+    // 优先使用现代 Clipboard API
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+      message.success('已复制到剪贴板');
+      return;
+    }
+    
+    // Fallback: 使用传统方法
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    textArea.style.position = 'fixed';
+    textArea.style.left = '-999999px';
+    textArea.style.top = '-999999px';
+    document.body.appendChild(textArea);
+    textArea.focus();
+    textArea.select();
+    
+    const successful = document.execCommand('copy');
+    document.body.removeChild(textArea);
+    
+    if (successful) {
+      message.success('已复制到剪贴板');
+    } else {
+      throw new Error('execCommand failed');
+    }
   } catch (error) {
     console.error('复制失败:', error);
-    message.error('复制失败');
+    
+    // 最后的fallback：提示用户手动复制
+    try {
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'absolute';
+      textArea.style.left = '50%';
+      textArea.style.top = '50%';
+      textArea.style.transform = 'translate(-50%, -50%)';
+      textArea.style.zIndex = '9999';
+      textArea.style.padding = '10px';
+      textArea.style.border = '1px solid #ccc';
+      textArea.style.backgroundColor = 'white';
+      document.body.appendChild(textArea);
+      textArea.focus();
+      textArea.select();
+      
+      setTimeout(() => {
+        document.body.removeChild(textArea);
+      }, 3000);
+      
+      message.warning('请手动复制选中的文本（3秒后自动关闭）');
+    } catch (finalError) {
+      message.error('复制失败，请手动复制');
+    }
   }
 };
 
