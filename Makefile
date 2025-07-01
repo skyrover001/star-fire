@@ -1,6 +1,6 @@
 PROJECT_NAME = star-fire
-SERVER_BINARY = sfs
-CLIENT_BINARY = sfc
+SERVER_BINARY = starfire
+CLIENT_BINARY = starfire
 BUILD_DIR = build
 
 # 源码路径 - 根据实际项目结构修改这些路径
