@@ -19,6 +19,9 @@ type Server struct {
 	clientsMu sync.RWMutex
 	Clients   map[string]map[string]*Client
 
+	clientRBMu            sync.RWMutex
+	clientRoundRobinIndex map[string]int // for round-robin load balancing
+
 	respClientsMu sync.RWMutex
 	RespClients   map[string]*websocket.Conn
 
@@ -69,9 +72,10 @@ func NewServer() *Server {
 	}
 
 	server := &Server{
-		Clients:     make(map[string]map[string]*Client),
-		Port:        configs.Config.ServerPort,
-		RespClients: make(map[string]*websocket.Conn),
+		Clients:               make(map[string]map[string]*Client),
+		Port:                  configs.Config.ServerPort,
+		RespClients:           make(map[string]*websocket.Conn),
+		clientRoundRobinIndex: make(map[string]int),
 
 		DB:                   gormDB,
 		APIKeyDB:             apiKeyDB,
@@ -133,6 +137,26 @@ func (s *Server) LoadBalance(model string) *Client {
 	}
 
 	switch s.LoadBalanceAlgorithm {
+	case "round-robin":
+		// round-robin load balancing
+		s.clientRBMu.Lock()
+		defer s.clientRBMu.Unlock()
+		if len(s.Clients[model]) == 0 {
+			return nil
+		}
+		if _, exists := s.clientRoundRobinIndex[model]; !exists {
+			s.clientRoundRobinIndex[model] = 0
+		}
+		index := s.clientRoundRobinIndex[model]
+		clients := make([]*Client, 0, len(s.Clients[model]))
+		for _, client := range s.Clients[model] {
+			clients = append(clients, client)
+		}
+		if index >= len(clients) {
+			index = 0
+		}
+		s.clientRoundRobinIndex[model] = index + 1
+		return clients[index]
 	case "random":
 		// randomly select a client for the model
 		if len(s.Clients[model]) == 0 {
@@ -148,17 +172,37 @@ func (s *Server) LoadBalance(model string) *Client {
 		client := s.Clients[model][randomKey]
 		return client
 	case "min-conn":
-		// minimize usage(connections) of clients
+		// the client which have max idle connections
+		// step 1: get all client ids for the model
 		clientIDs := make([]string, 0, len(s.Clients[model]))
 		for k := range s.Clients[model] {
 			clientIDs = append(clientIDs, k)
 		}
-		clientID, err := s.ClientFingerprintDB.GetMinConnectionsClient(clientIDs)
-		log.Println("clientID:", clientID, "for model:", model)
+		// step 2: get all client chat connections count
+		chatConnections, err := s.ClientFingerprintDB.GetClientChatConnections(clientIDs)
 		if err != nil {
-			log.Println("get min connections client error:", err)
+			log.Println("get client chat connections error:", err)
 			return nil
 		}
+		maxIdleConnectionsCounts := make(map[string]int)
+		clientID := ""
+		MaxIdleConnectionsCount := 65535 // default max idle connections count
+		for _, result := range chatConnections {
+			if s.Clients[model][result.ClientID].Status == "online" && s.Clients[model][result.ClientID].ControlConn != nil {
+				if s.Clients[model][result.ClientID].InferenceEngine.Name == "ollama" && s.Clients[model][result.ClientID].InferenceEngine.NumParallel > 0 {
+					maxIdleConnectionsCounts[result.ClientID] = s.Clients[model][result.ClientID].InferenceEngine.NumParallel - result.Count
+				} else {
+					maxIdleConnectionsCounts[result.ClientID] = 1 - result.Count
+				}
+			} else {
+				maxIdleConnectionsCounts[result.ClientID] = 0
+			}
+			if maxIdleConnectionsCounts[result.ClientID] < MaxIdleConnectionsCount {
+				MaxIdleConnectionsCount = maxIdleConnectionsCounts[result.ClientID]
+				clientID = result.ClientID
+			}
+		}
+
 		if clientID != "" {
 			if c, exists := s.Clients[model][clientID]; exists {
 				log.Println("found client:", c.ID, "for model:", model)

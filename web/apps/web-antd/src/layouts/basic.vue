@@ -1,7 +1,5 @@
 <script lang="ts" setup>
-import type { NotificationItem } from '@vben/layouts';
-
-import { computed, ref, watch } from 'vue';
+import { computed, watch } from 'vue';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
 import { useWatermark } from '@vben/hooks';
@@ -9,7 +7,6 @@ import { BookOpenText, CircleHelp, MdiGithub } from '@vben/icons';
 import {
   BasicLayout,
   LockScreen,
-  Notification,
   UserDropdown,
 } from '@vben/layouts';
 import { preferences } from '@vben/preferences';
@@ -20,70 +17,34 @@ import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
 
-const notifications = ref<NotificationItem[]>([
-  {
-    avatar: 'https://avatar.vercel.sh/vercel.svg?text=VB',
-    date: '3小时前',
-    isRead: true,
-    message: '描述信息描述信息描述信息',
-    title: '收到了 14 份新周报',
-  },
-  {
-    avatar: 'https://avatar.vercel.sh/1',
-    date: '刚刚',
-    isRead: false,
-    message: '描述信息描述信息描述信息',
-    title: '朱偏右 回复了你',
-  },
-  {
-    avatar: 'https://avatar.vercel.sh/1',
-    date: '2024-01-01',
-    isRead: false,
-    message: '描述信息描述信息描述信息',
-    title: '曲丽丽 评论了你',
-  },
-  {
-    avatar: 'https://avatar.vercel.sh/satori',
-    date: '1天前',
-    isRead: false,
-    message: '描述信息描述信息描述信息',
-    title: '代办提醒',
-  },
-]);
-
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
 const { destroyWatermark, updateWatermark } = useWatermark();
-const showDot = computed(() =>
-  notifications.value.some((item) => !item.isRead),
-);
+
+const GITHUB_BASE_URL = 'https://github.com/skyrover001/star-fire';
+
+const openGitHub = () => {
+  openWindow(GITHUB_BASE_URL, { target: '_blank' });
+};
+
+const openGitHubIssues = () => {
+  openWindow(`${GITHUB_BASE_URL}/issues`, { target: '_blank' });
+};
 
 const menus = computed(() => [
   {
-    handler: () => {
-      openWindow('https://github.com/skyrover001/star-fire', {
-        target: '_blank',
-      });
-    },
+    handler: openGitHub,
     icon: BookOpenText,
     text: $t('ui.widgets.document'),
   },
   {
-    handler: () => {
-      openWindow('https://github.com/skyrover001/star-fire', {
-        target: '_blank',
-      });
-    },
+    handler: openGitHub,
     icon: MdiGithub,
     text: 'GitHub',
   },
   {
-    handler: () => {
-      openWindow('https://github.com/skyrover001/star-fire/issues', {
-        target: '_blank',
-      });
-    },
+    handler: openGitHubIssues,
     icon: CircleHelp,
     text: $t('ui.widgets.qa'),
   },
@@ -110,13 +71,6 @@ async function handleLogout() {
   await authStore.logout(false);
 }
 
-function handleNoticeClear() {
-  notifications.value = [];
-}
-
-function handleMakeAll() {
-  notifications.value.forEach((item) => (item.isRead = true));
-}
 watch(
   () => preferences.app.watermark,
   async (enable) => {
@@ -144,14 +98,6 @@ watch(
         :description="userDescription"
         :tag-text="userTagText"
         @logout="handleLogout"
-      />
-    </template>
-    <template #notification>
-      <Notification
-        :dot="showDot"
-        :notifications="notifications"
-        @clear="handleNoticeClear"
-        @make-all="handleMakeAll"
       />
     </template>
     <template #extra>

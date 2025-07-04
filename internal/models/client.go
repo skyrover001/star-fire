@@ -12,6 +12,13 @@ import (
 	"gorm.io/gorm"
 )
 
+// InferenceEngine represents the type of inference engine used by the client.
+type InferenceEngine struct {
+	Name        string `json:"name" gorm:"default:ollama"` // e.g. "ollama", "vllm", "openai"
+	MaxTokens   int    `json:"max_tokens"`
+	NumParallel int    `json:"num_parallel"`
+}
+
 type Client struct {
 	ID           string    `json:"id" gorm:"primaryKey"`
 	IP           string    `json:"ip"`
@@ -25,12 +32,18 @@ type Client struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 
 	// not in db
-	Models      []*public.Model        `json:"models" gorm:"-"`
-	ControlConn *websocket.Conn        `json:"-" gorm:"-"`
-	MessageChan chan *api.ChatResponse `json:"-" gorm:"-"`
-	PongChan    chan *public.PPMessage `json:"-" gorm:"-"`
-	ErrChan     chan error             `json:"-" gorm:"-"`
-	User        *User                  `json:"user" gorm:"-"`
+	Models          []*public.Model        `json:"models" gorm:"-"`
+	ControlConn     *websocket.Conn        `json:"-" gorm:"-"`
+	MessageChan     chan *api.ChatResponse `json:"-" gorm:"-"`
+	PongChan        chan *public.PPMessage `json:"-" gorm:"-"`
+	ErrChan         chan error             `json:"-" gorm:"-"`
+	User            *User                  `json:"user" gorm:"-"`
+	InferenceEngine InferenceEngine        `json:"inference_engine" gorm:"-"`
+}
+
+type ConnectionResult struct {
+	ClientID string `json:"client_id"`
+	Count    int    `json:"count"`
 }
 
 func (c *Client) BeforeSave(tx *gorm.DB) error {
@@ -163,57 +176,23 @@ func (cfdb *ClientFingerprintDB) UpdateFingerprint(fingerprint, clientID, status
 	}
 	return cfdb.db.Model(cf).Update("status", status).Error
 }
-func (cfdb *ClientFingerprintDB) GetMinConnectionsClient(clientIDs []string) (string, error) {
+func (cfdb *ClientFingerprintDB) GetClientChatConnections(clientIDs []string) ([]*ConnectionResult, error) {
 	// 如果没有可用的客户端，返回错误
 	if len(clientIDs) == 0 {
-		return "", fmt.Errorf("没有可用的客户端")
+		return nil, fmt.Errorf("没有可用的客户端")
 	}
 
-	// 定义结果结构
-	type Result struct {
-		ClientID string
-		Count    int
-	}
-
-	var results []Result
-
+	var results []*ConnectionResult
 	// 查询每个客户端状态为"transmitting"的连接数
 	err := cfdb.db.Model(&ClientFingerprint{}).
 		Select("client_id, count(*) as count").
 		Where("client_id IN ? AND status = ?", clientIDs, "transmitting").
 		Group("client_id").
 		Find(&results).Error
-
 	if err != nil {
-		return "", err
+		return nil, err
 	}
-
-	// 创建映射，记录每个客户端的连接数
-	connectionCounts := make(map[string]int)
-	for _, result := range results {
-		connectionCounts[result.ClientID] = result.Count
-	}
-
-	// 确保所有提供的clientID都在映射中
-	for _, clientID := range clientIDs {
-		if _, exists := connectionCounts[clientID]; !exists {
-			connectionCounts[clientID] = 0
-		}
-	}
-
-	// 找到连接数最少的客户端
-	minClientID := clientIDs[0]
-	minCount := connectionCounts[minClientID]
-
-	for _, clientID := range clientIDs {
-		if connectionCounts[clientID] < minCount {
-			minClientID = clientID
-			minCount = connectionCounts[clientID]
-		}
-	}
-
-	log.Println("find min connections client:", minClientID, "with count:", minCount)
-	return minClientID, nil
+	return results, nil
 }
 func (cfdb *ClientFingerprintDB) GetClientID(fingerprint string) (string, error) {
 	var cf ClientFingerprint

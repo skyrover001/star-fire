@@ -9,7 +9,7 @@ import { resetAllStores, useAccessStore, useUserStore } from '@vben/stores';
 import { notification } from 'ant-design-vue';
 import { defineStore } from 'pinia';
 
-import { loginApi, logoutApi } from '#/api';
+import { loginApi, logoutApi, getUserInfoApi } from '#/api';
 import { $t } from '#/locales';
 import { router } from '#/router';
 
@@ -60,7 +60,8 @@ export const useAuthStore = defineStore('auth', () => {
           email: user.email,
         } as UserInfo;
         
-        userStore.setUserInfo(userInfo);
+        userStore.userInfo = userInfo;
+        userStore.userRoles = [user.role];
         accessStore.setLoginExpired(false);
         // 设置用户权限码
         accessStore.setAccessCodes([]);
@@ -117,10 +118,25 @@ export const useAuthStore = defineStore('auth', () => {
   }
 
   async function fetchUserInfo() {
-    let userInfo: null | UserInfo = null;
-    //userInfo = await getUserInfoApi();
-    userStore.setUserInfo(userInfo);
-    return userInfo;
+    try {
+      // 如果用户信息已经存在，直接返回
+      if (userStore.userInfo) {
+        return userStore.userInfo;
+      }
+      
+      const apiUserInfo = await getUserInfoApi();
+      
+      // 直接使用API返回的用户信息，因为它已经符合UserInfo接口
+      userStore.userInfo = apiUserInfo;
+      userStore.userRoles = apiUserInfo.roles || [];
+      return apiUserInfo;
+    } catch (error) {
+      console.error('获取用户信息失败:', error);
+      // 如果获取失败，清除用户信息
+      userStore.userInfo = null;
+      userStore.userRoles = [];
+      return null;
+    }
   }
 
   function $reset() {
