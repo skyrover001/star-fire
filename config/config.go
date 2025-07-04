@@ -30,7 +30,7 @@ func loadConfig() Configuration {
 	jwtExpiry, _ := strconv.Atoi(getEnv("JWT_EXPIRY", "24"))
 	maxAPIKeysPerUser, _ := strconv.Atoi(getEnv("MAX_API_KEYS_PER_USER", "3"))
 	defaultKeyExpiry, _ := strconv.Atoi(getEnv("DEFAULT_KEY_EXPIRY", "30"))
-	lba := getEnv("LBA", "min-conn")
+	lba := getEnv("LBA", "round-robin")
 
 	return Configuration{
 		ServerPort:        port,

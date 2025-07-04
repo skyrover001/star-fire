@@ -333,13 +333,13 @@ const downloadClient = (platform: 'windows' | 'macos') => {
   // 客户端下载链接配置
   const downloadUrls = {
     windows: {
-      url: '/api/client/download/windows/latest.exe',
-      filename: 'ModelClient-Setup.exe',
+      url: '/download/windows/starfire.exe',
+      filename: 'startfire.exe',
       size: '~45MB'
     },
     macos: {
-      url: '/api/client/download/macos/latest.dmg', 
-      filename: 'ModelClient.dmg',
+      url: '/download/macos/starfire.dmg',
+      filename: 'startfire.dmg',
       size: '~52MB'
     }
   };
@@ -886,7 +886,7 @@ const usageGuideHtml = computed(() => {
               </svg>
               <div class="ml-3">
                 <p class="text-sm text-blue-800 dark:text-blue-200">
-                  下载完成后，请按照安装向导进行安装。首次使用需要配置服务器地址和认证信息。
+                  下载完成后，将二进制文件添加到系统路径中即可。使用方式：starfire.exe -host {host_ip:{port}} -token YOUR_TOKEN
                 </p>
               </div>
             </div>
