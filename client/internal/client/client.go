@@ -26,6 +26,7 @@ type Client struct {
 	Models       []*public.Model `json:"models"`
 	ctx          context.Context
 	cancel       context.CancelFunc
+	cfg          *config.Config
 }
 
 func NewClient(cfg *config.Config) (*Client, error) {
@@ -37,6 +38,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		cancel:       cancel,
 		engines:      []inference.Engine{},
 		Models:       []*public.Model{},
+		cfg:          cfg,
 	}
 	if err := client.generateID(); err != nil {
 		return nil, fmt.Errorf("generate id error: %w", err)
@@ -71,7 +73,7 @@ func (c *Client) generateID() error {
 func (c *Client) initializeEngines(cfg *config.Config) error {
 	switch cfg.LocalInferenceType {
 	case "ollama":
-		ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost)
+		ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost, cfg)
 		if err != nil {
 			return fmt.Errorf("init Ollama engine error: %w", err)
 		}
@@ -81,14 +83,14 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 		if cfg.OpenAIKey == "" {
 			return fmt.Errorf("not set OpenAIKey")
 		}
-		openaiEngine, err := openai.NewEngine(c.ctx, cfg.OpenAIKey, cfg.OpenAIBaseURL)
+		openaiEngine, err := openai.NewEngine(c.ctx, cfg.OpenAIKey, cfg.OpenAIBaseURL, cfg)
 		if err != nil {
 			return fmt.Errorf("init openai engine error: %w", err)
 		}
 		c.engines = append(c.engines, openaiEngine)
 
 	case "all":
-		ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost)
+		ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost, cfg)
 		if err != nil {
 			log.Printf("init ollama engine error: %v", err)
 		} else {
@@ -96,7 +98,7 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 		}
 
 		if cfg.OpenAIKey != "" {
-			openaiEngine, err := openai.NewEngine(c.ctx, cfg.OpenAIKey, cfg.OpenAIBaseURL)
+			openaiEngine, err := openai.NewEngine(c.ctx, cfg.OpenAIKey, cfg.OpenAIBaseURL, cfg)
 			if err != nil {
 				log.Printf("init openai engine error: %v", err)
 			} else {
@@ -120,7 +122,7 @@ func (c *Client) refreshModels() error {
 
 	log.Println("c.engines:", c.engines, len(c.engines))
 	for _, engine := range c.engines {
-		models, err := engine.ListModels(c.ctx)
+		models, err := engine.ListModels(c.ctx, c.cfg)
 		if err != nil {
 			log.Printf("get models from %s error: %v", engine.Name(), err)
 			continue
@@ -135,7 +137,7 @@ func (c *Client) refreshModels() error {
 
 func (c *Client) findEngineForModel(modelName string) (inference.Engine, error) {
 	for _, engine := range c.engines {
-		if engine.SupportsModel(modelName) {
+		if engine.SupportsModel(modelName, c.cfg) {
 			return engine, nil
 		}
 	}
@@ -146,6 +148,6 @@ func (c *Client) findEngineForModel(modelName string) (inference.Engine, error) 
 func (c *Client) Close() {
 	c.cancel()
 	if c.controlConn != nil {
-		c.controlConn.Close()
+		_ = c.controlConn.Close()
 	}
 }

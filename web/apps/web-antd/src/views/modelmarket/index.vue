@@ -35,9 +35,6 @@ const showTokenModal = ref(false);
 const isGeneratingToken = ref(false);
 const currentToken = ref('');
 
-// 刷新数据的标识
-const refreshKey = ref(0);
-
 // 定时刷新相关
 const autoRefreshInterval = ref(10 * 1000); // 10秒，单位毫秒
 let refreshTimer: NodeJS.Timeout | null = null;
@@ -133,16 +130,15 @@ const stopAutoRefresh = () => {
 
 // 刷新数据方法
 const refreshData = () => {
-  refreshKey.value++;
   searchKeyword.value = '';
 
-  // 直接调用子组件的刷新方法
+  // 直接调用子组件的数据刷新方法
   setTimeout(() => {
     if (modelMarketplaceRef.value && (modelMarketplaceRef.value as any).refreshData) {
       (modelMarketplaceRef.value as any).refreshData();
     }
-    if (modelTrendsRef.value && (modelTrendsRef.value as any).initializeData) {
-      (modelTrendsRef.value as any).initializeData();
+    if (modelTrendsRef.value && (modelTrendsRef.value as any).refreshData) {
+      (modelTrendsRef.value as any).refreshData();
     }
   }, 100);
 };
@@ -570,7 +566,7 @@ const usageGuideHtml = computed(() => {
       <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
         <!-- 左侧：模型广场 - 占3/4宽度 -->
         <div class="xl:col-span-3 order-2 xl:order-1">
-          <ModelMarketplace ref="modelMarketplaceRef" :key="refreshKey" :search-keyword="searchKeyword"
+          <ModelMarketplace ref="modelMarketplaceRef" :search-keyword="searchKeyword"
             @nav-to="navTo" @search="handleSearchFromChild" />
         </div>
 
@@ -598,7 +594,7 @@ const usageGuideHtml = computed(() => {
               </svg>
               模型动态
             </h3>
-            <ModelTrends ref="modelTrendsRef" :key="`trends-${refreshKey}`" />
+            <ModelTrends ref="modelTrendsRef" />
           </div>
         </div>
       </div>

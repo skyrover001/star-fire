@@ -364,6 +364,12 @@ const initializeData = async () => {
   await fetchTrends(0, initialPageSize);
 };
 
+// 刷新数据（重新加载数据）
+const refreshData = async () => {
+  console.log('ModelTrends 收到刷新指令');
+  await initializeData();
+};
+
 // 组件挂载时获取数据
 onMounted(() => {
   initializeData();
@@ -441,6 +447,7 @@ const formatContent = (content: string) => {
 // 暴露方法给父组件
 defineExpose({
   initializeData,
+  refreshData,
 });
 </script>
 

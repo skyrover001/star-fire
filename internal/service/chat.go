@@ -31,6 +31,13 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
+	ppm := 9.0
+	for _, m := range client.Models {
+		ppm = m.PPM
+	}
+
+	log.Println("Client ID:", client.ID, "Model:", request.Model, "PPM:", ppm)
+
 	if err := server.ClientFingerprintDB.SaveFingerprint(fingerPrint, client.ID, "preparing"); err != nil {
 		log.Printf("save fingerprint and client relation failed: %v", err)
 	}
@@ -52,11 +59,11 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	}
 
 	waitStart := time.Now()
-	handleChatResponse(c, server, fingerPrint, waitStart, client.ID)
+	handleChatResponse(c, server, fingerPrint, waitStart, client.ID, ppm)
 }
 
 // handle chat response
-func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string) {
+func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ppm float64) {
 	for {
 		if server.RespClients[fingerPrint] == nil {
 			time.Sleep(1 * time.Millisecond)
@@ -66,7 +73,7 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 		// save fingerprint and client relation and connect status to database
 		if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "transmitting"); err != nil {
 			log.Printf("save fingerprint and client relation failed: %v", err)
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 		}
@@ -80,32 +87,32 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 
 		switch response.Type {
 		case public.MESSAGE:
-			handleStandardChatResponse(c, server, fingerPrint, response, clientID)
+			handleStandardChatResponse(c, server, fingerPrint, response, clientID, ppm)
 			return
 
 		case public.MESSAGE_STREAM:
-			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID)
+			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ppm)
 			if finished {
 				return
 			}
 
 		case public.CLOSE:
 			log.Println("Client closed connection")
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 
 		case public.MODEL_ERROR:
 			log.Println("Model error:", response.Content)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Model error: " + response.Content.(string)})
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 
 		default:
 			log.Println("Unknown message type:", response.Type)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unknown message type: " + response.Type})
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 		}
@@ -113,7 +120,7 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 		if time.Since(waitStart) > public.CHAT_MAX_TIME*time.Second {
 			log.Println("Chat timeout")
 			c.JSON(http.StatusInternalServerError, gin.H{"error": "Chat timeout"})
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 		}
@@ -121,12 +128,12 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 }
 
 // handle standard chat response
-func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string) {
+func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ppm float64) {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 		}
@@ -135,9 +142,9 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		err = json.Unmarshal(jsonData, &chatResponse)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
-			server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return
 		}
 
@@ -145,7 +152,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 
 		recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
 			chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
-			chatResponse.Usage.TotalTokens, clientID)
+			chatResponse.Usage.TotalTokens, clientID, ppm)
 	} else {
 		log.Println("Invalid message content format")
 		server.RespClients[fingerPrint].Close()
@@ -154,12 +161,12 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 }
 
 // handle stream chat response
-func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string) bool {
+func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ppm float64) bool {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return true
 		}
@@ -171,7 +178,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			chatResponse.Choices[0].FinishReason)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return true
 		}
@@ -179,7 +186,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		_, err = c.Writer.Write([]byte("data: " + string(jsonData) + "\n\n"))
 		if err != nil {
 			log.Println("Error while writing response:", err)
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			return true
 		}
@@ -195,24 +202,24 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 				fmt.Println("chatResponse:", chatResponse, " promptTokens:", promptTokens,
 					" completionTokens:", completionTokens, " totalTokens:", totalTokens)
 				recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
-					promptTokens, completionTokens, totalTokens, clientID)
+					promptTokens, completionTokens, totalTokens, clientID, ppm)
 			}
-			server.RespClients[fingerPrint].Close()
+			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
-			server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return true
 		}
 
 		return false
 	} else {
 		log.Println("Invalid message content format")
-		server.RespClients[fingerPrint].Close()
+		_ = server.RespClients[fingerPrint].Close()
 		server.RemoveRespClient(fingerPrint)
 		return true
 	}
 }
 
-func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, model string, inputTokens, outputTokens, totalTokens int, clientID string) {
+func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, model string, inputTokens, outputTokens, totalTokens int, clientID string, ppm float64) {
 	if server.TokenUsageDB == nil {
 		log.Println("Token usage database not initialized")
 		return
@@ -230,7 +237,6 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 	}
 
 	clientIP := c.ClientIP()
-
 	usage := &models.TokenUsage{
 		RequestID:    requestID,
 		UserID:       userID.(string),
@@ -241,6 +247,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
 		TotalTokens:  totalTokens,
+		PPM:          ppm,
 		Timestamp:    time.Now(),
 	}
 

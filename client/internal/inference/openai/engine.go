@@ -6,6 +6,7 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 	"log"
+	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
 	"strings"
 	"time"
@@ -18,12 +19,12 @@ type Engine struct {
 	modelList []openai.Model
 }
 
-func NewEngine(ctx context.Context, apiKey, baseURL string) (*Engine, error) {
+func NewEngine(ctx context.Context, apiKey, baseURL string, conf *config.Config) (*Engine, error) {
 	engine := &Engine{
 		apiKey:  apiKey,
 		baseURL: baseURL,
 	}
-	if err := engine.Initialize(ctx); err != nil {
+	if err := engine.Initialize(ctx, conf); err != nil {
 		return nil, err
 	}
 	return engine, nil
@@ -33,13 +34,13 @@ func (e *Engine) Name() string {
 	return "openai"
 }
 
-func (e *Engine) Initialize(ctx context.Context) error {
-	config := openai.DefaultConfig(e.apiKey)
+func (e *Engine) Initialize(ctx context.Context, conf *config.Config) error {
+	clientConfig := openai.DefaultConfig(e.apiKey)
 	if e.baseURL != "" && e.baseURL != "https://api.openai.com/v1" {
-		config.BaseURL = e.baseURL
+		clientConfig.BaseURL = e.baseURL
 	}
-	e.client = openai.NewClientWithConfig(config)
-	fmt.Println("openai client created", e.client, config.BaseURL, config.APIType, e.apiKey, e.baseURL)
+	e.client = openai.NewClientWithConfig(clientConfig)
+	fmt.Println("openai client created", e.client, clientConfig.BaseURL, clientConfig.APIType, e.apiKey, e.baseURL)
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -53,7 +54,7 @@ func (e *Engine) Initialize(ctx context.Context) error {
 	return nil
 }
 
-func (e *Engine) ListModels(ctx context.Context) ([]*public.Model, error) {
+func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public.Model, error) {
 	models, err := e.client.ListModels(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get models frome openai engine error: %w", err)
@@ -66,13 +67,15 @@ func (e *Engine) ListModels(ctx context.Context) ([]*public.Model, error) {
 			Name: model.ID,
 			Type: model.Root,
 			Size: "unknown",
-			Arch: model.Object}
+			Arch: model.Object,
+			PPM:  conf.PricePerMillion,
+		}
 		publicModels = append(publicModels, publicModel)
 	}
 	return publicModels, nil
 }
 
-func (e *Engine) SupportsModel(modelName string) bool {
+func (e *Engine) SupportsModel(modelName string, conf *config.Config) bool {
 	for _, model := range e.modelList {
 		if model.ID == modelName {
 			return true

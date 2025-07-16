@@ -2,7 +2,7 @@
 import type { TabOption } from '@vben/types';
 import { ref, onMounted, computed, nextTick, watch } from 'vue';
 import { requestClient } from '#/api/request';
-import { useEcharts, EchartsUI } from '@vben/plugins/echarts';
+import { useEcharts } from '@vben/plugins/echarts';
 
 import {
   AnalysisChartCard,
@@ -20,6 +20,8 @@ import AnalyticsVisits from '../components/analytics-visits.vue';
 import TokenUsage from '../components/token-usage.vue';
 // @ts-ignore
 import MyUsageModels from './components/my-usage-models.vue';
+// @ts-ignore
+import UsageDetailTable from './components/usage-detail-table.vue';
 
 interface TokenUsageRecord {
   ID: number;
@@ -33,77 +35,24 @@ interface TokenUsageRecord {
   OutputTokens: number;
   TotalTokens: number;
   Timestamp: string;
+  PPM?: number; // 每百万Token价格
 }
 
 const loading = ref(false);
 const usageRecords = ref<TokenUsageRecord[]>([]);
 
+// 默认PPM值（每百万Token价格）
+const defaultPPM = 1000.00;
+
+// 计算单次调用消费
+const calculateSingleCallConsumption = (record: TokenUsageRecord) => {
+  const ppm = record.PPM || defaultPPM;
+  return (ppm / 1000000) * record.TotalTokens;
+};
+
 // 图表相关
 const incomeChartRef = ref();
 const { renderEcharts } = useEcharts(incomeChartRef);
-
-// 计算时间段统计数据
-const timeStatsData = computed(() => {
-  const records = usageRecords.value;
-  const now = new Date();
-  const today = now.toISOString().split('T')[0];
-  const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  
-  // 今日数据
-  const todayRecords = records.filter(r => r.Timestamp.startsWith(today));
-  const todayStats = {
-    totalTokens: todayRecords.reduce((sum, r) => sum + r.TotalTokens, 0),
-    inputTokens: todayRecords.reduce((sum, r) => sum + r.InputTokens, 0),
-    outputTokens: todayRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
-    calls: todayRecords.length,
-    models: new Set(todayRecords.map(r => r.Model)).size,
-    clients: new Set(todayRecords.map(r => r.ClientID)).size,
-    income: todayRecords.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
-  };
-  
-  // 本周数据
-  const weekRecords = records.filter(r => new Date(r.Timestamp) >= weekStart);
-  const weekStats = {
-    totalTokens: weekRecords.reduce((sum, r) => sum + r.TotalTokens, 0),
-    inputTokens: weekRecords.reduce((sum, r) => sum + r.InputTokens, 0),
-    outputTokens: weekRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
-    calls: weekRecords.length,
-    models: new Set(weekRecords.map(r => r.Model)).size,
-    clients: new Set(weekRecords.map(r => r.ClientID)).size,
-    income: weekRecords.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
-  };
-  
-  // 本月数据
-  const monthRecords = records.filter(r => new Date(r.Timestamp) >= monthStart);
-  const monthStats = {
-    totalTokens: monthRecords.reduce((sum, r) => sum + r.TotalTokens, 0),
-    inputTokens: monthRecords.reduce((sum, r) => sum + r.InputTokens, 0),
-    outputTokens: monthRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
-    calls: monthRecords.length,
-    models: new Set(monthRecords.map(r => r.Model)).size,
-    clients: new Set(monthRecords.map(r => r.ClientID)).size,
-    income: monthRecords.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
-  };
-  
-  // 总计数据
-  const totalStats = {
-    totalTokens: records.reduce((sum, r) => sum + r.TotalTokens, 0),
-    inputTokens: records.reduce((sum, r) => sum + r.InputTokens, 0),
-    outputTokens: records.reduce((sum, r) => sum + r.OutputTokens, 0),
-    calls: records.length,
-    models: new Set(records.map(r => r.Model)).size,
-    clients: new Set(records.map(r => r.ClientID)).size,
-    income: records.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
-  };
-  
-  return {
-    today: todayStats,
-    week: weekStats,
-    month: monthStats,
-    total: totalStats
-  };
-});
 
 // 计算输出Token统计
 const outputTokenStats = computed(() => {
@@ -194,17 +143,14 @@ const clientStats = computed(() => {
   };
 });
 
-// 收益设置（默认每个输出Token 0.001元）
-const modelMultiplier = ref(0.001);
-
-// 计算收益统计
+// 计算消费统计
 const incomeStats = computed(() => {
   const records = usageRecords.value;
-  const totalIncome = records.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0);
+  const totalIncome = records.reduce((sum, r) => sum + calculateSingleCallConsumption(r), 0);
   
   const today = new Date().toISOString().split('T')[0] || '';
   const todayRecords = records.filter(r => r.Timestamp && r.Timestamp.startsWith(today));
-  const todayIncome = todayRecords.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0);
+  const todayIncome = todayRecords.reduce((sum, r) => sum + calculateSingleCallConsumption(r), 0);
   
   return {
     total: totalIncome,
@@ -212,14 +158,20 @@ const incomeStats = computed(() => {
   };
 });
 
-// 计算按模型收益数据（用于柱状图）
+// 计算按模型消费数据（用于柱状图）
 const modelIncomeData = computed(() => {
-  return modelStats.value.map(model => ({
-    name: model.name,
-    income: model.outputTokens * modelMultiplier.value,
-    outputTokens: model.outputTokens,
-    requestCount: model.requestCount,
-  })).sort((a, b) => b.income - a.income);
+  return modelStats.value.map(model => {
+    // 模拟计算该模型的总消费（基于PPM）
+    const modelRecords = usageRecords.value.filter(r => r.Model === model.name);
+    const totalConsumption = modelRecords.reduce((sum, r) => sum + calculateSingleCallConsumption(r), 0);
+    
+    return {
+      name: model.name,
+      income: totalConsumption,
+      outputTokens: model.outputTokens,
+      requestCount: model.requestCount,
+    };
+  }).sort((a, b) => b.income - a.income);
 });
 
 const chartTabs: TabOption[] = [
@@ -270,28 +222,28 @@ const fetchUsageData = async () => {
   }
 };
 
-// 更新收益柱状图
+// 更新消费柱状图
 const updateIncomeChart = () => {
   if (!incomeChartRef.value || modelIncomeData.value.length === 0) {
     console.log('图表组件还未挂载或无数据');
     return;
   }
 
-  console.log('更新收益柱状图数据:', modelIncomeData.value);
+  console.log('更新消费柱状图数据:', modelIncomeData.value);
 
   const option = {
     title: {
-      text: '按模型收益统计',
+      text: '按模型消费统计',
       left: 'center',
       textStyle: {
         fontSize: 16,
-        fontWeight: 'bold'
+        fontWeight: 'bold' as const
       }
     },
     tooltip: {
-      trigger: 'axis',
+      trigger: 'axis' as const,
       axisPointer: {
-        type: 'shadow'
+        type: 'shadow' as const
       },
       formatter: function(params: any) {
         const data = params[0];
@@ -299,7 +251,7 @@ const updateIncomeChart = () => {
         return `
           <div style="padding: 8px;">
             <div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>
-            <div>收益: ¥${data.value.toFixed(3)}</div>
+            <div>消费: ¥${data.value.toFixed(3)}</div>
             <div>输出Token: ${modelData?.outputTokens.toLocaleString()}</div>
             <div>调用次数: ${modelData?.requestCount}</div>
           </div>
@@ -313,7 +265,7 @@ const updateIncomeChart = () => {
       containLabel: true
     },
     xAxis: {
-      type: 'category',
+      type: 'category' as const,
       data: modelIncomeData.value.map(item => item.name),
       axisLabel: {
         interval: 0,
@@ -322,16 +274,16 @@ const updateIncomeChart = () => {
       }
     },
     yAxis: {
-      type: 'value',
-      name: '收益 (¥)',
+      type: 'value' as const,
+      name: '消费 (¥)',
       axisLabel: {
         formatter: '¥{value}'
       }
     },
     series: [
       {
-        name: '收益',
-        type: 'bar',
+        name: '消费',
+        type: 'bar' as const,
         data: modelIncomeData.value.map(item => ({
           value: item.income,
           name: item.name,
@@ -341,7 +293,7 @@ const updateIncomeChart = () => {
         })),
         markLine: {
           data: [
-            { type: 'average', name: '平均值' }
+            { type: 'average' as const, name: '平均值' }
           ]
         }
       }
@@ -478,7 +430,7 @@ onMounted(() => {
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>¥{{ incomeStats.today.toFixed(3) }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">今日收益</p>
+            <p class="text-xs text-[var(--text-tertiary)]">今日消费</p>
           </div>
         </div>
       </div>
@@ -498,9 +450,13 @@ onMounted(() => {
     </AnalysisChartsTabs>
 
     <!-- 详情卡片 -->
-    <div class="mt-5 w-full">
+    <div class="mt-5 grid grid-cols-1 lg:grid-cols-2 gap-5">
       <AnalysisChartCard title="我使用的模型">
         <MyUsageModels />
+      </AnalysisChartCard>
+      
+      <AnalysisChartCard title="使用详单">
+        <UsageDetailTable />
       </AnalysisChartCard>
     </div>
   </div>

@@ -14,6 +14,7 @@ interface TokenUsageRecord {
   OutputTokens: number;
   TotalTokens: number;
   Timestamp: string;
+  PPM?: number; // 每百万Token价格
 }
 
 interface ModelUsageSummary {
@@ -25,10 +26,20 @@ interface ModelUsageSummary {
   lastUsed: string;
   avgResponseTime: number;
   firstUsed: string;
+  totalConsumption: number; // 总消费金额
 }
 
 const usageRecords = ref<TokenUsageRecord[]>([]);
 const loading = ref(false);
+
+// 默认PPM值（每百万Token价格）
+const defaultPPM = 1000.00;
+
+// 计算单次调用消费
+const calculateSingleCallConsumption = (record: TokenUsageRecord) => {
+  const ppm = record.PPM || defaultPPM;
+  return (ppm / 1000000) * record.TotalTokens;
+};
 
 // 根据Token使用记录计算模型使用汇总
 const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
@@ -38,6 +49,7 @@ const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
     inputTokens: number;
     outputTokens: number;
     timestamps: string[];
+    totalConsumption: number; // 总消费金额
   } } = {};
 
   usageRecords.value.forEach(record => {
@@ -48,7 +60,8 @@ const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
         totalTokens: 0,
         inputTokens: 0,
         outputTokens: 0,
-        timestamps: []
+        timestamps: [],
+        totalConsumption: 0
       };
     }
 
@@ -57,10 +70,11 @@ const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
     modelStats[model].inputTokens += record.InputTokens;
     modelStats[model].outputTokens += record.OutputTokens;
     modelStats[model].timestamps.push(record.Timestamp);
+    modelStats[model].totalConsumption += calculateSingleCallConsumption(record);
   });
 
   return Object.entries(modelStats).map(([model, stats]) => {
-    const sortedTimestamps = stats.timestamps.sort((a, b) => 
+    const sortedTimestamps = stats.timestamps.filter(t => t).sort((a, b) => 
       new Date(b).getTime() - new Date(a).getTime()
     );
 
@@ -71,8 +85,9 @@ const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
       inputTokens: stats.inputTokens,
       outputTokens: stats.outputTokens,
       lastUsed: sortedTimestamps[0] ? new Date(sortedTimestamps[0]).toLocaleString('zh-CN') : 'N/A',
-      firstUsed: sortedTimestamps[sortedTimestamps.length - 1] ? new Date(sortedTimestamps[sortedTimestamps.length - 1]).toLocaleString('zh-CN') : 'N/A',
+      firstUsed: sortedTimestamps.length > 0 ? new Date(sortedTimestamps[sortedTimestamps.length - 1]!).toLocaleString('zh-CN') : 'N/A',
       avgResponseTime: Math.floor(Math.random() * 500) + 200, // 模拟平均响应时间
+      totalConsumption: stats.totalConsumption,
     };
   }).sort((a, b) => b.totalCalls - a.totalCalls); // 按调用次数排序
 });
@@ -216,8 +231,8 @@ onMounted(() => {
             <div class="font-medium text-[var(--text-primary)]">{{ model.lastUsed }}</div>
           </div>
           <div>
-            <span class="text-[var(--text-secondary)]">平均响应:</span>
-            <div class="font-medium text-[var(--text-primary)]">{{ model.avgResponseTime }}ms</div>
+            <span class="text-[var(--text-secondary)]">总消费:</span>
+            <div class="font-medium text-green-600">¥{{ model.totalConsumption.toFixed(4) }}</div>
           </div>
         </div>
         
@@ -228,15 +243,18 @@ onMounted(() => {
               {{ formatTokens(model.inputTokens) }} / {{ formatTokens(model.outputTokens) }}
             </span>
           </div>
-          
-          <div class="flex space-x-2">
-            <button class="text-xs text-blue-600 hover:text-blue-800 transition-colors">
-              查看详情
-            </button>
-            <button class="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
-              使用历史
-            </button>
+          <div class="text-xs text-[var(--text-secondary)]">
+            平均响应: {{ model.avgResponseTime }}ms
           </div>
+        </div>
+        
+        <div class="mt-3 flex justify-end space-x-2">
+          <button class="text-xs text-blue-600 hover:text-blue-800 transition-colors">
+            查看详情
+          </button>
+          <button class="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
+            使用历史
+          </button>
         </div>
       </div>
       

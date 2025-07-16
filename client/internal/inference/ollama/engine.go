@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
 	"time"
 
@@ -20,13 +21,13 @@ type Engine struct {
 	ollamaURL string
 }
 
-func NewEngine(ctx context.Context, ollamaURL string) (*Engine, error) {
+func NewEngine(ctx context.Context, ollamaURL string, conf *config.Config) (*Engine, error) {
 	engine := &Engine{
 		models:    make(map[string]api.ProcessModelResponse),
 		ollamaURL: ollamaURL,
 	}
 
-	if err := engine.Initialize(ctx); err != nil {
+	if err := engine.Initialize(ctx, conf); err != nil {
 		return nil, err
 	}
 	return engine, nil
@@ -36,9 +37,9 @@ func (e *Engine) Name() string {
 	return "ollama"
 }
 
-func (e *Engine) Initialize(ctx context.Context) error {
+func (e *Engine) Initialize(ctx context.Context, conf *config.Config) error {
 	httpClient := &http.Client{
-		Timeout: 30 * time.Second,
+		Timeout: 3600 * time.Second,
 	}
 
 	ollamaURL, err := url.Parse(e.ollamaURL)
@@ -53,14 +54,14 @@ func (e *Engine) Initialize(ctx context.Context) error {
 	if err := e.client.Heartbeat(timeoutCtx); err != nil {
 		return fmt.Errorf("can not connect to ollama engine: %w", err)
 	}
-	if _, err := e.ListModels(ctx); err != nil {
+	if _, err := e.ListModels(ctx, conf); err != nil {
 		log.Printf("alert: load models error: %v", err)
 	}
 
 	return nil
 }
 
-func (e *Engine) ListModels(ctx context.Context) ([]*public.Model, error) {
+func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public.Model, error) {
 	resp, err := e.client.ListRunning(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("get ollama running models error: %w", err)
@@ -74,6 +75,7 @@ func (e *Engine) ListModels(ctx context.Context) ([]*public.Model, error) {
 			Type: "ollama",
 			Size: fmt.Sprintf("%d", model.Size),
 			Arch: model.Details.QuantizationLevel,
+			PPM:  conf.PricePerMillion,
 		}
 		models = append(models, publicModel)
 	}
@@ -82,13 +84,13 @@ func (e *Engine) ListModels(ctx context.Context) ([]*public.Model, error) {
 	return models, nil
 }
 
-func (e *Engine) SupportsModel(modelName string) bool {
+func (e *Engine) SupportsModel(modelName string, conf *config.Config) bool {
 	if _, ok := e.models[modelName]; ok {
 		return true
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	if _, err := e.ListModels(ctx); err != nil {
+	if _, err := e.ListModels(ctx, conf); err != nil {
 		return false
 	}
 	_, ok := e.models[modelName]

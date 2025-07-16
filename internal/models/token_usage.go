@@ -14,6 +14,7 @@ type TokenUsage struct {
 	ClientID     string `gorm:"index"`
 	ClientIP     string
 	Model        string    `gorm:"not null"`
+	PPM          float64   `gorm:"not null"`
 	InputTokens  int       `gorm:"not null"`
 	OutputTokens int       `gorm:"not null"`
 	TotalTokens  int       `gorm:"not null"`
