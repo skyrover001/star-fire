@@ -2,10 +2,13 @@
 package utils
 
 import (
+	"fmt"
 	"gopkg.in/gomail.v2"
 )
 
 func SendEmail(to, subject, body, from, host, username, password string, port int) error {
+	fmt.Println("Sending email to:", to, "with subject:", subject, "and body:", body,
+		"from:", from, "host:", host, "username:", username, "port:", port)
 	m := gomail.NewMessage()
 	m.SetHeader("From", from)
 	m.SetHeader("To", to)
