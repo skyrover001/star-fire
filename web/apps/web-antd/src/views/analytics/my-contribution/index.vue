@@ -160,6 +160,9 @@
                   总Token
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                  PPM(元/百万tokens)
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                   收益
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
@@ -197,8 +200,13 @@
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="text-sm font-medium text-orange-600">
+                    {{ (record.PPM || defaultPPM).toFixed(2) }}
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
                   <div class="text-sm font-bold text-green-600">
-                    ¥{{ (record.OutputTokens * modelMultiplier).toFixed(4) }}
+                    ¥{{ calculateSingleCallIncome(record).toFixed(4) }}
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -220,7 +228,7 @@
                 共 {{ sortedIncomeData.length }} 条记录（按时间倒序）
               </div>
               <div class="text-sm text-[var(--text-secondary)]">
-                收益倍数: {{ modelMultiplier }} 元/Token
+                收益计算: (PPM/1,000,000) × TotalTokens（默认PPM: {{ defaultPPM.toFixed(2) }}）
               </div>
             </div>
             <!-- 分页控件 -->
@@ -423,11 +431,7 @@ interface IncomeRecord {
   OutputTokens: number
   TotalTokens: number
   Timestamp: string
-}
-
-interface IncomeResponse {
-  data: IncomeRecord[]
-  total: number
+  PPM?: number // 每百万Token的价格（如果API返回此字段）
 }
 
 const loading = ref(false)
@@ -442,8 +446,14 @@ const trendChartRef = ref()
 const { renderEcharts: renderIncomeChart } = useEcharts(incomeChartRef)
 const { renderEcharts: renderTrendChart } = useEcharts(trendChartRef)
 
-// 收益设置（默认每个输出Token 0.001元）
-const modelMultiplier = ref(0.001)
+// 收益设置（默认PPM值，如果API没有返回PPM字段则使用此值）
+const defaultPPM = ref(10.00) // 默认每百万Token价格为1000元
+
+// 计算单次调用收益：(PPM/1,000,000) × TotalTokens
+const calculateSingleCallIncome = (record: IncomeRecord): number => {
+  const ppm = record.PPM || defaultPPM.value
+  return (ppm / 1000000) * record.TotalTokens
+}
 
 // 格式化时间戳
 const formatTimestamp = (timestamp: string) => {
@@ -467,14 +477,14 @@ const timeStatsData = computed(() => {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
   
   // 今日数据
-  const todayRecords = records.filter(r => r.Timestamp.startsWith(today))
+  const todayRecords = records.filter(r => r.Timestamp && r.Timestamp.startsWith(today || ''))
   const todayStats = {
     totalTokens: todayRecords.reduce((sum, r) => sum + r.TotalTokens, 0),
     inputTokens: todayRecords.reduce((sum, r) => sum + r.InputTokens, 0),
     outputTokens: todayRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
     calls: todayRecords.length,
     models: new Set(todayRecords.map(r => r.Model)).size,
-    income: todayRecords.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
+    income: todayRecords.reduce((sum, r) => sum + calculateSingleCallIncome(r), 0)
   }
   
   // 本周数据
@@ -485,7 +495,7 @@ const timeStatsData = computed(() => {
     outputTokens: weekRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
     calls: weekRecords.length,
     models: new Set(weekRecords.map(r => r.Model)).size,
-    income: weekRecords.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
+    income: weekRecords.reduce((sum, r) => sum + calculateSingleCallIncome(r), 0)
   }
   
   // 本月数据
@@ -496,7 +506,7 @@ const timeStatsData = computed(() => {
     outputTokens: monthRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
     calls: monthRecords.length,
     models: new Set(monthRecords.map(r => r.Model)).size,
-    income: monthRecords.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
+    income: monthRecords.reduce((sum, r) => sum + calculateSingleCallIncome(r), 0)
   }
   
   // 总计数据
@@ -506,7 +516,7 @@ const timeStatsData = computed(() => {
     outputTokens: records.reduce((sum, r) => sum + r.OutputTokens, 0),
     calls: records.length,
     models: new Set(records.map(r => r.Model)).size,
-    income: records.reduce((sum, r) => sum + (r.OutputTokens * modelMultiplier.value), 0)
+    income: records.reduce((sum, r) => sum + calculateSingleCallIncome(r), 0)
   }
   
   return {
@@ -525,7 +535,7 @@ const averageIncomePerCall = computed(() => {
 
 const maxIncomePerCall = computed(() => {
   if (incomeData.value.length === 0) return 0
-  return Math.max(...incomeData.value.map(record => record.OutputTokens * modelMultiplier.value))
+  return Math.max(...incomeData.value.map(record => calculateSingleCallIncome(record)))
 })
 
 const successRate = computed(() => {
@@ -555,7 +565,7 @@ const modelStats = computed(() => {
     stat.inputTokens += record.InputTokens
     stat.outputTokens += record.OutputTokens
     stat.totalTokens += record.TotalTokens
-    stat.income += record.OutputTokens * modelMultiplier.value
+    stat.income += calculateSingleCallIncome(record)
     stat.calls += 1
     stat.successCalls += 1 // 假设所有记录都成功
     stat.clients.add(record.ClientID)
@@ -582,8 +592,10 @@ const dailyIncomeData = computed(() => {
   const daily: Record<string, number> = {}
   
   incomeData.value.forEach(record => {
-    const date = record.Timestamp.split('T')[0]
-    daily[date] = (daily[date] || 0) + (record.OutputTokens * modelMultiplier.value)
+    const date = record.Timestamp?.split('T')[0]
+    if (date) {
+      daily[date] = (daily[date] || 0) + calculateSingleCallIncome(record)
+    }
   })
   
   return Object.entries(daily)
@@ -648,13 +660,13 @@ const updateIncomeChart = () => {
       left: 'center',
       textStyle: {
         fontSize: 16,
-        fontWeight: 'normal'
+        fontWeight: 'normal' as const
       }
     },
     tooltip: {
-      trigger: 'axis',
+      trigger: 'axis' as const,
       axisPointer: {
-        type: 'shadow'
+        type: 'shadow' as const
       },
       formatter: function(params: any) {
         const data = params[0]
@@ -674,7 +686,7 @@ const updateIncomeChart = () => {
       containLabel: true
     },
     xAxis: {
-      type: 'category',
+      type: 'category' as const,
       data: modelIncomeData.value.map(item => item.name),
       axisLabel: {
         interval: 0,
@@ -683,7 +695,7 @@ const updateIncomeChart = () => {
       }
     },
     yAxis: {
-      type: 'value',
+      type: 'value' as const,
       name: '收益 (¥)',
       axisLabel: {
         formatter: '¥{value}'
@@ -692,7 +704,7 @@ const updateIncomeChart = () => {
     series: [
       {
         name: '收益',
-        type: 'bar',
+        type: 'bar' as const,
         data: modelIncomeData.value.map(item => ({
           value: item.income,
           name: item.name,
@@ -702,7 +714,7 @@ const updateIncomeChart = () => {
         })),
         markLine: {
           data: [
-            { type: 'average', name: '平均值' }
+            { type: 'average' as const, name: '平均值' }
           ]
         }
       }
@@ -722,11 +734,11 @@ const updateTrendChart = () => {
       left: 'center',
       textStyle: {
         fontSize: 16,
-        fontWeight: 'normal'
+        fontWeight: 'normal' as const
       }
     },
     tooltip: {
-      trigger: 'axis',
+      trigger: 'axis' as const,
       formatter: function(params: any) {
         const data = params[0]
         return `${data.axisValue}<br/>收益: ¥${data.value.toFixed(4)}`
@@ -739,7 +751,7 @@ const updateTrendChart = () => {
       containLabel: true
     },
     xAxis: {
-      type: 'category',
+      type: 'category' as const,
       data: dailyIncomeData.value.map(item => item.date),
       axisLabel: {
         formatter: function(value: string) {
@@ -748,7 +760,7 @@ const updateTrendChart = () => {
       }
     },
     yAxis: {
-      type: 'value',
+      type: 'value' as const,
       name: '收益 (¥)',
       axisLabel: {
         formatter: '¥{value}'
@@ -757,7 +769,7 @@ const updateTrendChart = () => {
     series: [
       {
         name: '每日收益',
-        type: 'line',
+        type: 'line' as const,
         data: dailyIncomeData.value.map(item => item.income),
         smooth: true,
         lineStyle: {
@@ -765,7 +777,7 @@ const updateTrendChart = () => {
         },
         areaStyle: {
           color: {
-            type: 'linear',
+            type: 'linear' as const,
             x: 0,
             y: 0,
             x2: 0,

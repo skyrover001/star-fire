@@ -45,5 +45,6 @@ type Model struct {
 	Type        string       `json:"type"`
 	Size        string       `json:"size"`
 	Arch        string       `json:"arch"`
+	PPM         float64      `json:"ppm"`
 	OpenAIModel openai.Model `json:"openai_model"`
 }

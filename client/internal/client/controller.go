@@ -6,13 +6,14 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	configs "star-fire/client/internal/config"
 	"star-fire/pkg/public"
 
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 )
 
-func RegisterClient(c *Client, host, token string) error {
+func RegisterClient(conf *configs.Config, c *Client, host, token string) error {
 	u := url.URL{Scheme: "ws", Host: host, Path: fmt.Sprintf("/register/%s", c.ID)}
 	log.Printf("link %s", u.String())
 
@@ -34,7 +35,7 @@ func RegisterClient(c *Client, host, token string) error {
 		Content: c,
 	}
 	if err := conn.WriteJSON(registerInfo); err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return fmt.Errorf("send register info error: %w", err)
 	}
 

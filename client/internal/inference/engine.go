@@ -3,6 +3,7 @@ package inference
 
 import (
 	"context"
+	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
 
 	"github.com/gorilla/websocket"
@@ -11,9 +12,9 @@ import (
 
 type Engine interface {
 	Name() string
-	Initialize(ctx context.Context) error
-	ListModels(ctx context.Context) ([]*public.Model, error)
-	SupportsModel(modelName string) bool
+	Initialize(ctx context.Context, conf *config.Config) error
+	ListModels(ctx context.Context, conf *config.Config) ([]*public.Model, error)
+	SupportsModel(modelName string, conf *config.Config) bool
 	HandleChat(ctx context.Context, fingerprint string,
 		request *openai.ChatCompletionRequest,
 		responseConn *websocket.Conn) error
