@@ -16,6 +16,11 @@ type Configuration struct {
 	MaxAPIKeysPerUser int
 	DefaultKeyExpiry  int
 	LBA               string
+	EmailHost         string
+	EmailPort         int
+	EmailUser         string
+	EmailPassword     string
+	EmailFrom         string
 }
 
 var Config = loadConfig()
@@ -31,6 +36,14 @@ func loadConfig() Configuration {
 	maxAPIKeysPerUser, _ := strconv.Atoi(getEnv("MAX_API_KEYS_PER_USER", "3"))
 	defaultKeyExpiry, _ := strconv.Atoi(getEnv("DEFAULT_KEY_EXPIRY", "30"))
 	lba := getEnv("LBA", "round-robin")
+	emailHost := getEnv("EMAIL_HOST", "")
+	emailPort, _ := strconv.Atoi(getEnv("EMAIL_PORT", "587"))
+	emailUser := getEnv("EMAIL_USER", "")
+	emailPassword := getEnv("EMAIL_PASSWORD", "")
+	emailFrom := getEnv("EMAIL_FROM", "")
+	if emailHost != "" && (emailPort == 0 || emailUser == "" || emailPassword == "" || emailFrom == "") {
+		panic("Email configuration is incomplete. Please set EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, and EMAIL_FROM.")
+	}
 
 	return Configuration{
 		ServerPort:        port,
@@ -43,6 +56,11 @@ func loadConfig() Configuration {
 		MaxAPIKeysPerUser: maxAPIKeysPerUser,
 		DefaultKeyExpiry:  defaultKeyExpiry,
 		LBA:               lba,
+		EmailHost:         emailHost,
+		EmailPort:         emailPort,
+		EmailUser:         emailUser,
+		EmailPassword:     emailPassword,
+		EmailFrom:         emailFrom,
 	}
 }
 

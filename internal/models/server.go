@@ -15,6 +15,14 @@ import (
 	"time"
 )
 
+type MailService struct {
+	SMTPServer   string
+	SMTPPort     int
+	SMTPUsername string
+	SMTPPassword string
+	FromAddress  string
+}
+
 type Server struct {
 	clientsMu sync.RWMutex
 	Clients   map[string]map[string]*Client
@@ -37,6 +45,8 @@ type Server struct {
 	TrendDB             *TrendDB
 
 	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
+
+	MailService *MailService // optional, for sending emails
 }
 
 func NewServer() *Server {
@@ -86,6 +96,13 @@ func NewServer() *Server {
 		ClientFingerprintDB:  clientFingerprintDB,
 		TrendDB:              trendDB,
 		LoadBalanceAlgorithm: configs.Config.LBA, // default load balancing algorithm
+		MailService: &MailService{
+			SMTPServer:   configs.Config.EmailHost,
+			SMTPPort:     configs.Config.EmailPort,
+			SMTPUsername: configs.Config.EmailUser,
+			SMTPPassword: configs.Config.EmailPassword,
+			FromAddress:  configs.Config.EmailFrom,
+		},
 	}
 
 	go func() {
