@@ -25,8 +25,18 @@ type codeInfo struct {
 	expiresAt time.Time
 }
 
+type UserHandler struct {
+	server *models.Server
+}
+
+func NewUserHandler(server *models.Server) *UserHandler {
+	return &UserHandler{
+		server: server,
+	}
+}
+
 // SendVerificationCode 发送验证码
-func SendVerificationCode(c *gin.Context) {
+func (uh *UserHandler) SendVerificationCode(c *gin.Context) {
 	var req struct {
 		Email string `json:"email" binding:"required,email"`
 	}
@@ -52,7 +62,9 @@ func SendVerificationCode(c *gin.Context) {
 	subject := "星火算力计划 - 注册验证码"
 	body := fmt.Sprintf("<p>您好，</p><p>您的注册验证码是：<strong>%s</strong></p><p>验证码有效期为10分钟。</p>", code)
 
-	if err := utils.SendEmail(req.Email, subject, body); err != nil {
+	if err := utils.SendEmail(req.Email, subject, body, uh.server.MailService.FromAddress,
+		uh.server.MailService.SMTPServer, uh.server.MailService.SMTPUsername, uh.server.MailService.SMTPPassword,
+		uh.server.MailService.SMTPPort); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "发送验证码失败:" + err.Error()})
 		return
 	}
@@ -61,7 +73,7 @@ func SendVerificationCode(c *gin.Context) {
 }
 
 // Register 用户注册
-func Register(c *gin.Context, server *models.Server) {
+func (uh *UserHandler) Register(c *gin.Context, server *models.Server) {
 	var req struct {
 		Email    string `json:"email" binding:"required,email"`
 		Username string `json:"username" binding:"required"`

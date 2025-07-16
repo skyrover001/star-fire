@@ -22,14 +22,15 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	tokenUsageHandler := user_handlers.NewTokenUsageHandler(server)
 
 	marketHandler := user_handlers.NewMarketHandler(server)
+	userHandler := user_handlers.NewUserHandler(server)
 
 	// 登录和注册路由
 	r.POST("/api/login", authHandler.Login)
 	r.POST("/api/send-code", func(c *gin.Context) {
-		user_handlers.SendVerificationCode(c)
+		userHandler.SendVerificationCode(c)
 	})
 	r.POST("/api/register", func(c *gin.Context) {
-		user_handlers.Register(c, server)
+		userHandler.Register(c, server)
 	})
 
 	// 客户端路由
