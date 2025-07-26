@@ -23,6 +23,16 @@ const routes: RouteRecordRaw[] = [
     path: '/model-marketplace-detail',
     component: () => import('#/views/model-marketplace-detail/index.vue'),
   },
+  // 聊天页面
+  {
+    meta: {
+      hideInMenu: true,
+      title: 'AI 对话',
+    },
+    name: 'Chat',
+    path: '/chat',
+    component: () => import('#/views/chat/index.vue'),
+  },
   // 我的模型
   // {
   //   meta: {

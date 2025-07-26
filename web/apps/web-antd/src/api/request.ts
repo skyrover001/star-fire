@@ -110,4 +110,26 @@ export const requestClient = createRequestClient(apiURL, {
   responseReturn: 'body',
 });
 
+// 为聊天功能创建不带/api前缀的请求客户端
+const baseURL = apiURL.replace('/api', ''); // 移除/api前缀
+export const chatRequestClient = new RequestClient({ 
+  baseURL,
+  // 不使用默认的拦截器，避免添加Authorization header
+});
+
+// 添加简单的响应拦截器来查看原始响应
+chatRequestClient.addResponseInterceptor({
+  fulfilled: (response) => {
+    console.log('Raw chat response:', response);
+    console.log('Response data:', response.data);
+    console.log('Response status:', response.status);
+    console.log('Response headers:', response.headers);
+    return response;
+  },
+  rejected: (error) => {
+    console.error('Chat request error:', error);
+    return Promise.reject(error);
+  }
+});
+
 export const baseRequestClient = new RequestClient({ baseURL: apiURL });
