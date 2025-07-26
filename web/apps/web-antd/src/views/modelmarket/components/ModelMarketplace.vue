@@ -321,10 +321,28 @@
               </span>
             </div>
             
-            <!-- 模型名称和类型 -->
-            <h4 class="text-lg font-bold text-[var(--text-primary)] group-hover:text-blue-500 transition-colors duration-200 mb-2">
-              {{ model.name }}
-            </h4>
+            <!-- 模型ID - 紧凑显示并支持复制 -->
+            <div class="mb-3 p-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+              <div class="flex items-center justify-between">
+                <div class="flex items-center gap-2 min-w-0 flex-1">
+                  <span class="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide flex-shrink-0">ID:</span>
+                  <code class="text-xs font-mono font-bold text-gray-800 dark:text-gray-200 truncate cursor-pointer hover:text-blue-600 transition-colors" 
+                        @click.stop="copyToClipboard(model.id)"
+                        :title="'点击复制: ' + model.id">
+                    {{ model.id }}
+                  </code>
+                </div>
+                <button 
+                  @click.stop="copyToClipboard(model.id)"
+                  class="p-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors group/copy flex-shrink-0"
+                  title="复制模型ID"
+                >
+                  <svg class="w-3 h-3 text-blue-500 group-hover/copy:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
             
             <!-- 模型标签 -->
             <div class="flex flex-wrap gap-2 mb-3">
@@ -334,37 +352,34 @@
               <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-500 border border-purple-500/20">
                 {{ model.modelType }}
               </span>
+              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-green-500/10 text-green-500 border border-green-500/20">
+                {{ model.quantization }}
+              </span>
+              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                {{ getModelSeries(model.id) }}
+              </span>
+              <!-- 定价标签 -->
+              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                ¥{{ model.ppm?.toFixed(2) || '0.00' }}/百万Token
+              </span>
             </div>
             
             <!-- 模型规格信息 -->
             <div class="space-y-1 mb-4 text-xs text-[var(--text-secondary)]">
               <div class="flex justify-between">
-                <span>参数大小:</span>
-                <span class="font-medium text-[var(--text-primary)]">{{ model.parameterSize }}</span>
+                <span>模型名称:</span>
+                <span class="font-medium text-[var(--text-primary)]">{{ model.name }}</span>
               </div>
               <div class="flex justify-between">
-                <span>模型量化:</span>
-                <span class="font-medium text-[var(--text-primary)]">{{ model.quantization }}</span>
+                <span>创建者:</span>
+                <span class="font-medium text-[var(--text-primary)]">{{ model.creator || '未知' }}</span>
               </div>
-              <div class="flex justify-between">
-                <span>推理引擎:</span>
-                <span class="font-medium text-[var(--text-primary)]">{{ model.modelType }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span>模型贡献人数:</span>
-                <span class="font-medium text-[var(--text-primary)]">{{ model.clientCount }}人</span>
-              </div>
-              <div class="flex justify-between">
+              <div class="flex justify-between items-center">
                 <span>可用客户端:</span>
-                <span class="font-medium text-[var(--text-primary)]">{{ model.clientCount }}个</span>
+                <span class="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded">{{ model.clientCount || 0 }}个</span>
               </div>
             </div>
-            
-            <!-- 描述 -->
-            <p class="text-sm text-[var(--text-secondary)] leading-relaxed line-clamp-2 mb-4">
-              {{ model.description }}
-            </p>
-            
+
             <!-- 快速操作 -->
             <div class="mt-4 flex items-center justify-between">
               <div class="flex items-center space-x-2">
@@ -377,32 +392,25 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
                   </svg>
                 </button>
-                <button
-                  class="p-2 rounded-lg bg-green-500/10 text-green-500 hover:bg-green-500/20 transition-colors duration-200"
-                  title="下载"
-                  @click.stop="downloadModel(model)"
-                >
-                  <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                  </svg>
-                </button>
               </div>
               
-              <!-- 底部信息 -->
-              <div class="flex items-center justify-between pt-4 border-t border-[var(--border-color)]">
-                <div class="flex items-center space-x-3 text-sm">
-                  <div v-if="model.clientCount" class="flex items-center text-blue-500">
-                    <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-                    </svg>
-                    {{ model.clientCount }}人贡献
-                  </div>
-                </div>
+              <div class="flex items-center space-x-2">
+                <button
+                  class="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-xs font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 hover:scale-105 border border-green-400/20 relative overflow-hidden group"
+                  @click.stop="openChatDialog(model)"
+                >
+                  <!-- 动画光效 -->
+                  <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-500"></div>
+                  <svg class="mr-1.5 h-3 w-3 relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                  </svg>
+                  <span class="relative z-10">对话</span>
+                </button>
                 <button
                   class="opacity-0 group-hover:opacity-100 inline-flex items-center px-3 py-1 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-xs font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                   @click.stop="handleViewDetails(model)"
                 >
-                  查看
+                  查看详情
                   <svg class="ml-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                   </svg>
@@ -446,91 +454,92 @@
             <div class="flex-1 min-w-0">
               <div class="flex items-start justify-between">
                 <div class="flex-1">
-                  <h4 class="text-xl font-bold text-[var(--text-primary)] group-hover:text-blue-500 transition-colors duration-200">
-                    {{ model.name }}
-                  </h4>
+                  <!-- 模型ID显示区域 -->
+                  <div class="flex items-center gap-3 mb-3">
+                    <div class="inline-flex items-center gap-2 p-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-lg max-w-md">
+                      <div class="flex items-center gap-2">
+                        <span class="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">ID:</span>
+                        <code class="text-sm font-mono font-bold text-gray-800 dark:text-gray-200" :title="model.id">
+                          {{ model.id }}
+                        </code>
+                        <button 
+                          @click.stop="copyToClipboard(model.id)"
+                          class="p-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors group/copy flex-shrink-0"
+                          title="复制模型ID"
+                        >
+                          <svg class="w-3 h-3 text-blue-500 group-hover/copy:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                          </svg>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                  
                   <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
-                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-[var(--hover-bg)] text-[var(--text-primary)] border border-[var(--border-color)]">
-                      {{ model.modelType }}
+                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-[var(--text-primary)] border border-gray-200 dark:border-gray-700">
+                      <span class="text-xs text-gray-500 mr-1">名称:</span>{{ model.name }}
                     </span>
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
                       {{ model.parameterSize }}
                     </span>
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-purple-500/10 text-purple-500 border border-purple-500/20">
-                      {{ model.size }}
+                      {{ model.modelType }}
                     </span>
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
                       {{ model.quantization }}
                     </span>
-                    <span class="text-[var(--text-secondary)]">{{ model.creator || model.type }}</span>
+                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                      {{ getModelSeries(model.id) }}
+                    </span>
+                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
+                      <span class="text-xs mr-1">创建者:</span>{{ model.creator || '未知' }}
+                    </span>
+                    <!-- 客户端数量标签 -->
+                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                      <span class="text-xs mr-1">客户端:</span>{{ model.clientCount || 0 }}个
+                    </span>
+                    <!-- 定价标签 -->
+                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
+                      <span class="text-xs mr-1">定价:</span>¥{{ model.ppm?.toFixed(2) || '0.00' }}/百万Token
+                    </span>
                   </div>
                 </div>
                 
-                <!-- 状态和评分 -->
-                <div class="flex flex-col items-end space-y-3 ml-4">
+                <!-- 状态 -->
+                <div class="flex flex-col items-end space-y-2 ml-4">
                   <span
                     :class="getStatusClass(model.status)"
                     class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border"
                   >
                     {{ getStatusText(model.status) }}
                   </span>
-                  <div v-if="model.clientCount" class="flex items-center text-blue-500">
-                    <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857M13 7a4 4 0 11-8 0 4 4 0 018 0z"/>
-                    </svg>
-                    <span class="ml-1 text-sm font-medium">{{ model.clientCount }}人贡献</span>
-                  </div>
                 </div>
               </div>
               
-              <p class="mt-4 text-[var(--text-secondary)] leading-relaxed">
-                {{ model.description }}
-              </p>
-              
-              <!-- 性能和操作区域 -->
-              <div class="mt-5 flex items-center justify-between">
-                <div class="flex items-center space-x-8">
-                  <!-- 左侧信息 -->
-                  <div class="flex items-center space-x-6 text-sm text-[var(--text-secondary)]">
-                    <span class="flex items-center">
-                      <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
-                      </svg>
-                      {{ model.createDate }}
-                    </span>
-                  </div>
-                </div>
-                
-                <div class="flex items-center space-x-3">
-                  <!-- 快速操作按钮 -->
-                  <button
-                    class="p-2 rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 transition-colors duration-200"
-                    title="收藏"
-                    @click.stop="toggleFavorite(model)"
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
-                    </svg>
-                  </button>
-                  <button
-                    class="p-2 rounded-lg bg-green-500/10 text-green-500 hover:bg-green-500/20 transition-colors duration-200"
-                    title="下载"
-                    @click.stop="downloadModel(model)"
-                  >
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
-                    </svg>
-                  </button>
-                  <button
-                    class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-0.5 opacity-0 group-hover:opacity-100"
-                    @click.stop="handleViewDetails(model)"
-                  >
-                    查看详情
-                    <svg class="ml-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
-                    </svg>
-                  </button>
-                </div>
+              <!-- TODO: 模型详细信息 - 暂时注释，后续需要时再启用 -->
+
+              <!-- 快速操作按钮 -->
+              <div class="mt-4 flex items-center justify-end space-x-3">
+                <button
+                  class="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-sm font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 border border-green-400/20 relative overflow-hidden group"
+                  @click.stop="openChatDialog(model)"
+                >
+                  <!-- 动画光效 -->
+                  <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                  <svg class="mr-2 h-4 w-4 relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                  </svg>
+                  <span class="relative z-10">立即对话</span>
+                </button>
+                <button
+                  class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                  @click.stop="handleViewDetails(model)"
+                >
+                  查看详情
+                  <svg class="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
+                  </svg>
+                </button>
               </div>
             </div>
           </div>
@@ -591,6 +600,7 @@ interface ClientModel {
   type: string;
   size: string;
   quantization?: string;
+  ppm?: number; // 每百万Token定价
   openai_model: {
     created: number;
     id: string;
@@ -654,6 +664,9 @@ interface ModelItem {
   quantization: string; // 替代 arch
   type: string;
   clientCount?: number; // 新增可用客户端数量
+  inputPPM?: number; // 输入定价 (每百万Token)
+  outputPPM?: number; // 输出定价 (每百万Token)
+  ppm?: number; // 统一定价 (每百万Token)
 }
 
 // 定义Props
@@ -703,6 +716,7 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
   try {
     // 从模型名称解析信息
     const modelName = apiModel.name || 'Unknown Model';
+    const ppm = apiModel.client_models?.[0]?.model?.ppm || 3; // 默认定价为3元/百万Token
     const [name, version] = modelName.split(':');
     
     // 计算文件大小（从字节转换为可读格式）
@@ -761,7 +775,7 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     };
 
     const { icon, color } = getModelIcon(apiModel.type || 'unknown', modelName);
-
+    console.log("ppm:", ppm, "icon:", icon, "color:", color);
     return {
       id: modelName,
       name: name || modelName,
@@ -776,7 +790,8 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
       size: formatSize(apiModel.size || '0'),
       quantization: apiModel.quantization || 'N/A', // 使用量化方式
       type: apiModel.type || 'unknown',
-      clientCount: apiModel.client_models?.length || 0
+      clientCount: apiModel.client_models?.length || 0,
+      ppm: ppm // 3-15元统一定价，保留2位小数
     };
   } catch (error) {
     console.error('转换模型数据时出错:', error, apiModel);
@@ -800,7 +815,8 @@ const createDefaultModel = (): ModelItem => {
     size: '0B',
     quantization: 'N/A',
     type: 'unknown',
-    clientCount: 0
+    clientCount: 0,
+    ppm: 0
   };
 };
 
@@ -826,6 +842,7 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
     if (Array.isArray(response)) {
       // 直接处理数组响应
       const apiModels: ApiModelItem[] = response;
+      console.log('获取到的模型数据:', apiModels);
       
       // 过滤搜索关键词
       let filteredModels = apiModels;
@@ -1075,16 +1092,84 @@ const resetFilters = () => {
   emit('search', '');
 };
 
+// 生成模型系列名称
+const getModelSeries = (modelName: string): string => {
+  const name = modelName.toLowerCase();
+  if (name.includes('qwen3')) {
+    return 'Qwen3系列';
+  } else if (name.includes('qwen2.5')) {
+    return 'Qwen2.5系列';
+  } else if (name.includes('qwen2')) {
+    return 'Qwen2系列';
+  } else if (name.includes('qwen')) {
+    return 'Qwen系列';
+  } else if (name.includes('deepseek-r1')) {
+    return 'DeepSeek-R1系列';
+  } else if (name.includes('deepseek-v3')) {
+    return 'DeepSeek-V3系列';
+  } else if (name.includes('deepseek-v2')) {
+    return 'DeepSeek-V2系列';
+  } else if (name.includes('deepseek')) {
+    return 'DeepSeek系列';
+  } else if (name.includes('llama3.3')) {
+    return 'Llama 3.3系列';
+  } else if (name.includes('llama3.2')) {
+    return 'Llama 3.2系列';
+  } else if (name.includes('llama3.1')) {
+    return 'Llama 3.1系列';
+  } else if (name.includes('llama3')) {
+    return 'Llama 3系列';
+  } else if (name.includes('llama2')) {
+    return 'Llama 2系列';
+  } else if (name.includes('llama')) {
+    return 'Llama系列';
+  } else if (name.includes('chatglm4')) {
+    return 'ChatGLM4系列';
+  } else if (name.includes('chatglm3')) {
+    return 'ChatGLM3系列';
+  } else if (name.includes('chatglm')) {
+    return 'ChatGLM系列';
+  } else if (name.includes('gemma2')) {
+    return 'Gemma 2系列';
+  } else if (name.includes('gemma')) {
+    return 'Gemma系列';
+  } else if (name.includes('mistral')) {
+    return 'Mistral系列';
+  } else if (name.includes('phi')) {
+    return 'Phi系列';
+  } else {
+    // 提取模型基础名称作为系列
+    const baseName = modelName.split(':')[0];
+    return `${baseName}系列`;
+  }
+};
+
+// 复制到剪贴板
+const copyToClipboard = async (text: string) => {
+  try {
+    await navigator.clipboard.writeText(text);
+    console.log('已复制模型ID:', text);
+    // 这里可以添加一个成功提示
+  } catch (err) {
+    // 降级方案：使用传统的复制方法
+    const textArea = document.createElement('textarea');
+    textArea.value = text;
+    document.body.appendChild(textArea);
+    textArea.select();
+    try {
+      document.execCommand('copy');
+      console.log('已复制模型ID (降级方案):', text);
+    } catch (fallbackErr) {
+      console.error('复制失败:', fallbackErr);
+    }
+    document.body.removeChild(textArea);
+  }
+};
+
 // 切换收藏状态
 const toggleFavorite = (model: ModelItem) => {
   console.log('切换收藏状态:', model.name);
   // TODO: 实现收藏功能
-};
-
-// 下载模型
-const downloadModel = (model: ModelItem) => {
-  console.log('下载模型:', model.name);
-  // TODO: 实现下载功能
 };
 
 // 加载更多
@@ -1119,6 +1204,19 @@ const handleViewDetails = (model: ModelItem) => {
     path: '/model-marketplace-detail',
     query: {
       name: model.id
+    }
+  });
+};
+
+// 对话相关方法
+const openChatDialog = (model: ModelItem) => {
+  // 跳转到对话页面，传递模型信息
+  router.push({
+    path: '/chat',
+    query: {
+      modelId: model.id,
+      modelName: model.name,
+      modelColor: model.color
     }
   });
 };
