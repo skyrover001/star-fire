@@ -176,7 +176,19 @@
                       </div>
                       
                       <!-- 消息内容 -->
-                      <div class="text-sm leading-relaxed whitespace-pre-wrap">{{ message.content }}</div>
+                      <div 
+                        class="text-sm leading-relaxed"
+                        :class="message.role === 'user' ? 'whitespace-pre-wrap' : 'markdown-content'"
+                      >
+                        <div 
+                          v-if="message.role === 'assistant'"
+                          v-html="renderMarkdown(message.content)"
+                        ></div>
+                        <div 
+                          v-else
+                          class="whitespace-pre-wrap"
+                        >{{ message.content }}</div>
+                      </div>
                       
                       <!-- 时间戳 -->
                       <div class="flex items-center justify-between mt-3">
@@ -356,10 +368,84 @@
 import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { requestClient } from '#/api/request';
+import { marked } from 'marked';
+import hljs from 'highlight.js/lib/core';
+// 导入常用语言支持
+import javascript from 'highlight.js/lib/languages/javascript';
+import typescript from 'highlight.js/lib/languages/typescript';
+import python from 'highlight.js/lib/languages/python';
+import java from 'highlight.js/lib/languages/java';
+import cpp from 'highlight.js/lib/languages/cpp';
+import css from 'highlight.js/lib/languages/css';
+import html from 'highlight.js/lib/languages/xml';
+import json from 'highlight.js/lib/languages/json';
+import bash from 'highlight.js/lib/languages/bash';
+import sql from 'highlight.js/lib/languages/sql';
+import go from 'highlight.js/lib/languages/go';
+import rust from 'highlight.js/lib/languages/rust';
+import php from 'highlight.js/lib/languages/php';
+
+// 注册语言
+hljs.registerLanguage('javascript', javascript);
+hljs.registerLanguage('typescript', typescript);
+hljs.registerLanguage('python', python);
+hljs.registerLanguage('java', java);
+hljs.registerLanguage('cpp', cpp);
+hljs.registerLanguage('css', css);
+hljs.registerLanguage('html', html);
+hljs.registerLanguage('xml', html);
+hljs.registerLanguage('json', json);
+hljs.registerLanguage('bash', bash);
+hljs.registerLanguage('shell', bash);
+hljs.registerLanguage('sql', sql);
+hljs.registerLanguage('go', go);
+hljs.registerLanguage('rust', rust);
+hljs.registerLanguage('php', php);
 
 // 路由相关
 const router = useRouter();
 const route = useRoute();
+
+// 配置 marked
+marked.use({
+  renderer: {
+    code(token: any) {
+      const code = token.text;
+      const language = token.lang;
+      
+      if (language && hljs.getLanguage(language)) {
+        try {
+          const highlighted = hljs.highlight(code, { language }).value;
+          return `<pre class="hljs language-${language}"><code>${highlighted}</code></pre>`;
+        } catch (err) {
+          console.warn('代码高亮失败:', err);
+        }
+      }
+      const autoHighlight = hljs.highlightAuto(code);
+      return `<pre class="hljs"><code>${autoHighlight.value}</code></pre>`;
+    },
+    codespan(token: any) {
+      return `<code class="inline-code">${token.text}</code>`;
+    }
+  },
+  breaks: true,
+  gfm: true,
+});
+
+// Markdown 渲染函数
+const renderMarkdown = (content: string): string => {
+  if (!content) return '';
+  
+  try {
+    const rendered = marked.parse(content) as string;
+    // 在下次 tick 时添加复制按钮
+    addCopyButtonsToCodeBlocks();
+    return rendered;
+  } catch (error) {
+    console.error('Markdown 渲染失败:', error);
+    return content.replace(/\n/g, '<br>'); // 如果渲染失败，至少保持换行
+  }
+};
 
 // 响应式状态
 const modelId = ref<string>('');
@@ -588,6 +674,11 @@ const sendMessage = async () => {
                 aiMessage.content = assistantContent;
               }
               
+              // 为流式更新添加延迟渲染，避免频繁重新渲染
+              setTimeout(() => {
+                addCopyButtonsToCodeBlocks();
+              }, 100);
+              
               await scrollToBottom();
             }
           } catch (e) {
@@ -661,6 +752,36 @@ const copyMessage = async (content: string) => {
   }
 };
 
+// 复制代码块
+const copyCodeBlock = async (code: string) => {
+  try {
+    await navigator.clipboard.writeText(code);
+    console.log('代码已复制到剪贴板');
+  } catch (err) {
+    console.error('复制代码失败:', err);
+  }
+};
+
+// 添加代码复制按钮的功能
+const addCopyButtonsToCodeBlocks = () => {
+  nextTick(() => {
+    const codeBlocks = document.querySelectorAll('.markdown-content pre code');
+    codeBlocks.forEach((codeBlock) => {
+      const pre = codeBlock.parentElement;
+      if (pre && !pre.querySelector('.copy-button')) {
+        const copyButton = document.createElement('button');
+        copyButton.className = 'copy-button absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity';
+        copyButton.textContent = '复制';
+        copyButton.onclick = () => copyCodeBlock(codeBlock.textContent || '');
+        
+        pre.style.position = 'relative';
+        pre.className += ' group';
+        pre.appendChild(copyButton);
+      }
+    });
+  });
+};
+
 // 自动滚动到底部
 const scrollToBottom = async () => {
   await nextTick();
@@ -732,5 +853,273 @@ input[type="range"]::-moz-range-thumb {
   cursor: pointer;
   border: none;
   box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Markdown 内容样式 */
+.markdown-content {
+  line-height: 1.6;
+}
+
+.markdown-content :deep(h1),
+.markdown-content :deep(h2),
+.markdown-content :deep(h3),
+.markdown-content :deep(h4),
+.markdown-content :deep(h5),
+.markdown-content :deep(h6) {
+  font-weight: 600;
+  margin: 1rem 0 0.5rem 0;
+  color: inherit;
+}
+
+.markdown-content :deep(h1) { font-size: 1.5rem; }
+.markdown-content :deep(h2) { font-size: 1.375rem; }
+.markdown-content :deep(h3) { font-size: 1.25rem; }
+.markdown-content :deep(h4) { font-size: 1.125rem; }
+.markdown-content :deep(h5) { font-size: 1rem; }
+.markdown-content :deep(h6) { font-size: 0.875rem; }
+
+.markdown-content :deep(p) {
+  margin: 0.75rem 0;
+}
+
+.markdown-content :deep(ul),
+.markdown-content :deep(ol) {
+  margin: 0.75rem 0;
+  padding-left: 1.5rem;
+}
+
+.markdown-content :deep(li) {
+  margin: 0.25rem 0;
+}
+
+.markdown-content :deep(blockquote) {
+  border-left: 4px solid #e5e7eb;
+  padding-left: 1rem;
+  margin: 1rem 0;
+  font-style: italic;
+  color: #6b7280;
+}
+
+.dark .markdown-content :deep(blockquote) {
+  border-left-color: #4b5563;
+  color: #9ca3af;
+}
+
+.markdown-content :deep(table) {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1rem 0;
+}
+
+.markdown-content :deep(th),
+.markdown-content :deep(td) {
+  border: 1px solid #e5e7eb;
+  padding: 0.5rem;
+  text-align: left;
+}
+
+.dark .markdown-content :deep(th),
+.dark .markdown-content :deep(td) {
+  border-color: #4b5563;
+}
+
+.markdown-content :deep(th) {
+  background-color: #f9fafb;
+  font-weight: 600;
+}
+
+.dark .markdown-content :deep(th) {
+  background-color: #374151;
+}
+
+.markdown-content :deep(hr) {
+  border: none;
+  border-top: 1px solid #e5e7eb;
+  margin: 1.5rem 0;
+}
+
+.dark .markdown-content :deep(hr) {
+  border-top-color: #4b5563;
+}
+
+/* 内联代码样式 */
+.markdown-content :deep(.inline-code),
+.inline-code {
+  background-color: #f1f5f9;
+  color: #e11d48;
+  padding: 0.125rem 0.375rem;
+  border-radius: 0.25rem;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875em;
+  border: 1px solid #e2e8f0;
+}
+
+.dark .markdown-content :deep(.inline-code),
+.dark .inline-code {
+  background-color: #334155;
+  color: #fbbf24;
+  border-color: #475569;
+}
+
+/* 代码块样式 */
+.markdown-content :deep(.hljs) {
+  background-color: #f8fafc !important;
+  border: 1px solid #e2e8f0;
+  border-radius: 0.5rem;
+  padding: 1rem;
+  margin: 1rem 0;
+  overflow-x: auto;
+  font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.dark .markdown-content :deep(.hljs) {
+  background-color: #1e293b !important;
+  border-color: #475569;
+}
+
+/* 代码高亮主题 - 亮色模式 */
+.markdown-content :deep(.hljs-comment),
+.markdown-content :deep(.hljs-quote) {
+  color: #64748b;
+  font-style: italic;
+}
+
+.markdown-content :deep(.hljs-keyword),
+.markdown-content :deep(.hljs-selector-tag),
+.markdown-content :deep(.hljs-type) {
+  color: #7c3aed;
+  font-weight: 600;
+}
+
+.markdown-content :deep(.hljs-string),
+.markdown-content :deep(.hljs-regexp) {
+  color: #059669;
+}
+
+.markdown-content :deep(.hljs-number),
+.markdown-content :deep(.hljs-literal) {
+  color: #dc2626;
+}
+
+.markdown-content :deep(.hljs-variable),
+.markdown-content :deep(.hljs-function) {
+  color: #2563eb;
+}
+
+.markdown-content :deep(.hljs-title),
+.markdown-content :deep(.hljs-class),
+.markdown-content :deep(.hljs-section) {
+  color: #ea580c;
+  font-weight: 600;
+}
+
+.markdown-content :deep(.hljs-attr),
+.markdown-content :deep(.hljs-attribute) {
+  color: #7c2d12;
+}
+
+/* 暗色模式代码高亮 */
+.dark .markdown-content :deep(.hljs-comment),
+.dark .markdown-content :deep(.hljs-quote) {
+  color: #94a3b8;
+}
+
+.dark .markdown-content :deep(.hljs-keyword),
+.dark .markdown-content :deep(.hljs-selector-tag),
+.dark .markdown-content :deep(.hljs-type) {
+  color: #a78bfa;
+}
+
+.dark .markdown-content :deep(.hljs-string),
+.dark .markdown-content :deep(.hljs-regexp) {
+  color: #34d399;
+}
+
+.dark .markdown-content :deep(.hljs-number),
+.dark .markdown-content :deep(.hljs-literal) {
+  color: #f87171;
+}
+
+.dark .markdown-content :deep(.hljs-variable),
+.dark .markdown-content :deep(.hljs-function) {
+  color: #60a5fa;
+}
+
+.dark .markdown-content :deep(.hljs-title),
+.dark .markdown-content :deep(.hljs-class),
+.dark .markdown-content :deep(.hljs-section) {
+  color: #fb923c;
+}
+
+.dark .markdown-content :deep(.hljs-attr),
+.dark .markdown-content :deep(.hljs-attribute) {
+  color: #fbbf24;
+}
+
+/* 复制按钮样式 */
+.markdown-content :deep(pre) {
+  position: relative;
+}
+
+.markdown-content :deep(.copy-button) {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  background-color: rgba(0, 0, 0, 0.8);
+  color: white;
+  padding: 0.25rem 0.5rem;
+  border-radius: 0.25rem;
+  font-size: 0.75rem;
+  cursor: pointer;
+  border: none;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 10;
+}
+
+.markdown-content :deep(pre.group:hover .copy-button) {
+  opacity: 1;
+}
+
+.dark .markdown-content :deep(.copy-button) {
+  background-color: rgba(255, 255, 255, 0.9);
+  color: black;
+}
+
+/* 链接样式 */
+.markdown-content :deep(a) {
+  color: #2563eb;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.markdown-content :deep(a):hover {
+  color: #1d4ed8;
+}
+
+.dark .markdown-content :deep(a) {
+  color: #60a5fa;
+}
+
+.dark .markdown-content :deep(a):hover {
+  color: #93c5fd;
+}
+
+/* 强调文本 */
+.markdown-content :deep(strong) {
+  font-weight: 600;
+  color: inherit;
+}
+
+.markdown-content :deep(em) {
+  font-style: italic;
+}
+
+/* 删除线 */
+.markdown-content :deep(del) {
+  text-decoration: line-through;
+  opacity: 0.7;
 }
 </style>

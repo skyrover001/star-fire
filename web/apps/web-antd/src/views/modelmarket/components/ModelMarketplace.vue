@@ -44,12 +44,33 @@
     <!-- 模型列表标题 -->
     <div class="mb-6 flex items-center justify-between">
       <div>
-        <h3 class="text-2xl font-bold text-[var(--text-primary)]">
-          模型列表
-        </h3>
-        <p class="mt-1 text-[var(--text-secondary)]">
-          {{ filteredModels.length > 0 ? `共找到 ${filteredModels.length} 个模型` : '暂无模型' }}
-        </p>
+        <div class="flex items-center space-x-4">
+          <div>
+            <h3 class="text-2xl font-bold text-[var(--text-primary)]">
+              模型列表
+              <span v-if="isLazyLoading && showTodayOnly" class="ml-2 px-2 py-1 text-xs font-medium bg-green-500/20 text-green-600 dark:text-green-400 rounded-md">
+                今日数据
+              </span>
+            </h3>
+            <p class="mt-1 text-[var(--text-secondary)]">
+              {{ filteredModels.length > 0 ? `共找到 ${filteredModels.length} 个模型` : '暂无模型' }}
+              {{ isLazyLoading && showTodayOnly ? '（今日新增）' : '' }}
+            </p>
+          </div>
+          
+          <!-- 懒加载切换按钮 -->
+          <div v-if="isLazyLoading && showTodayOnly" class="flex items-center space-x-2">
+            <button
+              @click="loadAllModels"
+              class="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+            >
+              <svg class="mr-1.5 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+              </svg>
+              加载全部
+            </button>
+          </div>
+        </div>
       </div>
       
       <!-- 视图切换按钮 -->
@@ -567,6 +588,30 @@
           </div>
         </div>
         
+        <!-- 懒加载模式无数据提示 -->
+        <div v-if="filteredModels.length === 0 && !searchKeyword && isLazyLoading && showTodayOnly" class="text-center py-16">
+          <div class="w-20 h-20 bg-gradient-to-br from-blue-500/20 to-indigo-500/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-10 h-10 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 3v1m0 16v1m9-9h-1M4 12H3m15.364 6.364l-.707-.707M6.343 6.343l-.707-.707m12.728 0l-.707.707M6.343 17.657l-.707.707M16 12a4 4 0 11-8 0 4 4 0 018 0z"/>
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-[var(--text-primary)] mb-2">
+            今日暂无新增模型
+          </h3>
+          <p class="text-[var(--text-secondary)] mb-4">
+            今天还没有新的模型上线，点击下方按钮查看全部模型
+          </p>
+          <button
+            @click="loadAllModels"
+            class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg"
+          >
+            <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            查看全部模型
+          </button>
+        </div>
+        
         <!-- 无搜索结果 -->
         <div v-if="filteredModels.length === 0 && searchKeyword" class="text-center py-16">
           <div class="w-20 h-20 bg-[var(--hover-bg)] rounded-full flex items-center justify-center mx-auto mb-4">
@@ -698,11 +743,17 @@ const parameterSizeFilter = ref(''); // 新增参数大小筛选
 const sortBy = ref('name');
 const sortOrder = ref<'asc' | 'desc'>('asc');
 
+// 懒加载相关状态
+const isLazyLoading = ref(true); // 是否启用懒加载模式
+const showTodayOnly = ref(true); // 是否只显示当天数据
+const todayDataLoaded = ref(false); // 当天数据是否已加载
+
 // DOM引用
 const loadTrigger = ref<HTMLElement>();
 
 // 所有模型数据
 const allModels = ref<ModelItem[]>([]);
+const todayModels = ref<ModelItem[]>([]); // 当天的模型数据
 const totalModels = ref(0);
 
 // 数据转换函数：将API数据转换为显示用的模型数据
@@ -820,10 +871,33 @@ const createDefaultModel = (): ModelItem => {
   };
 };
 
+// 判断是否为今天的数据
+const isTodayData = (dateString: string): boolean => {
+  const today = new Date();
+  const todayStr = today.toLocaleDateString();
+  return dateString === todayStr;
+};
+
+// 过滤今天的模型数据
+const filterTodayModels = (models: ModelItem[]): ModelItem[] => {
+  return models.filter(model => isTodayData(model.createDate));
+};
+
 // API获取模型数据
-const fetchModels = async (page: number = 1, limit: number = pageSize) => {
+const fetchModels = async (page: number = 1, limit: number = pageSize, loadTodayOnly: boolean = false) => {
   try {
     loading.value = true;
+    
+    // 如果是懒加载模式且请求当天数据
+    if (isLazyLoading.value && loadTodayOnly && todayDataLoaded.value) {
+      // 当天数据已加载，直接返回缓存的数据
+      return {
+        models: todayModels.value.slice((page - 1) * limit, page * limit),
+        total: todayModels.value.length,
+        hasMore: page * limit < todayModels.value.length
+      };
+    }
+    
     const response = await requestClient.get('/market/models');
     
     console.log('Models API 响应:', response);
@@ -844,14 +918,53 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
       const apiModels: ApiModelItem[] = response;
       console.log('获取到的模型数据:', apiModels);
       
+      // 转换数据格式
+      const allTransformedModels = apiModels.map(transformApiModel);
+      
+      // 如果是懒加载模式，先处理当天数据
+      if (isLazyLoading.value && loadTodayOnly) {
+        const todayFilteredModels = filterTodayModels(allTransformedModels);
+        todayModels.value = todayFilteredModels;
+        todayDataLoaded.value = true;
+        
+        console.log(`今天的模型数据: ${todayFilteredModels.length} 个`);
+        
+        // 应用搜索过滤
+        let searchFilteredModels = todayFilteredModels;
+        if (props.searchKeyword.trim()) {
+          const keyword = props.searchKeyword.toLowerCase();
+          searchFilteredModels = todayFilteredModels.filter(model => 
+            model.name.toLowerCase().includes(keyword) ||
+            model.creator.toLowerCase().includes(keyword) ||
+            model.modelType.toLowerCase().includes(keyword) ||
+            model.quantization.toLowerCase().includes(keyword) ||
+            model.description.toLowerCase().includes(keyword)
+          );
+        }
+        
+        // 分页处理
+        const startIndex = (page - 1) * limit;
+        const endIndex = startIndex + limit;
+        const paginatedModels = searchFilteredModels.slice(startIndex, endIndex);
+        
+        return {
+          models: paginatedModels,
+          total: searchFilteredModels.length,
+          hasMore: endIndex < searchFilteredModels.length
+        };
+      }
+      
+      // 非懒加载模式或加载全部数据
       // 过滤搜索关键词
-      let filteredModels = apiModels;
+      let filteredModels = allTransformedModels;
       if (props.searchKeyword.trim()) {
         const keyword = props.searchKeyword.toLowerCase();
-        filteredModels = apiModels.filter(model => 
-          model?.name?.toLowerCase().includes(keyword) ||
-          model?.type?.toLowerCase().includes(keyword) ||
-          model?.quantization?.toLowerCase().includes(keyword)
+        filteredModels = allTransformedModels.filter(model => 
+          model.name.toLowerCase().includes(keyword) ||
+          model.creator.toLowerCase().includes(keyword) ||
+          model.modelType.toLowerCase().includes(keyword) ||
+          model.quantization.toLowerCase().includes(keyword) ||
+          model.description.toLowerCase().includes(keyword)
         );
       }
       
@@ -860,12 +973,10 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
       const endIndex = startIndex + limit;
       const paginatedModels = filteredModels.slice(startIndex, endIndex);
       
-      // 转换数据格式
-      const transformedModels = paginatedModels.map(transformApiModel);
-      console.log('转换后的模型数据:', transformedModels);
+      console.log('分页后的模型数据:', paginatedModels);
       
       return {
-        models: transformedModels,
+        models: paginatedModels,
         total: filteredModels.length,
         hasMore: endIndex < filteredModels.length
       };
@@ -924,15 +1035,44 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
 // 初始化加载模型数据
 const initializeModels = async () => {
   console.log('初始化模型数据');
+  
+  if (isLazyLoading.value && showTodayOnly.value) {
+    // 懒加载模式，只加载当天数据
+    console.log('懒加载模式：只加载当天数据');
+    const result = await fetchModels(1, pageSize, true);
+    allModels.value = result.models;
+    totalModels.value = result.total;
+    console.log('当天模型数据加载完成:', result.models.length, '个模型');
+  } else {
+    // 普通模式，加载所有数据
+    console.log('普通模式：加载所有数据');
+    const result = await fetchModels(1);
+    allModels.value = result.models;
+    totalModels.value = result.total;
+    console.log('模型数据加载完成:', result.models.length, '个模型');
+  }
+};
+
+// 加载更多数据（从懒加载模式切换到完整模式）
+const loadAllModels = async () => {
+  if (!isLazyLoading.value) return;
+  
+  console.log('从懒加载模式切换到完整模式');
+  isLazyLoading.value = false;
+  showTodayOnly.value = false;
+  currentPage.value = 1;
+  allModels.value = [];
+  
   const result = await fetchModels(1);
   allModels.value = result.models;
   totalModels.value = result.total;
-  console.log('模型数据加载完成:', result.models.length, '个模型');
+  console.log('完整模型数据加载完成:', result.models.length, '个模型');
 };
 
 // 根据搜索关键词过滤模型
 const filteredModels = computed(() => {
-  let result = allModels.value;
+  // 根据懒加载模式选择数据源
+  let result = isLazyLoading.value && showTodayOnly.value ? todayModels.value : allModels.value;
   
   // 搜索关键词过滤
   if (props.searchKeyword.trim()) {
@@ -996,6 +1136,12 @@ const hasMore = computed(() => {
     // 搜索模式下，显示所有匹配结果
     return false;
   }
+  
+  if (isLazyLoading.value && showTodayOnly.value) {
+    // 懒加载模式下，当天数据没有更多
+    return false;
+  }
+  
   // 正常模式下，基于总数判断
   return allModels.value.length < totalModels.value;
 });
@@ -1176,6 +1322,12 @@ const toggleFavorite = (model: ModelItem) => {
 const loadMore = async () => {
   if (loading.value || !hasMore.value) return;
   
+  // 如果是懒加载模式，不支持加载更多
+  if (isLazyLoading.value && showTodayOnly.value) {
+    console.log('懒加载模式下不支持加载更多，请点击"加载全部"按钮');
+    return;
+  }
+  
   currentPage.value++;
   const result = await fetchModels(currentPage.value);
   allModels.value.push(...result.models);
@@ -1265,8 +1417,14 @@ const refreshData = () => {
   console.log('ModelMarketplace 收到刷新指令');
   currentPage.value = 1;
   allModels.value = [];
+  todayModels.value = [];
   totalModels.value = 0;
   loading.value = false;
+  
+  // 重置懒加载状态
+  isLazyLoading.value = true;
+  showTodayOnly.value = true;
+  todayDataLoaded.value = false;
   
   // 强制重新初始化数据
   initializeModels();
