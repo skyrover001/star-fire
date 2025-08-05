@@ -71,52 +71,159 @@
           </p>
         </div>
         
-        <div class="space-y-4">
-          <!-- 自动获取按钮 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- 自动获取选项 -->
           <button
-            @click="fetchApiKey"
-            :disabled="fetchingApiKey"
-            class="w-full px-6 py-3 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium flex items-center justify-center space-x-2"
+            @click="showAutoFetchDialog = true"
+            class="p-6 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-blue-500 dark:hover:border-blue-400 transition-colors group"
           >
-            <svg v-if="fetchingApiKey" class="w-5 h-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
-            </svg>
-            <span>{{ fetchingApiKey ? '获取中...' : '自动获取 API Key' }}</span>
+            <div class="text-center">
+              <div class="w-12 h-12 bg-blue-100 dark:bg-blue-900/20 rounded-xl flex items-center justify-center mx-auto mb-4 group-hover:bg-blue-200 dark:group-hover:bg-blue-800/30 transition-colors">
+                <svg class="w-6 h-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+                </svg>
+              </div>
+              <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">自动获取</h4>
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                系统将自动从您的账户获取可用的 API Key
+              </p>
+            </div>
           </button>
           
-          <!-- 分割线 -->
-          <div class="relative">
-            <div class="absolute inset-0 flex items-center">
-              <div class="w-full border-t border-gray-300 dark:border-gray-600"></div>
+          <!-- 手动输入选项 -->
+          <button
+            @click="showManualInputDialog = true"
+            class="p-6 border-2 border-gray-200 dark:border-gray-600 rounded-xl hover:border-green-500 dark:hover:border-green-400 transition-colors group"
+          >
+            <div class="text-center">
+              <div class="w-12 h-12 bg-green-100 dark:bg-green-900/20 rounded-xl flex items-center justify-center mx-auto mb-4 group-hover:bg-green-200 dark:group-hover:bg-green-800/30 transition-colors">
+                <svg class="w-6 h-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+                </svg>
+              </div>
+              <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">手动输入</h4>
+              <p class="text-sm text-gray-500 dark:text-gray-400">
+                手动输入您的 API Key
+              </p>
             </div>
-            <div class="relative flex justify-center text-sm">
-              <span class="px-2 bg-white dark:bg-gray-800 text-gray-500">或</span>
-            </div>
-          </div>
-          
-          <!-- 手动输入 -->
-          <div class="space-y-3">
-            <input
-              v-model="apiKeyInput"
-              type="password"
-              placeholder="手动输入 API Key..."
-              class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
-              @keypress.enter="saveApiKey"
-            />
-            <button
-              @click="saveApiKey"
-              :disabled="!apiKeyInput.trim()"
-              class="w-full px-6 py-3 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors font-medium"
-            >
-              保存 API Key
-            </button>
-          </div>
+          </button>
         </div>
         
         <div class="mt-6 text-center">
           <p class="text-sm text-gray-500 dark:text-gray-400">
             API Key 将安全保存在本地，不会上传到服务器
           </p>
+        </div>
+      </div>
+    </div>
+
+    <!-- 自动获取对话框 -->
+    <div v-if="showAutoFetchDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50" @click="closeAutoFetchDialog">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6" @click.stop>
+        <div class="text-center mb-6">
+          <div class="w-16 h-16 bg-blue-100 dark:bg-blue-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">自动获取 API Key</h3>
+          <p class="text-gray-600 dark:text-gray-400">
+            系统将从您的账户中自动选择一个有效的 API Key
+          </p>
+        </div>
+        
+        <div class="flex space-x-3">
+          <button
+            @click="closeAutoFetchDialog"
+            class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            @click="confirmAutoFetch"
+            :disabled="fetchingApiKey"
+            class="flex-1 px-4 py-2 bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors flex items-center justify-center space-x-2"
+          >
+            <svg v-if="fetchingApiKey" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <span>{{ fetchingApiKey ? '获取中...' : '确认' }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 手动输入对话框 -->
+    <div v-if="showManualInputDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50" @click="closeManualInputDialog">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6" @click.stop>
+        <div class="text-center mb-6">
+          <div class="w-16 h-16 bg-green-100 dark:bg-green-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">手动输入 API Key</h3>
+          <p class="text-gray-600 dark:text-gray-400">
+            请输入您的 API Key
+          </p>
+        </div>
+        
+        <div class="mb-6">
+          <input
+            v-model="apiKeyInput"
+            type="password"
+            placeholder="请输入 API Key..."
+            class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
+            @keypress.enter="confirmManualInput"
+          />
+        </div>
+        
+        <div class="flex space-x-3">
+          <button
+            @click="closeManualInputDialog"
+            class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            @click="confirmManualInput"
+            :disabled="!apiKeyInput.trim()"
+            class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
+          >
+            确认
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 无可用API Key对话框 -->
+    <div v-if="showNoKeysDialog" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50" @click="closeNoKeysDialog">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-md w-full p-6" @click.stop>
+        <div class="text-center mb-6">
+          <div class="w-16 h-16 bg-yellow-100 dark:bg-yellow-900/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-8 h-8 text-yellow-600 dark:text-yellow-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
+            </svg>
+          </div>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">未找到可用的 API Key</h3>
+          <p class="text-gray-600 dark:text-gray-400">
+            系统未找到有效的 API Key，请前往管理页面创建或检查您的 API Key 配置。
+          </p>
+        </div>
+        
+        <div class="flex space-x-3">
+          <button
+            @click="closeNoKeysDialog"
+            class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
+          >
+            取消
+          </button>
+          <button
+            @click="goToApiKeyManagement"
+            class="flex-1 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors"
+          >
+            前往管理
+          </button>
         </div>
       </div>
     </div>
@@ -150,11 +257,17 @@
                   <!-- 思考过程显示 -->
                   <div v-if="message.thinking && message.role === 'assistant'" class="mb-4 relative">
                     <div class="bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-xl p-4">
-                      <div class="flex items-center space-x-3 mb-3">
-                        <div class="relative">
-                          <div class="w-5 h-5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+                      <div class="flex items-center justify-between mb-3">
+                        <div class="flex items-center space-x-3">
+                          <div class="relative">
+                            <div class="w-5 h-5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
+                          </div>
+                          <span class="text-sm font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">思考过程</span>
                         </div>
-                        <span class="text-sm font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">思考过程</span>
+                        <!-- 思考时长显示 -->
+                        <div v-if="message.thinkingDuration" class="text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-800/50 px-2 py-1 rounded-full">
+                          思考时长: {{ formatThinkingDuration(message.thinkingDuration) }}
+                        </div>
                       </div>
                       <div class="text-sm text-blue-800 dark:text-blue-200 leading-relaxed whitespace-pre-wrap font-mono bg-blue-100/50 dark:bg-blue-800/30 rounded-lg p-3 border border-blue-200/50 dark:border-blue-600/30">
                         {{ message.thinking }}
@@ -361,6 +474,65 @@
         </div>
       </div>
     </div>
+
+    <!-- 代码预览模态框 -->
+    <div v-if="showPreview" class="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black bg-opacity-50" @click="closePreview">
+      <div class="bg-white dark:bg-gray-800 rounded-xl shadow-2xl max-w-6xl w-full max-h-[90vh] flex flex-col" @click.stop>
+        <!-- 模态框头部 -->
+        <div class="flex items-center justify-between p-4 border-b border-gray-200 dark:border-gray-700">
+          <div class="flex items-center space-x-3">
+            <div class="w-3 h-3 bg-red-500 rounded-full"></div>
+            <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
+            <div class="w-3 h-3 bg-green-500 rounded-full"></div>
+            <span class="text-sm font-medium text-gray-700 dark:text-gray-300 ml-4">
+              {{ previewType === 'html' ? 'HTML 预览' : 'JavaScript 预览' }}
+            </span>
+          </div>
+          <button
+            @click="closePreview"
+            class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
+          >
+            <svg class="w-5 h-5 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
+            </svg>
+          </button>
+        </div>
+        
+        <!-- 预览内容 -->
+        <div class="flex-1 min-h-0">
+          <!-- HTML 预览 -->
+          <iframe
+            v-if="previewType === 'html'"
+            :srcdoc="previewContent"
+            class="w-full h-full border-none bg-white"
+            sandbox="allow-scripts allow-same-origin"
+          ></iframe>
+          
+          <!-- JavaScript 预览 -->
+          <div v-else class="h-full flex flex-col">
+            <div class="flex-1 bg-gray-50 dark:bg-gray-900 p-4 overflow-auto">
+              <div id="js-preview-container" class="w-full h-full"></div>
+            </div>
+            <div class="border-t border-gray-200 dark:border-gray-700 p-4 bg-gray-100 dark:bg-gray-800">
+              <div class="flex items-center space-x-3">
+                <button
+                  @click="runJavaScript"
+                  class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  运行代码
+                </button>
+                <button
+                  @click="clearJavaScriptOutput"
+                  class="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  清空输出
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -455,6 +627,9 @@ const apiKey = ref<string>('');
 const apiKeyInput = ref<string>('');
 const showSettings = ref(false);
 const fetchingApiKey = ref(false);
+const showAutoFetchDialog = ref(false);
+const showManualInputDialog = ref(false);
+const showNoKeysDialog = ref(false);
 
 // 聊天相关状态
 interface ChatMessage {
@@ -463,12 +638,18 @@ interface ChatMessage {
   timestamp: Date;
   thinking?: string;
   streaming?: boolean;
+  thinkingDuration?: number; // 思考时长（毫秒）
 }
 
 const chatMessages = ref<ChatMessage[]>([]);
 const chatInput = ref('');
 const chatLoading = ref(false);
 const chatContainer = ref<HTMLElement>();
+
+// 代码预览相关状态
+const showPreview = ref(false);
+const previewContent = ref('');
+const previewType = ref<'html' | 'javascript'>('html');
 
 // 模型设置
 const temperature = ref(0.7);
@@ -506,33 +687,41 @@ const fetchApiKey = async () => {
     const response = await requestClient.get('/user/keys');
     
     if (response && response.keys && Array.isArray(response.keys) && response.keys.length > 0) {
-      const validApiKey = response.keys.find((key: any) => {
-        return key && key.key && key.status === 'active';
+      // 筛选有效的API Key（未撤销且有Key字段）
+      const validKeys = response.keys.filter((key: any) => {
+        return key && key.Key && !key.Revoked;
       });
       
-      if (validApiKey) {
-        apiKey.value = validApiKey.key;
+      if (validKeys.length > 0) {
+        // 按过期时间排序，选择过期时间最久的
+        const sortedKeys = validKeys.sort((a: any, b: any) => {
+          const dateA = new Date(a.ExpiresAt);
+          const dateB = new Date(b.ExpiresAt);
+          return dateB.getTime() - dateA.getTime(); // 降序排列，最晚过期的在前面
+        });
+        
+        const selectedKey = sortedKeys[0];
+        apiKey.value = selectedKey.Key;
         localStorage.setItem('openai_api_key', apiKey.value);
-        console.log('自动获取API Key成功');
+        
+        console.log('自动获取API Key成功:', {
+          name: selectedKey.Name,
+          prefix: selectedKey.Prefix,
+          expiresAt: selectedKey.ExpiresAt
+        });
       } else {
-        console.warn('未找到有效的API Key');
+        console.warn('未找到有效的API Key（可能都已撤销或缺少Key字段）');
+        showNoKeysDialog.value = true;
       }
     } else {
       console.warn('API响应中没有找到keys数组');
+      showNoKeysDialog.value = true;
     }
   } catch (error) {
     console.error('获取API Key失败:', error);
+    showNoKeysDialog.value = true;
   } finally {
     fetchingApiKey.value = false;
-  }
-};
-
-// 保存API Key
-const saveApiKey = () => {
-  if (apiKeyInput.value.trim()) {
-    apiKey.value = apiKeyInput.value.trim();
-    localStorage.setItem('openai_api_key', apiKey.value);
-    apiKeyInput.value = '';
   }
 };
 
@@ -541,6 +730,38 @@ const resetApiKey = () => {
   apiKey.value = '';
   localStorage.removeItem('openai_api_key');
   apiKeyInput.value = '';
+};
+
+// 对话框相关函数
+const closeAutoFetchDialog = () => {
+  showAutoFetchDialog.value = false;
+};
+
+const closeManualInputDialog = () => {
+  showManualInputDialog.value = false;
+  apiKeyInput.value = '';
+};
+
+const closeNoKeysDialog = () => {
+  showNoKeysDialog.value = false;
+};
+
+const goToApiKeyManagement = () => {
+  router.push('/my-keys'); // 跳转到API Key管理页面
+  closeNoKeysDialog();
+};
+
+const confirmAutoFetch = async () => {
+  await fetchApiKey();
+  closeAutoFetchDialog();
+};
+
+const confirmManualInput = () => {
+  if (apiKeyInput.value.trim()) {
+    apiKey.value = apiKeyInput.value.trim();
+    localStorage.setItem('openai_api_key', apiKey.value);
+    closeManualInputDialog();
+  }
 };
 
 // 返回上一页
@@ -613,6 +834,7 @@ const sendMessage = async () => {
     let assistantContent = '';
     let thinkingContent = '';
     let isInThinking = false;
+    let thinkingStartTime: number | null = null;
 
     while (true) {
       const { done, value } = await reader.read();
@@ -645,9 +867,10 @@ const sendMessage = async () => {
               if (!aiMessage) continue;
               
               // 处理思考过程
-              if (content.includes('<thinking>')) {
+              if (content.includes('<think>')) {
                 isInThinking = true;
-                const parts = content.split('<thinking>');
+                thinkingStartTime = Date.now(); // 记录思考开始时间
+                const parts = content.split('<think>');
                 if (parts[0]) {
                   assistantContent += parts[0];
                   aiMessage.content = assistantContent;
@@ -655,12 +878,18 @@ const sendMessage = async () => {
                 if (parts[1]) {
                   thinkingContent += parts[1];
                 }
-              } else if (content.includes('</thinking>')) {
+              } else if (content.includes('</think>')) {
                 isInThinking = false;
-                const parts = content.split('</thinking>');
+                const parts = content.split('</think>');
                 if (parts[0]) {
                   thinkingContent += parts[0];
                   aiMessage.thinking = thinkingContent;
+                }
+                // 计算思考时长
+                if (thinkingStartTime !== null) {
+                  const thinkingEndTime = Date.now();
+                  aiMessage.thinkingDuration = thinkingEndTime - thinkingStartTime;
+                  thinkingStartTime = null;
                 }
                 if (parts[1]) {
                   assistantContent += parts[1];
@@ -726,6 +955,7 @@ const exportChat = () => {
       role: msg.role,
       content: msg.content,
       thinking: msg.thinking,
+      thinkingDuration: msg.thinkingDuration,
       timestamp: msg.timestamp.toISOString()
     }))
   };
@@ -762,21 +992,120 @@ const copyCodeBlock = async (code: string) => {
   }
 };
 
+// 预览代码
+const previewCode = (code: string, language: string) => {
+  if (language === 'html' || language === 'javascript' || language === 'js') {
+    previewContent.value = code;
+    previewType.value = language === 'html' ? 'html' : 'javascript';
+    showPreview.value = true;
+  }
+};
+
+// 关闭预览
+const closePreview = () => {
+  showPreview.value = false;
+  previewContent.value = '';
+};
+
+// 运行JavaScript代码
+const runJavaScript = () => {
+  const container = document.getElementById('js-preview-container');
+  if (!container) return;
+  
+  try {
+    // 创建一个安全的执行环境
+    const originalConsoleLog = console.log;
+    const logs: string[] = [];
+    
+    // 重写console.log来捕获输出
+    console.log = (...args: any[]) => {
+      logs.push(args.map(arg => 
+        typeof arg === 'object' ? JSON.stringify(arg, null, 2) : String(arg)
+      ).join(' '));
+    };
+    
+    // 清空容器
+    container.innerHTML = '';
+    
+    // 创建输出区域
+    const outputDiv = document.createElement('div');
+    outputDiv.className = 'bg-black text-green-400 font-mono text-sm p-4 rounded-lg h-full overflow-auto';
+    outputDiv.textContent = '> 运行 JavaScript 代码...\n';
+    container.appendChild(outputDiv);
+    
+    // 执行代码
+    const func = new Function('document', 'container', previewContent.value);
+    func(document, container);
+    
+    // 显示console.log输出
+    if (logs.length > 0) {
+      outputDiv.textContent += '\n--- Console 输出 ---\n';
+      logs.forEach(log => {
+        outputDiv.textContent += log + '\n';
+      });
+    }
+    
+    // 恢复原始console.log
+    console.log = originalConsoleLog;
+    
+    outputDiv.textContent += '\n> 代码执行完成';
+    
+  } catch (error) {
+    const container = document.getElementById('js-preview-container');
+    if (container) {
+      container.innerHTML = `
+        <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
+          <h4 class="text-red-800 dark:text-red-200 font-semibold mb-2">执行错误</h4>
+          <pre class="text-red-700 dark:text-red-300 text-sm">${error}</pre>
+        </div>
+      `;
+    }
+  }
+};
+
+// 清空JavaScript输出
+const clearJavaScriptOutput = () => {
+  const container = document.getElementById('js-preview-container');
+  if (container) {
+    container.innerHTML = '<div class="bg-black text-green-400 font-mono text-sm p-4 rounded-lg h-full">准备运行 JavaScript 代码...</div>';
+  }
+};
+
 // 添加代码复制按钮的功能
 const addCopyButtonsToCodeBlocks = () => {
   nextTick(() => {
     const codeBlocks = document.querySelectorAll('.markdown-content pre code');
     codeBlocks.forEach((codeBlock) => {
       const pre = codeBlock.parentElement;
-      if (pre && !pre.querySelector('.copy-button')) {
+      if (pre && !pre.querySelector('.code-actions')) {
+        const language = codeBlock.className.match(/language-(\w+)/)?.[1] || '';
+        const codeText = codeBlock.textContent || '';
+        
+        // 创建按钮容器
+        const actionsContainer = document.createElement('div');
+        actionsContainer.className = 'code-actions absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex space-x-2';
+        
+        // 复制按钮
         const copyButton = document.createElement('button');
-        copyButton.className = 'copy-button absolute top-2 right-2 bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded opacity-0 group-hover:opacity-100 transition-opacity';
+        copyButton.className = 'bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-colors';
         copyButton.textContent = '复制';
-        copyButton.onclick = () => copyCodeBlock(codeBlock.textContent || '');
+        copyButton.onclick = () => copyCodeBlock(codeText);
+        
+        actionsContainer.appendChild(copyButton);
+        console.log("language:", language);
+        
+        // 如果是HTML或JavaScript代码，添加预览按钮
+        if (language === 'html' || language === 'javascript' || language === 'js') {
+          const previewButton = document.createElement('button');
+          previewButton.className = 'bg-blue-700 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded transition-colors';
+          previewButton.textContent = '预览';
+          previewButton.onclick = () => previewCode(codeText, language);
+          actionsContainer.appendChild(previewButton);
+        }
         
         pre.style.position = 'relative';
         pre.className += ' group';
-        pre.appendChild(copyButton);
+        pre.appendChild(actionsContainer);
       }
     });
   });
@@ -797,6 +1126,19 @@ const formatTime = (date: Date) => {
     minute: '2-digit',
     hour12: false 
   });
+};
+
+// 格式化思考时长
+const formatThinkingDuration = (durationMs: number) => {
+  if (durationMs < 1000) {
+    return `${durationMs}ms`;
+  } else if (durationMs < 60000) {
+    return `${(durationMs / 1000).toFixed(1)}s`;
+  } else {
+    const minutes = Math.floor(durationMs / 60000);
+    const seconds = ((durationMs % 60000) / 1000).toFixed(1);
+    return `${minutes}m ${seconds}s`;
+  }
 };
 </script>
 
@@ -1058,34 +1400,22 @@ input[type="range"]::-moz-range-thumb {
   color: #fbbf24;
 }
 
-/* 复制按钮样式 */
+/* 代码块按钮样式 */
 .markdown-content :deep(pre) {
   position: relative;
 }
 
-.markdown-content :deep(.copy-button) {
+.markdown-content :deep(.code-actions) {
   position: absolute;
   top: 0.5rem;
   right: 0.5rem;
-  background-color: rgba(0, 0, 0, 0.8);
-  color: white;
-  padding: 0.25rem 0.5rem;
-  border-radius: 0.25rem;
-  font-size: 0.75rem;
-  cursor: pointer;
-  border: none;
   opacity: 0;
   transition: opacity 0.2s;
   z-index: 10;
 }
 
-.markdown-content :deep(pre.group:hover .copy-button) {
+.markdown-content :deep(pre.group:hover .code-actions) {
   opacity: 1;
-}
-
-.dark .markdown-content :deep(.copy-button) {
-  background-color: rgba(255, 255, 255, 0.9);
-  color: black;
 }
 
 /* 链接样式 */

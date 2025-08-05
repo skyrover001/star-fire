@@ -120,6 +120,7 @@ const loading = ref(false);
 // 动态数据状态
 const allTrendItems = ref<TrendItem[]>([]);
 const totalCount = ref(0);
+const hasMoreFromServer = ref(true); // 服务器是否还有更多数据
 
 // 数据转换函数：将API数据转换为显示用的动态数据
 const transformApiTrend = (apiTrend: ApiTrendItem): TrendItem => {
@@ -241,7 +242,11 @@ const fetchTrends = async (page: number = 0, size: number = initialPageSize) => 
           allTrendItems.value.push(...transformedTrends);
         }
         
+        // 更新服务器是否还有更多数据的状态
+        hasMoreFromServer.value = hasMoreData;
+        
         console.log(`成功获取 ${transformedTrends.length} 条动态数据`);
+        console.log(`hasMoreData: ${hasMoreData}, 当前总数: ${allTrendItems.value.length}`);
         
         return {
           trends: transformedTrends,
@@ -256,6 +261,8 @@ const fetchTrends = async (page: number = 0, size: number = initialPageSize) => 
       // 使用默认数据作为备用
       if (page === 0) {
         allTrendItems.value = getDefaultTrends();
+        // 如果默认数据条数大于初始显示条数，则本地还有更多数据可显示
+        hasMoreFromServer.value = false; // 服务器没有更多数据，但本地可能有
         console.log('使用默认动态数据');
       }
       return {
@@ -268,6 +275,8 @@ const fetchTrends = async (page: number = 0, size: number = initialPageSize) => 
     // 使用默认数据作为备用
     if (page === 0) {
       allTrendItems.value = getDefaultTrends();
+      // 如果默认数据条数大于初始显示条数，则本地还有更多数据可显示
+      hasMoreFromServer.value = false; // 服务器没有更多数据，但本地可能有
       console.log('API 请求失败，使用默认动态数据');
     }
     return {
@@ -333,27 +342,37 @@ const displayItems = computed(() => {
 
 // 计算是否还有更多数据
 const hasMore = computed(() => {
-  return displayItems.value.length < allTrendItems.value.length;
+  // 检查是否还有未显示的本地数据，或者服务器是否还有更多数据
+  return displayItems.value.length < allTrendItems.value.length || hasMoreFromServer.value;
 });
 
 // 加载更多数据
 const loadMore = async () => {
   if (loading.value || !hasMore.value) return;
   
-  loading.value = true;
+  // 如果本地还有未显示的数据，直接更新显示
+  if (displayItems.value.length < allTrendItems.value.length) {
+    currentPage.value++;
+    return;
+  }
   
-  try {
-    // 计算下一页的页码
-    const nextPage = Math.floor(allTrendItems.value.length / pageSize);
-    const result = await fetchTrends(nextPage, pageSize);
+  // 如果服务器还有更多数据，从服务器加载
+  if (hasMoreFromServer.value) {
+    loading.value = true;
     
-    if (result.trends.length > 0) {
-      currentPage.value++;
+    try {
+      // 计算下一页的页码
+      const nextPage = Math.floor(allTrendItems.value.length / pageSize);
+      const result = await fetchTrends(nextPage, pageSize);
+      
+      if (result.trends.length > 0) {
+        currentPage.value++;
+      }
+    } catch (error) {
+      console.error('加载更多动态失败:', error);
+    } finally {
+      loading.value = false;
     }
-  } catch (error) {
-    console.error('加载更多动态失败:', error);
-  } finally {
-    loading.value = false;
   }
 };
 
@@ -361,6 +380,7 @@ const loadMore = async () => {
 const initializeData = async () => {
   currentPage.value = 0;
   allTrendItems.value = [];
+  hasMoreFromServer.value = true; // 重置服务器更多数据状态
   await fetchTrends(0, initialPageSize);
 };
 

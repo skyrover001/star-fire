@@ -1,6 +1,6 @@
 <script lang="ts" setup>
 import type { TabOption } from '@vben/types';
-import { ref, onMounted, computed, nextTick, watch } from 'vue';
+import { ref, onMounted, computed, nextTick, watch, provide } from 'vue';
 import { requestClient } from '#/api/request';
 import { useEcharts } from '@vben/plugins/echarts';
 
@@ -40,6 +40,9 @@ interface TokenUsageRecord {
 
 const loading = ref(false);
 const usageRecords = ref<TokenUsageRecord[]>([]);
+
+// 向子组件提供使用记录数据
+provide('usageRecords', usageRecords);
 
 // 默认PPM值（每百万Token价格）
 const defaultPPM = 1000.00;

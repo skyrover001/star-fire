@@ -7,6 +7,7 @@ import (
 	"star-fire/internal/models"
 	"star-fire/internal/service"
 	"star-fire/internal/websocket"
+	"star-fire/pkg/public"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -46,10 +47,29 @@ func (h *ClientHandler) RegisterClient(c *gin.Context) {
 		log.Println("Error while upgrading to websocket:", err)
 		return
 	}
+	defer conn.Close()
 	log.Printf("Client connected: %s for user: %s (%s)", id, user.Username, user.Email)
 	client := models.NewClient(id, c.ClientIP(), conn)
 
 	client.SetUser(user)
+	reconnectResponse, err := h.registerTokenService.GenerateRegisterToken(user.ID, -1)
+	if err != nil {
+		log.Printf("generate client credential failed: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to generate client credential"})
+		return
+	}
+
+	reconnectMsg := public.WSMessage{
+		Type:        "reconnect",
+		Content:     "",
+		FingerPrint: reconnectResponse.Token,
+	}
+	err = conn.WriteJSON(reconnectMsg)
+	if err != nil {
+		log.Printf("Error sending welcome message: %v", err)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send welcome message"})
+		return
+	}
 
 	log.Printf("Client %s registered with user %s", client.ID, user.Username)
 	now := time.Now().Format("2006-01-02 15:04:05")
@@ -93,7 +113,7 @@ func (h *ClientHandler) GenerateRegisterToken(c *gin.Context) {
 		})
 		return
 	}
-	resp, err := h.registerTokenService.GenerateRegisterToken(userID.(string))
+	resp, err := h.registerTokenService.GenerateRegisterToken(userID.(string), 600)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": err.Error(),

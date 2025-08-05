@@ -9,10 +9,11 @@ import (
 )
 
 type RegisterToken struct {
-	Token     string    `json:"token"`
-	UserID    string    `json:"user_id"`
-	CreatedAt time.Time `json:"created_at"`
-	Used      bool      `json:"used"`
+	Token          string    `json:"token"`
+	UserID         string    `json:"user_id"`
+	CreatedAt      time.Time `json:"created_at"`
+	Used           bool      `json:"used"`
+	ExpiredSeconds int64     `json:"expired_seconds"` // 可选字段，用于设置令牌的过期时间
 }
 
 type RegisterTokenStore struct {
@@ -25,7 +26,7 @@ func NewRegisterTokenStore() *RegisterTokenStore {
 	}
 }
 
-func (s *RegisterTokenStore) GenerateToken(userID string) (*RegisterToken, error) {
+func (s *RegisterTokenStore) GenerateToken(userID string, expiredSeconds int64) (*RegisterToken, error) {
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
 		return nil, err
@@ -33,10 +34,11 @@ func (s *RegisterTokenStore) GenerateToken(userID string) (*RegisterToken, error
 
 	tokenString := hex.EncodeToString(tokenBytes)
 	token := &RegisterToken{
-		Token:     tokenString,
-		UserID:    userID,
-		CreatedAt: time.Now(),
-		Used:      false,
+		Token:          tokenString,
+		UserID:         userID,
+		CreatedAt:      time.Now(),
+		Used:           false,
+		ExpiredSeconds: expiredSeconds,
 	}
 
 	s.cache.Set(tokenString, token)
@@ -58,8 +60,10 @@ func (s *RegisterTokenStore) ValidateAndUseToken(tokenString string) (string, er
 		return "", errors.New("token already used")
 	}
 
-	if time.Since(token.CreatedAt) > 10*time.Minute {
-		return "", errors.New("token expired")
+	if token.ExpiredSeconds > 0 {
+		if time.Since(token.CreatedAt) > time.Duration(token.ExpiredSeconds)*time.Second {
+			return "", errors.New("token expired")
+		}
 	}
 
 	token.Used = true
@@ -77,8 +81,10 @@ func (s *RegisterTokenStore) CleanupExpiredTokens() {
 			continue
 		}
 
-		if token.Used || time.Since(token.CreatedAt) > 24*time.Hour {
-			s.cache.Delete(key)
+		if token.ExpiredSeconds > 0 {
+			if token.Used || time.Since(token.CreatedAt) > 24*time.Hour {
+				s.cache.Delete(key)
+			}
 		}
 	}
 }

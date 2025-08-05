@@ -20,24 +20,24 @@ func NewRegisterTokenService(registerTokenStore *models.RegisterTokenStore, user
 // GenerateTokenResponse
 type GenerateTokenResponse struct {
 	Token     string `json:"token"`
-	ExpiresIn int    `json:"expires_in"`
+	ExpiresIn int64  `json:"expires_in"`
 }
 
 // GenerateRegisterToken
-func (s *RegisterTokenService) GenerateRegisterToken(userID string) (*GenerateTokenResponse, error) {
+func (s *RegisterTokenService) GenerateRegisterToken(userID string, expiredSeconds int64) (*GenerateTokenResponse, error) {
 	_, err := s.userDB.GetUserByID(userID)
 	if err != nil {
 		return nil, err
 	}
 
-	token, err := s.registerTokenStore.GenerateToken(userID)
+	token, err := s.registerTokenStore.GenerateToken(userID, expiredSeconds)
 	if err != nil {
 		return nil, err
 	}
 
 	return &GenerateTokenResponse{
 		Token:     token.Token,
-		ExpiresIn: 600,
+		ExpiresIn: token.ExpiredSeconds,
 	}, nil
 }
 

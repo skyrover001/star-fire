@@ -64,7 +64,7 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				client.Status = "offline"
 				return
 			} else {
-				client.Models = pong.AvaliableModels
+				client.Models = pong.AvailableModels
 				for _, m := range client.Models {
 					server.RegisterModel(m, client)
 					fmt.Println("Client available model:", m.Name, m)

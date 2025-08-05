@@ -58,6 +58,8 @@ func HandleMessages(c *Client) {
 			handleKeepAlive(c, message)
 		case public.MESSAGE:
 			handleChatMessage(c, message)
+		case public.RECONNECT:
+			handleReconnect(c, message)
 		case public.CLOSE:
 			log.Println("server close message:", message.Content)
 			return
@@ -73,7 +75,7 @@ func handleKeepAlive(c *Client, message public.WSMessage) {
 	pong := public.PPMessage{
 		Type:            public.PONG,
 		Timestamp:       message.Content.(map[string]interface{})["timestamp"].(string),
-		AvaliableModels: c.Models,
+		AvailableModels: c.Models,
 	}
 	response := public.WSMessage{
 		Type:    public.KEEPALIVE,
@@ -84,6 +86,12 @@ func handleKeepAlive(c *Client, message public.WSMessage) {
 		log.Printf("send pong error: %v", err)
 	}
 	fmt.Println("pong message is:", response)
+}
+
+func handleReconnect(c *Client, message public.WSMessage) {
+	// update fingerprint
+	log.Printf("recieve reconnect message: %v", message.FingerPrint)
+	c.cfg.JoinToken = message.FingerPrint
 }
 
 func handleChatMessage(c *Client, message public.WSMessage) {

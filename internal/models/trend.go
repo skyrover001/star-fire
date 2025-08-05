@@ -67,3 +67,42 @@ func (t *TrendDB) GetTrendsByTimeRange(start, end string) ([]*Trend, error) {
 	}
 	return trends, nil
 }
+
+// get trends by time range with pagination
+func (t *TrendDB) GetTrendsByTimeRangeWithPagination(start, end string, page, size int) ([]*Trend, int64, error) {
+	var trends []*Trend
+	var total int64
+
+	log.Println("GetTrendsByTimeRangeWithPagination", start, end, "page:", page, "size:", size)
+
+	// 构建基础查询
+	query := t.db.Model(&Trend{})
+	if start != "" && end != "" {
+		query = query.Where("created_at >= ? AND created_at <= ?", start, end)
+	}
+
+	// 获取总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 计算偏移量
+	offset := (page - 1) * size
+
+	// 获取分页数据
+	result := query.Order("created_at DESC").Offset(offset).Limit(size).Find(&trends)
+	if result.Error != nil {
+		return nil, 0, result.Error
+	}
+
+	return trends, total, nil
+}
+
+// TrendsResponse represents the paginated response for trends
+type TrendsResponse struct {
+	Data       []*Trend `json:"data"`
+	Total      int64    `json:"total"`
+	Page       int      `json:"page"`
+	Size       int      `json:"size"`
+	TotalPages int      `json:"total_pages"`
+}
