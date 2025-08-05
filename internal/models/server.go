@@ -416,3 +416,42 @@ func (s *Server) GetTrends(startDate, endDate string) []*Trend {
 	}
 	return trends
 }
+
+func (s *Server) GetTrendsWithPagination(startDate, endDate string, page, size int) *TrendsResponse {
+	if startDate == "" || endDate == "" {
+		// use today 00:00:00 as start date today 23:59:59 as end date
+		startDate = time.Now().Format("2006-01-02")
+		endDate = time.Now().AddDate(0, 0, 1).Format("2006-01-02")
+	}
+
+	// 设置默认分页参数
+	if page <= 0 {
+		page = 1
+	}
+	if size <= 0 {
+		size = 10
+	}
+
+	trends, total, err := s.TrendDB.GetTrendsByTimeRangeWithPagination(startDate, endDate, page, size)
+	if err != nil {
+		log.Printf("get trends with pagination failed: %v", err)
+		return &TrendsResponse{
+			Data:       []*Trend{},
+			Total:      0,
+			Page:       page,
+			Size:       size,
+			TotalPages: 0,
+		}
+	}
+
+	// 计算总页数
+	totalPages := int((total + int64(size) - 1) / int64(size))
+
+	return &TrendsResponse{
+		Data:       trends,
+		Total:      total,
+		Page:       page,
+		Size:       size,
+		TotalPages: totalPages,
+	}
+}

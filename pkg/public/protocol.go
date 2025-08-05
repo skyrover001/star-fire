@@ -3,6 +3,7 @@ package public
 const KEEPALIVE = "keepalive"
 const REGISTER = "register"
 const MESSAGE = "message"
+const RECONNECT = "reconnect"
 const MESSAGE_STREAM = "stream"
 const CLOSE = "close"
 const MODEL_ERROR = "model_error"
@@ -22,7 +23,7 @@ type WSMessage struct {
 type PPMessage struct {
 	Type            string   `json:"type"`
 	Timestamp       string   `json:"timestamp"`
-	AvaliableModels []*Model `json:"update_model"`
+	AvailableModels []*Model `json:"update_model"`
 }
 
 func ISStrINArray(str string, arr []string) bool {

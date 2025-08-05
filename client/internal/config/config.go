@@ -15,6 +15,7 @@ type Config struct {
 	OpenAIKey          string
 	OpenAIBaseURL      string
 	PricePerMillion    float64 // 每百万tokens定价
+	Deamon             bool    // 是否以守护进程方式运行
 }
 
 func LoadConfig() *Config {
@@ -33,6 +34,7 @@ func LoadConfig() *Config {
 	flag.StringVar(&cfg.OpenAIKey, "openai-key", "", "OpenAI API 密钥")
 	flag.StringVar(&cfg.OpenAIBaseURL, "openai-url", cfg.OpenAIBaseURL, "OpenAI API 基础URL")
 	flag.Float64Var(&cfg.PricePerMillion, "ppm", cfg.PricePerMillion, "每百万tokens定价 (默认: 8.0)")
+	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(os.Stderr, "StarFire 客户端\n\n")

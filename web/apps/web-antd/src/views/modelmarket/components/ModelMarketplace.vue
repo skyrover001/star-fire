@@ -44,12 +44,16 @@
     <!-- 模型列表标题 -->
     <div class="mb-6 flex items-center justify-between">
       <div>
-        <h3 class="text-2xl font-bold text-[var(--text-primary)]">
-          模型列表
-        </h3>
-        <p class="mt-1 text-[var(--text-secondary)]">
-          {{ filteredModels.length > 0 ? `共找到 ${filteredModels.length} 个模型` : '暂无模型' }}
-        </p>
+        <div class="flex items-center space-x-4">
+          <div>
+            <h3 class="text-2xl font-bold text-[var(--text-primary)]">
+              模型列表
+            </h3>
+            <p class="mt-1 text-[var(--text-secondary)]">
+              {{ allModels.length > 0 ? `共找到 ${allModels.length} 个模型` : '暂无模型' }}
+            </p>
+          </div>
+        </div>
       </div>
       
       <!-- 视图切换按钮 -->
@@ -546,25 +550,52 @@
         </div>
       </div>
       
-      <!-- 懒加载触发器 -->
-      <div ref="loadTrigger" class="py-8">
-        <div v-if="hasMore && !loading" class="text-center">
-          <div class="inline-flex items-center text-gray-400">
-            <svg class="mr-2 h-4 w-4 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 14l-7 7m0 0l-7-7m7 7V3"/>
+      <!-- 模型动态懒加载更多按钮 -->
+      <div class="py-8">
+        <!-- 加载更多按钮 -->
+        <div v-if="hasMore && !loading" class="text-center mb-6">
+          <button
+            @click="loadMoreModels"
+            :disabled="loading"
+            class="inline-flex items-center px-8 py-4 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 disabled:from-gray-400 disabled:to-gray-500 text-white text-base font-medium rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 disabled:transform-none disabled:cursor-not-allowed"
+          >
+            <svg v-if="!loading" class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/>
             </svg>
-            <span class="text-sm">向下滚动加载更多</span>
+            <svg v-else class="mr-2 h-5 w-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
+            </svg>
+            <span v-if="!loading">加载更多</span>
+            <span v-else>加载中...</span>
+          </button>
+          <div class="mt-3 text-sm text-[var(--text-secondary)]">
+            已显示 {{ displayedModels.length }} 条，共 {{ totalModels }} 条记录
           </div>
         </div>
         
         <!-- 没有更多数据提示 -->
         <div v-if="!hasMore && displayedModels.length > 0" class="text-center">
-          <div class="inline-flex items-center px-4 py-2 bg-[var(--content-bg)] border border-[var(--border-color)] rounded-xl text-[var(--text-secondary)]">
+          <div class="inline-flex items-center px-6 py-3 bg-[var(--content-bg)] border border-[var(--border-color)] rounded-xl text-[var(--text-secondary)]">
             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
             </svg>
             已加载全部模型
           </div>
+        </div>
+        
+        <!-- 无数据提示 -->
+        <div v-if="displayedModels.length === 0 && !loading" class="text-center py-16">
+          <div class="w-20 h-20 bg-gradient-to-br from-gray-500/20 to-gray-600/20 rounded-full flex items-center justify-center mx-auto mb-4">
+            <svg class="w-10 h-10 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 13V6a2 2 0 00-2-2H6a2 2 0 00-2 2v7m16 0v5a2 2 0 01-2 2H6a2 2 0 01-2 2v-5m16 0h-2.586a1 1 0 00-.707.293l-2.414 2.414a1 1 0 01-.707.293h-3.172a1 1 0 01-.707-.293l-2.414-2.414A1 1 0 006.586 13H4"/>
+            </svg>
+          </div>
+          <h3 class="text-lg font-medium text-[var(--text-primary)] mb-2">
+            暂无模型数据
+          </h3>
+          <p class="text-[var(--text-secondary)]">
+            {{ props.searchKeyword ? '没有找到匹配的模型' : '暂时没有可用的模型' }}
+          </p>
         </div>
         
         <!-- 无搜索结果 -->
@@ -589,7 +620,7 @@
 <script lang="ts" setup>
 import type { WorkbenchProjectItem } from '@vben/common-ui';
 
-import { computed, ref, watch, onMounted, onUnmounted, onActivated } from 'vue';
+import { computed, ref, watch, onMounted, onActivated } from 'vue';
 import { useRouter } from 'vue-router';
 // 导入请求工具
 import { requestClient } from '#/api/request';
@@ -690,7 +721,7 @@ const router = useRouter();
 // 响应式状态
 const loading = ref(false);
 const currentPage = ref(1);
-const pageSize = 12; // 网格布局适合的数量
+const pageSize = 12; // 每页显示数量
 const viewMode = ref<'grid' | 'list'>('grid'); // 默认网格视图
 const statusFilter = ref('');
 const typeFilter = ref('');
@@ -698,12 +729,9 @@ const parameterSizeFilter = ref(''); // 新增参数大小筛选
 const sortBy = ref('name');
 const sortOrder = ref<'asc' | 'desc'>('asc');
 
-// DOM引用
-const loadTrigger = ref<HTMLElement>();
-
-// 所有模型数据
-const allModels = ref<ModelItem[]>([]);
-const totalModels = ref(0);
+// 模型数据
+const allModels = ref<ModelItem[]>([]); // 已加载的所有模型数据
+const totalModels = ref(0); // 服务器端总数量
 
 // 数据转换函数：将API数据转换为显示用的模型数据
 const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
@@ -820,15 +848,19 @@ const createDefaultModel = (): ModelItem => {
   };
 };
 
-// API获取模型数据
+
+
+// API获取模型数据 - 真正的分页版本
 const fetchModels = async (page: number = 1, limit: number = pageSize) => {
   try {
     loading.value = true;
+    
+    console.log(`获取模型数据：第 ${page} 页，每页 ${limit} 条`);
+    
     const response = await requestClient.get('/market/models');
     
     console.log('Models API 响应:', response);
     
-    // 首先检查响应是否存在
     if (!response) {
       console.warn('API 返回空响应');
       return {
@@ -839,78 +871,90 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
     }
     
     // 检查响应是否是数组格式
+    let apiModels: ApiModelItem[] = [];
     if (Array.isArray(response)) {
-      // 直接处理数组响应
-      const apiModels: ApiModelItem[] = response;
-      console.log('获取到的模型数据:', apiModels);
-      
-      // 过滤搜索关键词
-      let filteredModels = apiModels;
-      if (props.searchKeyword.trim()) {
-        const keyword = props.searchKeyword.toLowerCase();
-        filteredModels = apiModels.filter(model => 
-          model?.name?.toLowerCase().includes(keyword) ||
-          model?.type?.toLowerCase().includes(keyword) ||
-          model?.quantization?.toLowerCase().includes(keyword)
-        );
-      }
-      
-      // 分页处理
-      const startIndex = (page - 1) * limit;
-      const endIndex = startIndex + limit;
-      const paginatedModels = filteredModels.slice(startIndex, endIndex);
-      
-      // 转换数据格式
-      const transformedModels = paginatedModels.map(transformApiModel);
-      console.log('转换后的模型数据:', transformedModels);
-      
-      return {
-        models: transformedModels,
-        total: filteredModels.length,
-        hasMore: endIndex < filteredModels.length
-      };
+      apiModels = response;
     } else if (response && response.success && response.data) {
-      // 处理包装的响应格式
-      const apiModels: ApiModelItem[] = response.data.models || response.data || [];
-      const transformedModels = apiModels.map(transformApiModel);
-      
-      return {
-        models: transformedModels,
-        total: response.data.total || apiModels.length,
-        hasMore: response.data.hasMore || false
-      };
+      apiModels = response.data.models || response.data || [];
+    } else if (response && response.data && Array.isArray(response.data)) {
+      apiModels = response.data;
     } else {
-      // 处理其他响应格式或错误情况
-      const errorMessage = response?.message || response?.error || '未知错误';
-      console.error('获取模型数据失败:', errorMessage, response);
-      
-      // 如果有其他可能的数据格式，可以在这里尝试处理
-      if (response && response.data && Array.isArray(response.data)) {
-        console.log('尝试处理备用数据格式...');
-        const apiModels: ApiModelItem[] = response.data;
-        const transformedModels = apiModels.map(transformApiModel);
-        
-        return {
-          models: transformedModels,
-          total: apiModels.length,
-          hasMore: false
-        };
-      }
-      
+      console.error('获取模型数据失败:', response?.message || response?.error || '未知错误');
       return {
         models: [],
         total: 0,
         hasMore: false
       };
     }
-  } catch (error) {
-    console.error('获取模型数据失败:', error);
     
-    // 检查是否是网络错误
-    if (error instanceof TypeError && error.message.includes('fetch')) {
-      console.error('网络连接错误，可能是API服务未启动');
+    // 转换数据格式
+    const transformedModels = apiModels.map(transformApiModel);
+    
+    // 应用搜索和筛选
+    let filteredModels = transformedModels;
+    if (props.searchKeyword.trim()) {
+      const keyword = props.searchKeyword.toLowerCase();
+      filteredModels = transformedModels.filter(model => 
+        model.name.toLowerCase().includes(keyword) ||
+        model.creator.toLowerCase().includes(keyword) ||
+        model.modelType.toLowerCase().includes(keyword) ||
+        model.quantization.toLowerCase().includes(keyword) ||
+        model.description.toLowerCase().includes(keyword)
+      );
     }
     
+    // 状态筛选
+    if (statusFilter.value) {
+      filteredModels = filteredModels.filter(model => model.status === statusFilter.value);
+    }
+    
+    // 类型筛选
+    if (typeFilter.value) {
+      filteredModels = filteredModels.filter(model => model.modelType === typeFilter.value);
+    }
+    
+    // 参数大小筛选
+    if (parameterSizeFilter.value) {
+      filteredModels = filteredModels.filter(model => {
+        const category = getParameterSizeCategory(model.parameterSize);
+        return category === parameterSizeFilter.value;
+      });
+    }
+    
+    // 排序
+    const sortOrderMultiplier = sortOrder.value === 'asc' ? 1 : -1;
+    filteredModels.sort((a, b) => {
+      switch (sortBy.value) {
+        case 'createDate':
+          return (new Date(a.createDate).getTime() - new Date(b.createDate).getTime()) * sortOrderMultiplier;
+        case 'parameterSize':
+          const aNum = parseFloat(a.parameterSize.match(/(\d+(\.\d+)?)/)?.[1] || '0');
+          const bNum = parseFloat(b.parameterSize.match(/(\d+(\.\d+)?)/)?.[1] || '0');
+          return (aNum - bNum) * sortOrderMultiplier;
+        case 'clientCount':
+          return ((a.clientCount || 0) - (b.clientCount || 0)) * sortOrderMultiplier;
+        default: // name
+          return a.name.localeCompare(b.name) * sortOrderMultiplier;
+      }
+    });
+    
+    // 保存完整的筛选后数据（用于判断总数）
+    const totalFiltered = filteredModels.length;
+    
+    // 分页处理 - 只返回当前页的数据
+    const startIndex = (page - 1) * limit;
+    const endIndex = startIndex + limit;
+    const paginatedModels = filteredModels.slice(startIndex, endIndex);
+    
+    console.log(`分页后的模型数据: ${paginatedModels.length} 条，总共 ${totalFiltered} 条，当前页: ${page}`);
+    
+    return {
+      models: paginatedModels,
+      total: totalFiltered,
+      hasMore: endIndex < totalFiltered
+    };
+  } catch (error) {
+    console.error('获取模型数据失败:', error);
     return {
       models: [],
       total: 0,
@@ -924,70 +968,36 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
 // 初始化加载模型数据
 const initializeModels = async () => {
   console.log('初始化模型数据');
+  currentPage.value = 1;
+  allModels.value = [];
+  
   const result = await fetchModels(1);
   allModels.value = result.models;
   totalModels.value = result.total;
-  console.log('模型数据加载完成:', result.models.length, '个模型');
+  console.log('模型数据加载完成:', result.models.length, '个模型，总计:', result.total);
+};
+
+// 加载更多模型数据（点击按钮）
+const loadMoreModels = async () => {
+  if (loading.value) return;
+  
+  console.log('加载更多模型数据');
+  currentPage.value++;
+  
+  const result = await fetchModels(currentPage.value);
+  // 将新数据追加到现有数据中
+  allModels.value.push(...result.models);
+  console.log(`加载第 ${currentPage.value} 页，新增 ${result.models.length} 个模型，总计已加载 ${allModels.value.length} 个`);
 };
 
 // 根据搜索关键词过滤模型
 const filteredModels = computed(() => {
-  let result = allModels.value;
-  
-  // 搜索关键词过滤
-  if (props.searchKeyword.trim()) {
-    const keyword = props.searchKeyword.toLowerCase();
-    result = result.filter(model => 
-      model.name.toLowerCase().includes(keyword) ||
-      model.creator.toLowerCase().includes(keyword) ||
-      model.modelType.toLowerCase().includes(keyword) ||
-      model.quantization.toLowerCase().includes(keyword) ||
-      model.description.toLowerCase().includes(keyword)
-    );
-  }
-  
-  // 状态过滤
-  if (statusFilter.value) {
-    result = result.filter(model => model.status === statusFilter.value);
-  }
-  
-  // 类型过滤
-  if (typeFilter.value) {
-    result = result.filter(model => model.modelType === typeFilter.value);
-  }
-  
-  // 参数大小过滤
-  if (parameterSizeFilter.value) {
-    result = result.filter(model => {
-      const category = getParameterSizeCategory(model.parameterSize);
-      return category === parameterSizeFilter.value;
-    });
-  }
-  
-  // 排序
-  const sortOrderMultiplier = sortOrder.value === 'asc' ? 1 : -1;
-  result.sort((a, b) => {
-    switch (sortBy.value) {
-      case 'createDate':
-        return (new Date(a.createDate).getTime() - new Date(b.createDate).getTime()) * sortOrderMultiplier;
-      case 'parameterSize':
-        // 按参数数值大小排序
-        const aNum = parseFloat(a.parameterSize.match(/(\d+(\.\d+)?)/)?.[1] || '0');
-        const bNum = parseFloat(b.parameterSize.match(/(\d+(\.\d+)?)/)?.[1] || '0');
-        return (aNum - bNum) * sortOrderMultiplier;
-      case 'clientCount':
-        return ((a.clientCount || 0) - (b.clientCount || 0)) * sortOrderMultiplier;
-      default: // name
-        return a.name.localeCompare(b.name) * sortOrderMultiplier;
-    }
-  });
-  
-  return result;
+  return allModels.value;
 });
 
-// 当前显示的模型（分页后的）
+// 当前显示的模型
 const displayedModels = computed(() => {
-  return filteredModels.value.slice(0, currentPage.value * pageSize);
+  return allModels.value;
 });
 
 // 是否还有更多数据
@@ -996,8 +1006,14 @@ const hasMore = computed(() => {
     // 搜索模式下，显示所有匹配结果
     return false;
   }
-  // 正常模式下，基于总数判断
-  return allModels.value.length < totalModels.value;
+  
+  // 基于已加载数量和服务端总数量判断
+  const loadedCount = allModels.value.length;
+  const total = totalModels.value;
+  
+  console.log(`hasMore 计算: 已加载 ${loadedCount}, 总计 ${total}, 是否有更多: ${loadedCount < total}`);
+  
+  return loadedCount < total && loadedCount > 0;
 });
 
 // 计算模型状态统计
@@ -1007,10 +1023,10 @@ const modelStats = computed(() => {
     restricted: 0,
     offline: 0,
     maintenance: 0,
-    total: filteredModels.value.length,
+    total: allModels.value.length,
   };
   
-  filteredModels.value.forEach(model => {
+  allModels.value.forEach(model => {
     stats[model.status]++;
   });
   
@@ -1039,11 +1055,6 @@ const getStatusText = (status: ModelItem['status']) => {
   return texts[status];
 };
 
-// 检查是否有活动的筛选器
-const hasActiveFilters = computed(() => {
-  return !!(statusFilter.value || typeFilter.value || parameterSizeFilter.value || props.searchKeyword);
-});
-
 // 获取参数大小文本
 const getParameterSizeText = (size: string): string => {
   const sizeMap: { [key: string]: string } = {
@@ -1054,6 +1065,11 @@ const getParameterSizeText = (size: string): string => {
   };
   return sizeMap[size] || size;
 };
+
+// 检查是否有活动的筛选器
+const hasActiveFilters = computed(() => {
+  return !!(statusFilter.value || typeFilter.value || parameterSizeFilter.value || props.searchKeyword);
+});
 
 // 根据参数大小分类
 const getParameterSizeCategory = (parameterSize: string): string => {
@@ -1172,16 +1188,6 @@ const toggleFavorite = (model: ModelItem) => {
   // TODO: 实现收藏功能
 };
 
-// 加载更多
-const loadMore = async () => {
-  if (loading.value || !hasMore.value) return;
-  
-  currentPage.value++;
-  const result = await fetchModels(currentPage.value);
-  allModels.value.push(...result.models);
-  totalModels.value = result.total;
-};
-
 // 处理模型点击
 const handleModelClick = (model: ModelItem) => {
   const projectItem: WorkbenchProjectItem = {
@@ -1223,52 +1229,25 @@ const openChatDialog = (model: ModelItem) => {
 
 // 监听搜索关键词变化，重置分页
 watch(() => props.searchKeyword, () => {
-  currentPage.value = 1;
+  initializeModels();
 });
 
-// 懒加载逻辑
-let observer: IntersectionObserver;
+
 
 // 组件挂载时初始化数据
 onMounted(() => {
   console.log('ModelMarketplace 组件挂载');
-  // 初始化数据
   initializeModels();
-  
-  // 设置懒加载
-  if (loadTrigger.value) {
-    observer = new IntersectionObserver(
-      (entries) => {
-        // 修复 entries 可能为空的问题
-        if (entries && entries.length > 0) {
-          const [entry] = entries;
-          if (entry && entry.isIntersecting && hasMore.value && !loading.value) {
-            loadMore();
-          }
-        }
-      },
-      { threshold: 0.1 }
-    );
-    
-    observer.observe(loadTrigger.value);
-  }
 });
 
 // 监听搜索关键词变化
 watch(() => props.searchKeyword, () => {
-  currentPage.value = 1;
   initializeModels();
 });
 
 // 暴露刷新方法给父组件
 const refreshData = () => {
   console.log('ModelMarketplace 收到刷新指令');
-  currentPage.value = 1;
-  allModels.value = [];
-  totalModels.value = 0;
-  loading.value = false;
-  
-  // 强制重新初始化数据
   initializeModels();
 };
 
@@ -1281,12 +1260,6 @@ defineExpose({
 onActivated(() => {
   console.log('ModelMarketplace 组件被激活');
   refreshData();
-});
-
-onUnmounted(() => {
-  if (observer) {
-    observer.disconnect();
-  }
 });
 </script>
 
