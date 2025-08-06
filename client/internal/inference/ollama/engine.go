@@ -2,12 +2,14 @@ package ollama
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
+	"strings"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -163,10 +165,44 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Message {
 	ollamaMessages := make([]api.Message, len(messages))
 	for i, msg := range messages {
-		ollamaMessages[i] = api.Message{
+		ollamaMessage := api.Message{
 			Role:    msg.Role,
 			Content: msg.Content,
 		}
+
+		// 处理多媒体内容（包括图片）
+		if len(msg.MultiContent) > 0 {
+			var images []api.ImageData
+			var textContent string
+
+			for _, part := range msg.MultiContent {
+				if part.Type == openai.ChatMessagePartTypeText {
+					if textContent != "" {
+						textContent += "\n"
+					}
+					textContent += part.Text
+				} else if part.Type == openai.ChatMessagePartTypeImageURL && part.ImageURL != nil {
+					imageURL := part.ImageURL.URL
+					if strings.HasPrefix(imageURL, "data:image/") {
+						// 提取 base64 部分
+						if commaIndex := strings.Index(imageURL, ","); commaIndex != -1 {
+							base64Data := imageURL[commaIndex+1:]
+							// 解码 base64 为二进制数据
+							if decodedData, err := base64.StdEncoding.DecodeString(base64Data); err == nil {
+								images = append(images, decodedData)
+							}
+						}
+					}
+				}
+			}
+
+			ollamaMessage.Content = textContent
+			ollamaMessage.Images = images
+		}
+
+		type ToolCallFunctionArguments map[string]any
+
+		ollamaMessages[i] = ollamaMessage
 	}
 	return ollamaMessages
 }

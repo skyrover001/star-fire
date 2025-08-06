@@ -16,7 +16,7 @@ import (
 
 // handle user chat request
 func HandleChatRequest(c *gin.Context, server *models.Server) {
-	var request public.OpenAIRequest
+	var request openai.ChatCompletionRequest
 	fingerPrint := uuid.NewString()
 
 	err := c.ShouldBindJSON(&request)
