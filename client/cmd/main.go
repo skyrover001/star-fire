@@ -141,22 +141,15 @@ func startDaemon() {
 	}
 
 	// 根据操作系统选择不同的启动方式
-	var cmd *exec.Cmd
+	cmd := exec.Command(execPath, args...)
+
 	if runtime.GOOS == "windows" {
-		// Windows 下直接启动可执行文件
-		cmd = exec.Command(execPath, args...)
-		// Windows 下设置创建新的进程组
-		cmd.SysProcAttr = &syscall.SysProcAttr{
-			CreationFlags: 0x00000200, // CREATE_NEW_PROCESS_GROUP
-		}
 		// Windows下重定向到nul
 		cmd.Stdin = nil
 		cmd.Stdout = nil
 		cmd.Stderr = nil
 	} else {
-		// Unix/Linux 下直接启动
-		cmd = exec.Command(execPath, args...)
-		// 重定向标准输入输出到 /dev/null
+		// Unix/Linux 下重定向标准输入输出到 /dev/null
 		devNull, err := os.OpenFile("/dev/null", os.O_RDWR, 0)
 		if err != nil {
 			log.Fatalf("无法打开 /dev/null: %v", err)
