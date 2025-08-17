@@ -3,6 +3,7 @@ package ollama
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
@@ -99,6 +100,115 @@ func (e *Engine) SupportsModel(modelName string, conf *config.Config) bool {
 	return ok
 }
 
+// 添加转换函数
+func convertOpenAIToolToOllama(openaiTool openai.Tool) (api.Tool, error) {
+	ollamaTool := api.Tool{
+		Type: "function", // OpenAI 的 ToolType 是字符串类型，直接使用 "function"
+		Function: api.ToolFunction{
+			Name:        openaiTool.Function.Name,
+			Description: openaiTool.Function.Description,
+		},
+	}
+
+	// 转换 Parameters
+	if openaiTool.Function.Parameters != nil {
+		// 将 OpenAI 的 Parameters 转换为 JSON 再解析到 Ollama 格式
+		paramBytes, err := json.Marshal(openaiTool.Function.Parameters)
+		if err != nil {
+			return api.Tool{}, fmt.Errorf("marshal parameters error: %v", err)
+		}
+
+		var paramMap map[string]interface{}
+		if err := json.Unmarshal(paramBytes, &paramMap); err != nil {
+			return api.Tool{}, fmt.Errorf("unmarshal parameters error: %v", err)
+		}
+
+		// 设置基本类型
+		if typeVal, ok := paramMap["type"].(string); ok {
+			ollamaTool.Function.Parameters.Type = typeVal
+		} else {
+			ollamaTool.Function.Parameters.Type = "object" // 默认值
+		}
+
+		// 设置 Required 字段
+		if requiredVal, ok := paramMap["required"].([]interface{}); ok {
+			required := make([]string, len(requiredVal))
+			for i, req := range requiredVal {
+				if reqStr, ok := req.(string); ok {
+					required[i] = reqStr
+				}
+			}
+			ollamaTool.Function.Parameters.Required = required
+		}
+
+		// 设置 Properties 字段
+		if propertiesVal, ok := paramMap["properties"].(map[string]interface{}); ok {
+			properties := make(map[string]struct {
+				Type        api.PropertyType `json:"type"`
+				Items       any              `json:"items,omitempty"`
+				Description string           `json:"description"`
+				Enum        []any            `json:"enum,omitempty"`
+			})
+
+			for propName, propVal := range propertiesVal {
+				if propMap, ok := propVal.(map[string]interface{}); ok {
+					property := struct {
+						Type        api.PropertyType `json:"type"`
+						Items       any              `json:"items,omitempty"`
+						Description string           `json:"description"`
+						Enum        []any            `json:"enum,omitempty"`
+					}{}
+
+					// 设置类型
+					if typeVal, ok := propMap["type"]; ok {
+						if typeStr, ok := typeVal.(string); ok {
+							property.Type = api.PropertyType([]string{typeStr})
+						} else if typeSlice, ok := typeVal.([]interface{}); ok {
+							types := make([]string, len(typeSlice))
+							for i, t := range typeSlice {
+								if tStr, ok := t.(string); ok {
+									types[i] = tStr
+								}
+							}
+							property.Type = api.PropertyType(types)
+						}
+					}
+
+					// 设置描述
+					if descVal, ok := propMap["description"].(string); ok {
+						property.Description = descVal
+					}
+
+					// 设置枚举
+					if enumVal, ok := propMap["enum"].([]interface{}); ok {
+						property.Enum = enumVal
+					}
+
+					// 设置 Items
+					if itemsVal, ok := propMap["items"]; ok {
+						property.Items = itemsVal
+					}
+
+					properties[propName] = property
+				}
+			}
+
+			ollamaTool.Function.Parameters.Properties = properties
+		}
+
+		// 设置其他字段
+		if defsVal, ok := paramMap["$defs"]; ok {
+			ollamaTool.Function.Parameters.Defs = defsVal
+		}
+
+		if itemsVal, ok := paramMap["items"]; ok {
+			ollamaTool.Function.Parameters.Items = itemsVal
+		}
+	}
+
+	return ollamaTool, nil
+}
+
 func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	request *openai.ChatCompletionRequest, responseConn *websocket.Conn) error {
 	ollamaReq := &api.ChatRequest{
@@ -108,6 +218,16 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		Options: map[string]interface{}{
 			"temperature": request.Temperature,
 		},
+		Tools: make([]api.Tool, 0, len(request.Tools)),
+	}
+	for _, tool := range request.Tools {
+		fmt.Println("Tool:", tool)
+		ollamaTool, err := convertOpenAIToolToOllama(tool)
+		if err != nil {
+			log.Printf("convert tool error: %v", err)
+			continue
+		}
+		ollamaReq.Tools = append(ollamaReq.Tools, ollamaTool)
 	}
 
 	respFunc := func(resp api.ChatResponse) error {
@@ -200,7 +320,21 @@ func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Mess
 			ollamaMessage.Images = images
 		}
 
-		type ToolCallFunctionArguments map[string]any
+		if msg.FunctionCall != nil {
+			ollamaMessage.ToolCalls = make([]api.ToolCall, 0, 1)
+			var args api.ToolCallFunctionArguments
+			if err := json.Unmarshal([]byte(msg.FunctionCall.Arguments), &args); err != nil {
+				log.Printf("failed to unmarshal function call arguments: %v", err)
+				args = make(api.ToolCallFunctionArguments)
+			}
+			ollamaMessage.ToolCalls = append(ollamaMessage.ToolCalls, api.ToolCall{
+				Function: api.ToolCallFunction{
+					Index:     0,
+					Name:      msg.FunctionCall.Name,
+					Arguments: args,
+				},
+			})
+		}
 
 		ollamaMessages[i] = ollamaMessage
 	}
@@ -224,7 +358,7 @@ func convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) o
 				Delta: openai.ChatCompletionStreamChoiceDelta{
 					Content: resp.Message.Content,
 					Role: func() string {
-						if !resp.Done && resp.Message.Content == resp.Message.Content {
+						if !resp.Done {
 							return "assistant"
 						}
 						return ""
