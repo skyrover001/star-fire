@@ -363,6 +363,29 @@ func convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) o
 						}
 						return ""
 					}(),
+					ToolCalls: func() []openai.ToolCall {
+						if len(resp.Message.ToolCalls) > 0 {
+							toolCalls := make([]openai.ToolCall, len(resp.Message.ToolCalls))
+							for i, tc := range resp.Message.ToolCalls {
+								toolCalls[i] = openai.ToolCall{
+									ID:   fmt.Sprintf("toolcall-%d", i),
+									Type: "function",
+									Function: openai.FunctionCall{
+										Name: tc.Function.Name,
+										Arguments: func() string {
+											argsBytes, err := json.Marshal(tc.Function.Arguments)
+											if err != nil {
+												return ""
+											}
+											return string(argsBytes)
+										}(),
+									},
+								}
+							}
+							return toolCalls
+						}
+						return nil
+					}(),
 				},
 				FinishReason: finishReason,
 			},
@@ -390,6 +413,22 @@ func convertToOpenAIResponse(resp *api.ChatResponse, fingerprint string) openai.
 				Message: openai.ChatCompletionMessage{
 					Role:    resp.Message.Role,
 					Content: resp.Message.Content,
+					FunctionCall: func() *openai.FunctionCall {
+						if len(resp.Message.ToolCalls) > 0 {
+							tc := resp.Message.ToolCalls[0]
+							return &openai.FunctionCall{
+								Name: tc.Function.Name,
+								Arguments: func() string {
+									argsBytes, err := json.Marshal(tc.Function.Arguments)
+									if err != nil {
+										return ""
+									}
+									return string(argsBytes)
+								}(),
+							}
+						}
+						return nil
+					}(),
 				},
 				FinishReason: openai.FinishReasonStop,
 			},
