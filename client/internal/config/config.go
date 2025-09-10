@@ -8,20 +8,22 @@ import (
 )
 
 type Config struct {
-	StarFireHost       string
-	JoinToken          string
-	LocalInferenceType string
-	OllamaHost         string
-	OpenAIKey          string
-	OpenAIBaseURL      string
-	PricePerMillion    float64 // 每百万tokens定价
-	Deamon             bool    // 是否以守护进程方式运行
+	StarFireHost               string
+	JoinToken                  string
+	LocalInferenceType         string
+	OllamaHost                 string
+	OpenAIKey                  string
+	OpenAIBaseURL              string
+	InputTokenPricePerMillion  float64 // 每输入百万tokens定价
+	OutputTokenPricePerMillion float64
+	Deamon                     bool // 是否以守护进程方式运行
 }
 
 func LoadConfig() *Config {
 	cfg := &Config{
-		OllamaHost:      "http://localhost:11434",
-		PricePerMillion: 8.0, // 默认值为8
+		OllamaHost:                 "http://localhost:11434",
+		InputTokenPricePerMillion:  4.0, // 默认值为4
+		OutputTokenPricePerMillion: 8.0, // 默认值为8
 	}
 
 	var showHelp bool
@@ -33,7 +35,8 @@ func LoadConfig() *Config {
 	flag.StringVar(&cfg.OllamaHost, "ollama-host", cfg.OllamaHost, "Ollama API 服务器地址")
 	flag.StringVar(&cfg.OpenAIKey, "openai-key", "", "OpenAI API 密钥")
 	flag.StringVar(&cfg.OpenAIBaseURL, "openai-url", cfg.OpenAIBaseURL, "OpenAI API 基础URL")
-	flag.Float64Var(&cfg.PricePerMillion, "ppm", cfg.PricePerMillion, "每百万tokens定价 (默认: 8.0)")
+	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", cfg.InputTokenPricePerMillion, "每输入百万tokens定价 (默认: 4.0)")
+	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", cfg.OutputTokenPricePerMillion, "每输出百万tokens定价 (默认: 8.0)")
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 
 	flag.Usage = func() {
@@ -82,9 +85,14 @@ func LoadConfig() *Config {
 	if openaiURL := os.Getenv("OPENAI_API_BASE"); openaiURL != "" {
 		cfg.OpenAIBaseURL = openaiURL
 	}
-	if priceStr := os.Getenv("STARFIRE_PRICE_PER_M"); priceStr != "" {
+	if priceStr := os.Getenv("STAR_FIRE_INPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
-			cfg.PricePerMillion = price
+			cfg.InputTokenPricePerMillion = price
+		}
+	}
+	if priceStr := os.Getenv("STAR_FIRE_OUTPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
+		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+			cfg.OutputTokenPricePerMillion = price
 		}
 	}
 
@@ -119,8 +127,11 @@ func ValidateConfig(cfg *Config) error {
 	}
 
 	// 验证价格参数
-	if cfg.PricePerMillion < 0 {
-		return fmt.Errorf("每百万tokens定价不能为负数: %f", cfg.PricePerMillion)
+	if cfg.InputTokenPricePerMillion < 0 {
+		return fmt.Errorf("每百万输入tokens定价不能为负数: %f", cfg.InputTokenPricePerMillion)
+	}
+	if cfg.OutputTokenPricePerMillion < 0 {
+		return fmt.Errorf("每百万输出tokens定价不能为负数: %f", cfg.OutputTokenPricePerMillion)
 	}
 
 	return nil

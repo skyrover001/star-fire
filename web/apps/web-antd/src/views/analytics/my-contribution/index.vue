@@ -160,7 +160,10 @@
                   总Token
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  PPM(元/百万tokens)
+                  IPPM
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                  OPPM
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                   收益
@@ -201,7 +204,12 @@
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
                   <div class="text-sm font-medium text-orange-600">
-                    {{ (record.PPM || defaultPPM).toFixed(2) }}
+                    {{ record.IPPM.toFixed(2) }}
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="text-sm font-medium text-orange-600">
+                    {{ record.OPPM.toFixed(2) }}
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -228,7 +236,7 @@
                 共 {{ sortedIncomeData.length }} 条记录（按时间倒序）
               </div>
               <div class="text-sm text-[var(--text-secondary)]">
-                收益计算: (PPM/1,000,000) × TotalTokens（默认PPM: {{ defaultPPM.toFixed(2) }}）
+                收益计算: (输入tokens × IPPM + 输出tokens × OPPM) / 1,000,000
               </div>
             </div>
             <!-- 分页控件 -->
@@ -427,11 +435,12 @@ interface IncomeRecord {
   ClientID: string
   ClientIP: string
   Model: string
+  IPPM: number // 输入Token价格
+  OPPM: number // 输出Token价格
   InputTokens: number
   OutputTokens: number
   TotalTokens: number
   Timestamp: string
-  PPM?: number // 每百万Token的价格（如果API返回此字段）
 }
 
 const loading = ref(false)
@@ -446,13 +455,9 @@ const trendChartRef = ref()
 const { renderEcharts: renderIncomeChart } = useEcharts(incomeChartRef)
 const { renderEcharts: renderTrendChart } = useEcharts(trendChartRef)
 
-// 收益设置（默认PPM值，如果API没有返回PPM字段则使用此值）
-const defaultPPM = ref(10.00) // 默认每百万Token价格为1000元
-
-// 计算单次调用收益：(PPM/1,000,000) × TotalTokens
+// 计算单次调用收益：输入tokens数 * IPPM + 输出tokens数 * OPPM
 const calculateSingleCallIncome = (record: IncomeRecord): number => {
-  const ppm = record.PPM || defaultPPM.value
-  return (ppm / 1000000) * record.TotalTokens
+  return (record.InputTokens * record.IPPM + record.OutputTokens * record.OPPM) / 1000000
 }
 
 // 格式化时间戳

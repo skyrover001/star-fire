@@ -68,7 +68,8 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 			Type: model.Root,
 			Size: "unknown",
 			Arch: model.Object,
-			PPM:  conf.PricePerMillion,
+			IPPM: conf.InputTokenPricePerMillion,  // 每百万输入tokens价格，默认值4.0
+			OPPM: conf.OutputTokenPricePerMillion, // 每百万输出tokens价格，默认值8.0
 		}
 		publicModels = append(publicModels, publicModel)
 	}

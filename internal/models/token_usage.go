@@ -14,7 +14,8 @@ type TokenUsage struct {
 	ClientID     string `gorm:"index"`
 	ClientIP     string
 	Model        string    `gorm:"not null"`
-	PPM          float64   `gorm:"not null"`
+	IPPM         float64   `gorm:"not null"` // 输入tokens价格
+	OPPM         float64   `gorm:"not null"` // 输出tokens价格
 	InputTokens  int       `gorm:"not null"`
 	OutputTokens int       `gorm:"not null"`
 	TotalTokens  int       `gorm:"not null"`

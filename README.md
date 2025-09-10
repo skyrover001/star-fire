@@ -31,7 +31,12 @@ Star-fire提供了丰富的功能:
 2. 支持推理引擎、模型自动发现，实时注册
 3. 支持按模型进行负载均衡，支持stream格式对话
 4. 支持用户登录、注册、token管理
-5. 支持按用户、模型对tokens进行统计
+5. 支持按用户、模型、对话对tokens进行统计计费
+6. 支持多模态模型(图生文)
+7. 支持模型广场，用户可以选择自己喜欢的模型进行使用
+8. 支持收益统计，用户可以查看自己分享模型的收益情况
+9. 支持用户使用统计，用户可以查看自己使用模型的情况
+10. 支持tools调用
 
 ## inference支持
 目前支持的推理引擎有：
@@ -39,6 +44,8 @@ Star-fire提供了丰富的功能:
 2. vllm 
 
 ## 使用方法
+
+make install 进行编译安装，完成后，可在build目录下找到server和client下找到可执行文件
 
 ### server端
 
@@ -54,16 +61,17 @@ Star-fire提供了丰富的功能:
 #### 分享模型
 1. 下载客户端，或本地编译 make client （build/client目录下） 
 2. 在模型广场页面点击注册到Star Fire 获取注册token
-3. 注册客户端（windows）： sfc_windows_amd64.exe -host 1.94.239.51 -token {register token}
+3. 注册客户端（windows）： sfc_windows_amd64.exe -host 1.94.239.51 -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0}
+   注册客户端（macos）： ./sfc_darwin_universal -host 1.94.239.51 -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0}
 4. 本地使用ollama 运行模型，客户端会自动将模型信息推送到server端，准备提供服务 
-5. 可以在我的收益页面查看自己所有提供模型的收益情况（目前是模拟收益，固定倍率）
+5. 可以在我的收益页面查看自己所有提供模型的收益情况
 
 #### 使用模型
 1. 在模型广场页面选择模型
 2. 在API密钥页面创建获取API密钥 
 3. 使用 /v1/models 获取所有模型列表
 4. 使用 /v1/chat/completions 对话
-5. 可以在我的使用页面查看自己使用模型的情况（目前是模拟使用，固定倍率）
+5. 可以在我的使用页面查看自己使用模型的情况
 
 ### 体验地址
 http://1.94.239.51/
