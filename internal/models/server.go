@@ -1,7 +1,6 @@
 package models
 
 import (
-	"fmt"
 	"github.com/glebarez/sqlite"
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
@@ -81,18 +80,6 @@ func NewServer() *Server {
 	if err != nil {
 		log.Printf("init default user failed: %v", err)
 	}
-
-	// for testing
-	configs.Config.EmailHost = "smtp.163.com"
-	configs.Config.EmailPort = 465
-	configs.Config.EmailUser = "skyrover001@163.com"
-	configs.Config.EmailFrom = "skyrover001@163.com"
-	configs.Config.EmailPassword = "YPkBsMYrZnSjYU3V"
-	fmt.Println("config.EmailHost:", configs.Config.EmailHost)
-	fmt.Println("config.EmailPort:", configs.Config.EmailPort)
-	fmt.Println("config.EmailUser:", configs.Config.EmailUser)
-	fmt.Println("config.EmailFrom:", configs.Config.EmailFrom)
-	fmt.Println("config.EmailFrom:", configs.Config.EmailPassword)
 
 	server := &Server{
 		Clients:               make(map[string]map[string]*Client),

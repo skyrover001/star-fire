@@ -242,7 +242,7 @@ const copyToken = async () => {
 const copyCommand = async () => {
   if (!currentToken.value) return;
 
-  const command = `starfire.exe -host localhost:8080 -token ${currentToken.value}`;
+  const command = `starfire.exe -host 1.94.239.51 -token ${currentToken.value} -ippm 3.8 -oppm 8.3`;
 
   try {
     // 优先使用现代 Clipboard API
@@ -330,12 +330,12 @@ const downloadClient = (platform: 'windows' | 'macos') => {
   const downloadUrls = {
     windows: {
       url: '/download/windows/starfire.exe',
-      filename: 'startfire.exe',
+      filename: 'starfire.exe',
       size: '~45MB'
     },
     macos: {
       url: '/download/macos/starfire.dmg',
-      filename: 'startfire.dmg',
+      filename: 'starfire.dmg',
       size: '~52MB'
     }
   };
@@ -700,7 +700,7 @@ const usageGuideHtml = computed(() => {
                 <div class="relative">
                   <code
                     class="block w-full rounded-lg bg-gray-100 dark:bg-gray-800 p-3 text-sm font-mono text-gray-900 dark:text-gray-100 pr-12 break-all">
-                  starfire.exe -host localhost:8080 -token {{ currentToken }} 
+                  starfire.exe -host 1.94.239.51 -token {{ currentToken }} -ippm 3.8 -oppm 8.3
                 </code>
                   <button @click="copyCommand"
                     class="absolute top-2 right-2 rounded p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
