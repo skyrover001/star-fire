@@ -10,11 +10,12 @@ interface TokenUsageRecord {
   ClientID: string;
   ClientIP: string;
   Model: string;
+  IPPM: number; // 输入Token价格
+  OPPM: number; // 输出Token价格
   InputTokens: number;
   OutputTokens: number;
   TotalTokens: number;
   Timestamp: string;
-  PPM?: number; // 每百万Token价格
 }
 
 interface ModelUsageSummary {
@@ -32,13 +33,10 @@ interface ModelUsageSummary {
 const usageRecords = ref<TokenUsageRecord[]>([]);
 const loading = ref(false);
 
-// 默认PPM值（每百万Token价格）
-const defaultPPM = 1000.00;
-
-// 计算单次调用消费
+// 计算单次调用收益（输入tokens数 * IPPM + 输出tokens数 * OPPM）
 const calculateSingleCallConsumption = (record: TokenUsageRecord) => {
-  const ppm = record.PPM || defaultPPM;
-  return (ppm / 1000000) * record.TotalTokens;
+  // 收益 = (输入tokens数 * IPPM + 输出tokens数 * OPPM) / 1,000,000
+  return (record.InputTokens * record.IPPM + record.OutputTokens * record.OPPM) / 1000000;
 };
 
 // 根据Token使用记录计算模型使用汇总
@@ -96,7 +94,7 @@ const fetchUsageData = async () => {
   loading.value = true;
   try {
     console.log('正在获取Token使用数据...');
-    const response = await requestClient.get('/user/token-usage');
+    const response = await requestClient.get('/user/income');
     
     if (response && response.data && Array.isArray(response.data)) {
       usageRecords.value = response.data;
@@ -231,7 +229,7 @@ onMounted(() => {
             <div class="font-medium text-[var(--text-primary)]">{{ model.lastUsed }}</div>
           </div>
           <div>
-            <span class="text-[var(--text-secondary)]">总消费:</span>
+            <span class="text-[var(--text-secondary)]">总收益:</span>
             <div class="font-medium text-green-600">¥{{ model.totalConsumption.toFixed(4) }}</div>
           </div>
         </div>

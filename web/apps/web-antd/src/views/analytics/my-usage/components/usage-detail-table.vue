@@ -10,11 +10,12 @@ interface TokenUsageRecord {
   ClientID: string;
   ClientIP: string;
   Model: string;
+  IPPM: number; // 输入Token价格
+  OPPM: number; // 输出Token价格
   InputTokens: number;
   OutputTokens: number;
   TotalTokens: number;
   Timestamp: string;
-  PPM?: number; // 每百万Token价格
 }
 
 const loading = ref(false);
@@ -22,13 +23,10 @@ const usageRecords = ref<TokenUsageRecord[]>([]);
 const currentPage = ref(1);
 const pageSize = ref(15);
 
-// 默认PPM值（每百万Token价格）
-const defaultPPM = 1000.00;
-
-// 计算单次调用消费
+// 计算单次调用收益（输入tokens数 * IPPM + 输出tokens数 * OPPM）
 const calculateSingleCallConsumption = (record: TokenUsageRecord) => {
-  const ppm = record.PPM || defaultPPM;
-  return (ppm / 1000000) * record.TotalTokens;
+  // 收益 = (输入tokens数 * IPPM + 输出tokens数 * OPPM) / 1,000,000
+  return (record.InputTokens * record.IPPM + record.OutputTokens * record.OPPM) / 1000000;
 };
 
 // 分页数据
@@ -47,7 +45,7 @@ const totalPages = computed(() => {
 const fetchUsageData = async () => {
   loading.value = true;
   try {
-    const response = await requestClient.get('/user/token-usage');
+    const response = await requestClient.get('/user/income');
     
     if (response && response.data && Array.isArray(response.data)) {
       usageRecords.value = response.data;
@@ -111,10 +109,13 @@ onMounted(() => {
               总Token
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              PPM
+              IPPM
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              消费金额
+              OPPM
+            </th>
+            <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
+              收益金额
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)]">
               时间
@@ -123,7 +124,7 @@ onMounted(() => {
         </thead>
         <tbody>
           <tr v-if="loading">
-            <td colspan="8" class="border border-[var(--border-color)] px-3 py-4 text-center text-[var(--text-secondary)]">
+            <td colspan="9" class="border border-[var(--border-color)] px-3 py-4 text-center text-[var(--text-secondary)]">
               <div class="flex items-center justify-center">
                 <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
                 <span class="ml-2">加载中...</span>
@@ -131,7 +132,7 @@ onMounted(() => {
             </td>
           </tr>
           <tr v-else-if="paginatedRecords.length === 0">
-            <td colspan="8" class="border border-[var(--border-color)] px-3 py-4 text-center text-[var(--text-secondary)]">
+            <td colspan="9" class="border border-[var(--border-color)] px-3 py-4 text-center text-[var(--text-secondary)]">
               暂无数据
             </td>
           </tr>
@@ -154,7 +155,10 @@ onMounted(() => {
               {{ record.TotalTokens.toLocaleString() }}
             </td>
             <td class="border border-[var(--border-color)] px-3 py-2 text-sm text-[var(--text-primary)] text-right">
-              {{ (record.PPM || defaultPPM).toFixed(2) }}
+              {{ record.IPPM.toFixed(2) }}
+            </td>
+            <td class="border border-[var(--border-color)] px-3 py-2 text-sm text-[var(--text-primary)] text-right">
+              {{ record.OPPM.toFixed(2) }}
             </td>
             <td class="border border-[var(--border-color)] px-3 py-2 text-sm text-green-600 dark:text-green-400 text-right font-medium">
               ¥{{ calculateSingleCallConsumption(record).toFixed(6) }}
@@ -172,7 +176,7 @@ onMounted(() => {
       <div class="text-sm text-[var(--text-secondary)]">
         显示第 {{ (currentPage - 1) * pageSize + 1 }} 到 {{ Math.min(currentPage * pageSize, usageRecords.length) }} 项，共 {{ usageRecords.length }} 项
         <span class="ml-2 text-[var(--text-tertiary)]">
-          (消费计算：PPM优先取API返回值，默认{{ defaultPPM.toFixed(2) }}，公式为 (PPM/1,000,000) × TotalTokens)
+          (收益计算：(输入tokens × IPPM + 输出tokens × OPPM) / 1,000,000)
         </span>
       </div>
       

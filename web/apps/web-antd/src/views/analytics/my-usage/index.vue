@@ -31,11 +31,12 @@ interface TokenUsageRecord {
   ClientID: string;
   ClientIP: string;
   Model: string;
+  IPPM: number; // 输入Token价格
+  OPPM: number; // 输出Token价格
   InputTokens: number;
   OutputTokens: number;
   TotalTokens: number;
   Timestamp: string;
-  PPM?: number; // 每百万Token价格
 }
 
 const loading = ref(false);
@@ -44,31 +45,28 @@ const usageRecords = ref<TokenUsageRecord[]>([]);
 // 向子组件提供使用记录数据
 provide('usageRecords', usageRecords);
 
-// 默认PPM值（每百万Token价格）
-const defaultPPM = 1000.00;
-
-// 计算单次调用消费
+// 计算单次调用消费（收益）
 const calculateSingleCallConsumption = (record: TokenUsageRecord) => {
-  const ppm = record.PPM || defaultPPM;
-  return (ppm / 1000000) * record.TotalTokens;
+  // 收益 = (输入tokens数 * IPPM + 输出tokens数 * OPPM) / 1,000,000
+  return (record.InputTokens * record.IPPM + record.OutputTokens * record.OPPM) / 1000000;
 };
 
 // 图表相关
 const incomeChartRef = ref();
 const { renderEcharts } = useEcharts(incomeChartRef);
 
-// 计算输出Token统计
-const outputTokenStats = computed(() => {
+// 计算总Token统计（包括输入和输出）
+const totalTokenStats = computed(() => {
   const records = usageRecords.value;
-  const totalOutputTokens = records.reduce((sum, r) => sum + r.OutputTokens, 0);
+  const totalTokens = records.reduce((sum, r) => sum + r.TotalTokens, 0);
   
   const today = new Date().toISOString().split('T')[0] || '';
   const todayRecords = records.filter(r => r.Timestamp && r.Timestamp.startsWith(today));
-  const todayOutputTokens = todayRecords.reduce((sum, r) => sum + r.OutputTokens, 0);
+  const todayTotalTokens = todayRecords.reduce((sum, r) => sum + r.TotalTokens, 0);
 
   return {
-    total: totalOutputTokens,
-    today: todayOutputTokens,
+    total: totalTokens,
+    today: todayTotalTokens,
   };
 });
 
@@ -197,7 +195,7 @@ const fetchUsageData = async () => {
   loading.value = true;
   try {
     console.log('正在获取Token使用数据...');
-    const response = await requestClient.get('/user/token-usage');
+    const response = await requestClient.get('/user/income');
     console.log('API响应:', response);
     
     if (response && response.data && Array.isArray(response.data)) {
@@ -338,12 +336,12 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">总输出Token</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">总Tokens</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-20"></span>
-              <span v-else>{{ outputTokenStats.total.toLocaleString() }}</span>
+              <span v-else>{{ totalTokenStats.total.toLocaleString() }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] mt-1">累计生成</p>
+            <p class="text-xs text-[var(--text-tertiary)] mt-1">累计使用</p>
           </div>
         </div>
       </div>
@@ -356,12 +354,12 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">今日输出Token</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">今日Tokens</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
-              <span v-else>{{ outputTokenStats.today.toLocaleString() }}</span>
+              <span v-else>{{ totalTokenStats.today.toLocaleString() }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">今日生成</p>
+            <p class="text-xs text-[var(--text-tertiary)]">今日使用</p>
           </div>
         </div>
       </div>
