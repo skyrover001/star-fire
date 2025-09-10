@@ -20,7 +20,7 @@ interface TokenUsageRecord {
 const loading = ref(false);
 const usageRecords = ref<TokenUsageRecord[]>([]);
 const currentPage = ref(1);
-const pageSize = ref(10);
+const pageSize = ref(15);
 
 // 默认PPM值（每百万Token价格）
 const defaultPPM = 1000.00;
