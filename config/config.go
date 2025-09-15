@@ -3,6 +3,7 @@ package configs
 import (
 	"os"
 	"strconv"
+	"strings"
 )
 
 type Configuration struct {
@@ -21,6 +22,10 @@ type Configuration struct {
 	EmailUser         string
 	EmailPassword     string
 	EmailFrom         string
+	// 新增embedding相关配置
+	EnableEmbeddingModels        bool
+	EmbeddingInputTokenPricePerM float64
+	SupportedEmbeddingModels     []string
 }
 
 var Config = loadConfig()
@@ -45,22 +50,42 @@ func loadConfig() Configuration {
 		panic("Email configuration is incomplete. Please set EMAIL_HOST, EMAIL_PORT, EMAIL_USER, EMAIL_PASSWORD, and EMAIL_FROM.")
 	}
 
+	// 新增embedding配置加载
+	enableEmbedding, _ := strconv.ParseBool(getEnv("ENABLE_EMBEDDING_MODELS", "true"))
+	embeddingInputPrice, _ := strconv.ParseFloat(getEnv("STAR_FIRE_EMBEDDING_INPUT_TOKEN_PRICE_PER_M", "0.1"), 64)
+
+	// 解析支持的embedding模型列表
+	embeddingModelsStr := getEnv("SUPPORTED_EMBEDDING_MODELS", "text-embedding-ada-002,text-embedding-3-small,text-embedding-3-large")
+	var supportedEmbeddingModels []string
+	if embeddingModelsStr != "" {
+		// 简单的逗号分割
+		models := strings.Split(embeddingModelsStr, ",")
+		for _, model := range models {
+			if trimmed := strings.TrimSpace(model); trimmed != "" {
+				supportedEmbeddingModels = append(supportedEmbeddingModels, trimmed)
+			}
+		}
+	}
+
 	return Configuration{
-		ServerPort:        port,
-		KeepAliveTime:     keepAliveTime,
-		MaxLatency:        maxLatency,
-		ChatMaxTime:       chatMaxTime,
-		WebsocketBuffer:   wsBuffer,
-		JWTSecret:         jwtSecret,
-		JWTExpiry:         jwtExpiry,
-		MaxAPIKeysPerUser: maxAPIKeysPerUser,
-		DefaultKeyExpiry:  defaultKeyExpiry,
-		LBA:               lba,
-		EmailHost:         emailHost,
-		EmailPort:         emailPort,
-		EmailUser:         emailUser,
-		EmailPassword:     emailPassword,
-		EmailFrom:         emailFrom,
+		ServerPort:                   port,
+		KeepAliveTime:                keepAliveTime,
+		MaxLatency:                   maxLatency,
+		ChatMaxTime:                  chatMaxTime,
+		WebsocketBuffer:              wsBuffer,
+		JWTSecret:                    jwtSecret,
+		JWTExpiry:                    jwtExpiry,
+		MaxAPIKeysPerUser:            maxAPIKeysPerUser,
+		DefaultKeyExpiry:             defaultKeyExpiry,
+		LBA:                          lba,
+		EmailHost:                    emailHost,
+		EmailPort:                    emailPort,
+		EmailUser:                    emailUser,
+		EmailPassword:                emailPassword,
+		EmailFrom:                    emailFrom,
+		EnableEmbeddingModels:        enableEmbedding,
+		EmbeddingInputTokenPricePerM: embeddingInputPrice,
+		SupportedEmbeddingModels:     supportedEmbeddingModels,
 	}
 }
 

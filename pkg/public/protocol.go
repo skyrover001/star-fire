@@ -7,6 +7,8 @@ const RECONNECT = "reconnect"
 const MESSAGE_STREAM = "stream"
 const CLOSE = "close"
 const MODEL_ERROR = "model_error"
+const EMBEDDING_RESPONSE = "embedding_response"
+const EMBEDDING_REQUEST = "embedding_request"
 
 const PING = "ping"
 const PONG = "pong"

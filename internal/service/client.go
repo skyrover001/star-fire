@@ -175,18 +175,28 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 		client.RegisterTime = time.Now()
 
 		for _, m := range client.Models {
-			fmt.Println("Registering model:", m.Name, m)
+			fmt.Println("Registering model:", m.Name, "Type:", m.Type, "IPPM:", m.IPPM, "OPPM:", m.OPPM)
 			model := public.Model{
 				Name: m.Name,
 				Type: m.Type,
 				Size: m.Size,
 				Arch: m.Arch,
+				IPPM: m.IPPM, // 确保传递IPPM价格
+				OPPM: m.OPPM, // 确保传递OPPM价格
 			}
 			server.RegisterModel(&model, client)
-			// add trend for new client registration
+
+			// 为embedding模型添加特殊的trend记录
+			var description string
+			if m.Type == "embedding" || server.IsEmbeddingModel(m.Name) {
+				description = fmt.Sprintf("用户 %s 贡献了embedding模型: %s", client.User.Username, m.Name)
+			} else {
+				description = fmt.Sprintf("用户 %s 贡献了模型: %s", client.User.Username, m.Name)
+			}
+
 			trend := models.Trend{
 				Name:        fmt.Sprintf("%s_%s", client.User.Username, "register model: "+m.Name),
-				Description: "用户 " + client.User.Username + " 贡献了模型: " + m.Name,
+				Description: description,
 				CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
 				UpdatedAt:   "",
 				DeletedAt:   "",

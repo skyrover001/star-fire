@@ -19,7 +19,11 @@ type TokenUsage struct {
 	InputTokens  int       `gorm:"not null"`
 	OutputTokens int       `gorm:"not null"`
 	TotalTokens  int       `gorm:"not null"`
+	RequestType  string    `gorm:"not null;default:'chat'"` // 请求类型: chat, embedding
+	Revenue      float64   `gorm:"not null;default:0"`      // 收益
+	Fingerprint  string    `gorm:"index"`                   // 请求指纹
 	Timestamp    time.Time `gorm:"index;not null"`
+	CreatedAt    time.Time `gorm:"autoCreateTime"`
 }
 
 // 声明一个模型的unitprice表，包含模型名、输入token单价、输出token单价，用户折扣率，用户id
@@ -51,6 +55,11 @@ func NewTokenUsageDB(db *gorm.DB) *TokenUsageDB {
 // SaveTokenUsage
 func (tdb *TokenUsageDB) SaveTokenUsage(usage *TokenUsage) error {
 	return tdb.db.Create(usage).Error
+}
+
+// RecordTokenUsage 记录token使用情况 (新增方法用于embedding和chat)
+func (tdb *TokenUsageDB) RecordTokenUsage(usage TokenUsage) error {
+	return tdb.db.Create(&usage).Error
 }
 
 // GetUserTokenUsage
@@ -132,4 +141,48 @@ func (tdb *TokenUsageDB) DeleteModelPrice(modelName string, userID string) error
 // update ModelPrice
 func (tdb *TokenUsageDB) UpdateModelPrice(price *ModelPrice) error {
 	return tdb.db.Save(price).Error
+}
+
+// GetTokenUsageByRequestType 根据请求类型获取token使用情况
+func (tdb *TokenUsageDB) GetTokenUsageByRequestType(userID string, requestType string, startTime, endTime time.Time) ([]*TokenUsage, error) {
+	var usages []*TokenUsage
+	result := tdb.db.Where("user_id = ? AND request_type = ? AND timestamp BETWEEN ? AND ?",
+		userID, requestType, startTime, endTime).
+		Order("timestamp DESC").
+		Find(&usages)
+
+	if result.Error != nil {
+		return nil, result.Error
+	}
+
+	return usages, nil
+}
+
+// GetRevenueStats 获取收益统计
+func (tdb *TokenUsageDB) GetRevenueStats(clientIDs []string, startTime, endTime time.Time) (map[string]float64, error) {
+	type Result struct {
+		TotalRevenue     float64
+		ChatRevenue      float64
+		EmbeddingRevenue float64
+	}
+
+	var result Result
+	err := tdb.db.Model(&TokenUsage{}).
+		Select(`
+			SUM(revenue) as total_revenue,
+			SUM(CASE WHEN request_type = 'chat' THEN revenue ELSE 0 END) as chat_revenue,
+			SUM(CASE WHEN request_type = 'embedding' THEN revenue ELSE 0 END) as embedding_revenue
+		`).
+		Where("client_id IN ? AND timestamp BETWEEN ? AND ?", clientIDs, startTime, endTime).
+		Scan(&result).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]float64{
+		"total":     result.TotalRevenue,
+		"chat":      result.ChatRevenue,
+		"embedding": result.EmbeddingRevenue,
+	}, nil
 }

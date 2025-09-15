@@ -3,6 +3,7 @@ package models
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/sashabaranov/go-openai"
 	"log"
 	"star-fire/pkg/public"
 	"time"
@@ -32,13 +33,14 @@ type Client struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 
 	// not in db
-	Models          []*public.Model        `json:"models" gorm:"-"`
-	ControlConn     *websocket.Conn        `json:"-" gorm:"-"`
-	MessageChan     chan *api.ChatResponse `json:"-" gorm:"-"`
-	PongChan        chan *public.PPMessage `json:"-" gorm:"-"`
-	ErrChan         chan error             `json:"-" gorm:"-"`
-	User            *User                  `json:"user" gorm:"-"`
-	InferenceEngine InferenceEngine        `json:"inference_engine" gorm:"-"`
+	Models          []*public.Model          `json:"models" gorm:"-"`
+	EmbeddingModels []*openai.EmbeddingModel `json:"embedding_models" gorm:"-"`
+	ControlConn     *websocket.Conn          `json:"-" gorm:"-"`
+	MessageChan     chan *api.ChatResponse   `json:"-" gorm:"-"`
+	PongChan        chan *public.PPMessage   `json:"-" gorm:"-"`
+	ErrChan         chan error               `json:"-" gorm:"-"`
+	User            *User                    `json:"user" gorm:"-"`
+	InferenceEngine InferenceEngine          `json:"inference_engine" gorm:"-"`
 }
 
 type ConnectionResult struct {

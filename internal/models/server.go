@@ -11,6 +11,7 @@ import (
 	"os"
 	configs "star-fire/config"
 	"star-fire/pkg/public"
+	"strings"
 	"sync"
 	"time"
 )
@@ -454,4 +455,157 @@ func (s *Server) GetTrendsWithPagination(startDate, endDate string, page, size i
 		Size:       size,
 		TotalPages: totalPages,
 	}
+}
+
+// LoadBalanceEmbedding 专门为embedding模型进行负载均衡
+func (s *Server) LoadBalanceEmbedding(model string) *Client {
+	s.clientsMu.RLock()
+	clientsCopy := make(map[string]map[string]*Client)
+	for modelName, clients := range s.Clients {
+		clientsCopy[modelName] = make(map[string]*Client)
+		for clientID, client := range clients {
+			clientsCopy[modelName][clientID] = client
+		}
+	}
+	s.clientsMu.RUnlock()
+
+	// 收集所有支持指定embedding模型的在线客户端
+	var availableClients []*Client
+
+	for modelName, clients := range clientsCopy {
+		if modelName == model {
+			log.Printf("Found embedding model: %s, checking clients: %d", modelName, len(clients))
+
+			for _, client := range clients {
+				if client.Models == nil {
+					log.Printf("Client %s models is nil, skip", client.ID)
+					continue
+				}
+
+				// 检查客户端是否在线且支持embedding
+				if client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
+					// 检查是否支持该embedding模型
+					for _, m := range client.Models {
+						if m.Name == modelName && isEmbeddingModelName(modelName) {
+							log.Printf("Found online client for embedding model: %s, client: %s", modelName, client.ID)
+							availableClients = append(availableClients, client)
+							break
+						}
+					}
+				}
+			}
+		}
+	}
+
+	// 如果没有找到支持该模型的客户端，返回nil
+	if len(availableClients) == 0 {
+		log.Printf("No available clients found for embedding model: %s", model)
+		return nil
+	}
+
+	// 从可用的客户端中随机选择一个
+	rand.Seed(time.Now().UnixNano())
+	randomIndex := rand.Intn(len(availableClients))
+	selectedClient := availableClients[randomIndex]
+
+	log.Printf("Selected client %s for embedding model %s (from %d available clients)",
+		selectedClient.ID, model, len(availableClients))
+
+	return selectedClient
+}
+
+// IsEmbeddingModel 检查模型名称是否为embedding模型（Server方法）
+func (s *Server) IsEmbeddingModel(modelName string) bool {
+	return isEmbeddingModelName(modelName)
+}
+
+// isEmbeddingModelName 检查模型名称是否为embedding模型
+func isEmbeddingModelName(modelName string) bool {
+	embeddingModels := []string{
+		// OpenAI embedding models
+		"text-embedding-ada-002",
+		"text-embedding-3-small",
+		"text-embedding-3-large",
+		"text-similarity-davinci-001",
+		"text-similarity-curie-001",
+		"text-similarity-babbage-001",
+		"text-similarity-ada-001",
+		"text-search-ada-doc-001",
+		"text-search-ada-query-001",
+		"text-search-babbage-doc-001",
+		"text-search-babbage-query-001",
+		"text-search-curie-doc-001",
+		"text-search-curie-query-001",
+		"text-search-davinci-doc-001",
+		"text-search-davinci-query-001",
+		"code-search-ada-code-001",
+		"code-search-ada-text-001",
+		"code-search-babbage-code-001",
+		"code-search-babbage-text-001",
+
+		// BGE (BAAI General Embedding) models
+		"bge-large-en",
+		"bge-base-en",
+		"bge-small-en",
+		"bge-large-zh",
+		"bge-base-zh",
+		"bge-small-zh",
+		"bge-large-en-v1.5",
+		"bge-base-en-v1.5",
+		"bge-small-en-v1.5",
+		"bge-large-zh-v1.5",
+		"bge-base-zh-v1.5",
+		"bge-small-zh-v1.5",
+		"bge-m3",
+		"bge-multilingual-gemma2",
+		"bge-reranker-large",
+		"bge-reranker-base",
+		"bge-reranker-v2-m3",
+		"bge-reranker-v2-gemma",
+
+		// BGE model variations with different naming patterns
+		"BAAI/bge-large-en",
+		"BAAI/bge-base-en",
+		"BAAI/bge-small-en",
+		"BAAI/bge-large-zh",
+		"BAAI/bge-base-zh",
+		"BAAI/bge-small-zh",
+		"BAAI/bge-large-en-v1.5",
+		"BAAI/bge-base-en-v1.5",
+		"BAAI/bge-small-en-v1.5",
+		"BAAI/bge-large-zh-v1.5",
+		"BAAI/bge-base-zh-v1.5",
+		"BAAI/bge-small-zh-v1.5",
+		"BAAI/bge-m3",
+		"BAAI/bge-multilingual-gemma2",
+		"BAAI/bge-reranker-large",
+		"BAAI/bge-reranker-base",
+		"BAAI/bge-reranker-v2-m3",
+		"BAAI/bge-reranker-v2-gemma",
+	}
+
+	// 精确匹配
+	for _, embeddingModel := range embeddingModels {
+		if modelName == embeddingModel {
+			return true
+		}
+	}
+
+	// 关键词匹配（增加BGE相关关键词）
+	embeddingKeywords := []string{"embed", "embedding", "similarity", "search", "bge", "reranker"}
+	modelLower := strings.ToLower(modelName)
+	for _, keyword := range embeddingKeywords {
+		if strings.Contains(modelLower, keyword) {
+			return true
+		}
+	}
+
+	// BGE模型的特殊模式匹配
+	if strings.Contains(modelLower, "bge-") ||
+		strings.Contains(modelLower, "baai/bge") ||
+		strings.Contains(modelLower, "bge_") {
+		return true
+	}
+
+	return false
 }
