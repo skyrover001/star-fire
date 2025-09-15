@@ -3,16 +3,13 @@ package client
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gorilla/websocket"
+	"github.com/sashabaranov/go-openai"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
 	configs "star-fire/client/internal/config"
 	"star-fire/pkg/public"
-	"time"
-
-	"github.com/gorilla/websocket"
-	"github.com/sashabaranov/go-openai"
 )
 
 func RegisterClient(conf *configs.Config, c *Client, host, token string) error {
@@ -48,31 +45,33 @@ func RegisterClient(conf *configs.Config, c *Client, host, token string) error {
 func HandleMessages(c *Client) {
 	defer c.controlConn.Close()
 
-	// 设置读取超时，避免无限阻塞
+	// 创建消息通道
+	messageCh := make(chan public.WSMessage, 1)
+	errorCh := make(chan error, 1)
+
+	// 启动消息读取 goroutine
+	go func() {
+		for {
+			var message public.WSMessage
+			err := c.controlConn.ReadJSON(&message)
+			if err != nil {
+				errorCh <- err
+				return
+			}
+			messageCh <- message
+		}
+	}()
+
+	// 主循环
 	for {
 		select {
 		case <-c.ctx.Done():
 			log.Println("收到取消信号，停止消息处理")
 			return
-		default:
-			// 设置读取超时
-			c.controlConn.SetReadDeadline(time.Now().Add(1 * time.Second))
-
-			var message public.WSMessage
-			err := c.controlConn.ReadJSON(&message)
-			if err != nil {
-				// 检查是否是超时错误
-				if netErr, ok := err.(net.Error); ok && netErr.Timeout() {
-					// 超时错误，继续循环检查 context
-					continue
-				}
-				log.Printf("WebSocket read error: %v", err)
-				return
-			}
-
-			// 重置读取超时
-			c.controlConn.SetReadDeadline(time.Time{})
-
+		case err := <-errorCh:
+			log.Printf("WebSocket read error: %v", err)
+			return
+		case message := <-messageCh:
 			switch message.Type {
 			case public.KEEPALIVE:
 				handleKeepAlive(c, message)
