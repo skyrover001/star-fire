@@ -67,6 +67,10 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		api.POST("/chat/completions", func(c *gin.Context) {
 			service.HandleChatRequest(c, server)
 		})
+		// Embedding
+		api.POST("/embeddings", func(c *gin.Context) {
+			service.HandleEmbeddingRequest(c, server)
+		})
 		// 模型
 		api.GET("/models", func(c *gin.Context) {
 			user_handlers.ModelsHandler(c, server)

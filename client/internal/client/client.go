@@ -12,6 +12,7 @@ import (
 	"star-fire/client/internal/inference/ollama"
 	"star-fire/client/internal/inference/openai"
 	"star-fire/pkg/public"
+	"strings"
 
 	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
@@ -128,11 +129,144 @@ func (c *Client) refreshModels() error {
 			continue
 		}
 
+		// 为每个模型检���是否支持embedding
+		for _, model := range models {
+			// 标记embedding支持
+			if c.isEmbeddingModel(model.Name) && c.engineSupportsEmbedding(engine, model.Name) {
+				log.Printf("Found embedding model: %s from engine: %s", model.Name, engine.Name())
+				model.Type = "embedding" // 设置模型类型为embedding
+			}
+		}
+
 		c.Models = append(c.Models, models...)
 	}
 
-	log.Printf("discovery %d models", len(c.Models), c.Models)
+	log.Printf("discovery %d models (including embedding models)", len(c.Models))
+	// 记录发现的embedding模型
+	embeddingCount := 0
+	for _, model := range c.Models {
+		if model.Type == "embedding" || c.isEmbeddingModel(model.Name) {
+			log.Printf("Embedding model discovered: %s", model.Name)
+			embeddingCount++
+		}
+	}
+	log.Printf("Total embedding models found: %d", embeddingCount)
+
 	return nil
+}
+
+// isEmbeddingModel 检查模型名称是否为embedding模型
+func (c *Client) isEmbeddingModel(modelName string) bool {
+	embeddingModels := []string{
+		// OpenAI embedding models
+		"text-embedding-ada-002",
+		"text-embedding-3-small",
+		"text-embedding-3-large",
+		"text-similarity-davinci-001",
+		"text-similarity-curie-001",
+		"text-similarity-babbage-001",
+		"text-similarity-ada-001",
+		"text-search-ada-doc-001",
+		"text-search-ada-query-001",
+		"text-search-babbage-doc-001",
+		"text-search-babbage-query-001",
+		"text-search-curie-doc-001",
+		"text-search-curie-query-001",
+		"text-search-davinci-doc-001",
+		"text-search-davinci-query-001",
+		"code-search-ada-code-001",
+		"code-search-ada-text-001",
+		"code-search-babbage-code-001",
+		"code-search-babbage-text-001",
+
+		// BGE (BAAI General Embedding) models
+		"bge-large-en",
+		"bge-base-en",
+		"bge-small-en",
+		"bge-large-zh",
+		"bge-base-zh",
+		"bge-small-zh",
+		"bge-large-en-v1.5",
+		"bge-base-en-v1.5",
+		"bge-small-en-v1.5",
+		"bge-large-zh-v1.5",
+		"bge-base-zh-v1.5",
+		"bge-small-zh-v1.5",
+		"bge-m3",
+		"bge-multilingual-gemma2",
+		"bge-reranker-large",
+		"bge-reranker-base",
+		"bge-reranker-v2-m3",
+		"bge-reranker-v2-gemma",
+
+		// BGE model variations with different naming patterns
+		"BAAI/bge-large-en",
+		"BAAI/bge-base-en",
+		"BAAI/bge-small-en",
+		"BAAI/bge-large-zh",
+		"BAAI/bge-base-zh",
+		"BAAI/bge-small-zh",
+		"BAAI/bge-large-en-v1.5",
+		"BAAI/bge-base-en-v1.5",
+		"BAAI/bge-small-en-v1.5",
+		"BAAI/bge-large-zh-v1.5",
+		"BAAI/bge-base-zh-v1.5",
+		"BAAI/bge-small-zh-v1.5",
+		"BAAI/bge-m3",
+		"BAAI/bge-multilingual-gemma2",
+		"BAAI/bge-reranker-large",
+		"BAAI/bge-reranker-base",
+		"BAAI/bge-reranker-v2-m3",
+		"BAAI/bge-reranker-v2-gemma",
+	}
+
+	// 精确匹配
+	for _, embeddingModel := range embeddingModels {
+		if modelName == embeddingModel {
+			return true
+		}
+	}
+
+	// 关键词匹配（增加BGE相关关键词）
+	embeddingKeywords := []string{"embed", "embedding", "similarity", "search", "bge", "reranker"}
+	modelLower := strings.ToLower(modelName)
+	for _, keyword := range embeddingKeywords {
+		if strings.Contains(modelLower, keyword) {
+			return true
+		}
+	}
+
+	// BGE模型的特殊模式匹配
+	if strings.Contains(modelLower, "bge-") ||
+		strings.Contains(modelLower, "baai/bge") ||
+		strings.Contains(modelLower, "bge_") {
+		return true
+	}
+
+	return false
+}
+
+// engineSupportsEmbedding 检查引擎是否支持embedding
+func (c *Client) engineSupportsEmbedding(engine inference.Engine, modelName string) bool {
+	// 检查引擎是否实现了SupportsEmbedding方法
+	type EmbeddingSupporter interface {
+		SupportsEmbedding(modelName string) bool
+	}
+
+	if embeddingEngine, ok := engine.(EmbeddingSupporter); ok {
+		return embeddingEngine.SupportsEmbedding(modelName)
+	}
+
+	// 如果引擎没有实现SupportsEmbedding方法，基于引擎类型判断
+	switch engine.Name() {
+	case "openai":
+		return c.isEmbeddingModel(modelName)
+	case "ollama":
+		// Ollama目前不支持embedding
+		return false
+	default:
+		return false
+	}
 }
 
 func (c *Client) findEngineForModel(modelName string) (inference.Engine, error) {
@@ -145,9 +279,17 @@ func (c *Client) findEngineForModel(modelName string) (inference.Engine, error) 
 	return nil, fmt.Errorf("no enging support model: %s", modelName)
 }
 
-func (c *Client) Close() {
-	c.cancel()
-	if c.controlConn != nil {
-		_ = c.controlConn.Close()
+// Close 关闭客户端连接
+func (c *Client) Close() error {
+	// 取消 context，这会停止所有使用该 context 的操作
+	if c.cancel != nil {
+		c.cancel()
 	}
+
+	// 关闭 WebSocket 连接
+	if c.controlConn != nil {
+		return c.controlConn.Close()
+	}
+
+	return nil
 }

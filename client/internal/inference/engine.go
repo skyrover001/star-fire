@@ -18,4 +18,9 @@ type Engine interface {
 	HandleChat(ctx context.Context, fingerprint string,
 		request *openai.ChatCompletionRequest,
 		responseConn *websocket.Conn) error
+	// 添加embedding支持
+	HandleEmbedding(ctx context.Context, fingerprint string,
+		request *openai.EmbeddingRequest,
+		responseConn *websocket.Conn) error
+	SupportsEmbedding(modelName string) bool
 }

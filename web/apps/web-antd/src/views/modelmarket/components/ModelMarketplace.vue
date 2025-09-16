@@ -350,6 +350,13 @@
             
             <!-- 模型标签 -->
             <div class="flex flex-wrap gap-2 mb-3">
+              <!-- Embedding模型特殊标识 -->
+              <span v-if="isEmbeddingModel(model)" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4 0V3a2 2 0 012-2h2a2 2 0 012 2v2m-4 0v2m0 0v4"/>
+                </svg>
+                Embedding模型
+              </span>
               <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
                 {{ model.parameterSize }}
               </span>
@@ -400,15 +407,21 @@
               
               <div class="flex items-center space-x-2">
                 <button
-                  class="inline-flex items-center px-3 py-1.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-xs font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 hover:scale-105 border border-green-400/20 relative overflow-hidden group"
+                  :disabled="isEmbeddingModel(model)"
+                  :title="isEmbeddingModel(model) ? 'Embedding模型不支持对话功能' : '开始对话'"
+                  class="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 hover:scale-105 border relative overflow-hidden group disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                  :class="isEmbeddingModel(model) 
+                    ? 'bg-gray-500/20 text-gray-500 border-gray-500/30 hover:from-gray-500/20 hover:to-gray-500/20' 
+                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white border-green-400/20'"
                   @click.stop="openChatDialog(model)"
                 >
                   <!-- 动画光效 -->
-                  <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-500"></div>
+                  <div v-if="!isEmbeddingModel(model)" class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-500"></div>
                   <svg class="mr-1.5 h-3 w-3 relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    <path v-if="isEmbeddingModel(model)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18 21l-1.636-.636m1.636-1.636a9 9 0 01-12.728 0"/>
+                    <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                   </svg>
-                  <span class="relative z-10">对话</span>
+                  <span class="relative z-10">{{ isEmbeddingModel(model) ? '不支持对话' : '对话' }}</span>
                 </button>
                 <button
                   class="opacity-0 group-hover:opacity-100 inline-flex items-center px-3 py-1 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-xs font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
@@ -483,6 +496,13 @@
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-[var(--text-primary)] border border-gray-200 dark:border-gray-700">
                       <span class="text-xs text-gray-500 mr-1">名称:</span>{{ model.name }}
                     </span>
+                    <!-- Embedding模型特殊标识 -->
+                    <span v-if="isEmbeddingModel(model)" class="inline-flex items-center px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 border border-amber-500/20">
+                      <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4 0V3a2 2 0 012-2h2a2 2 0 012 2v2m-4 0v2m0 0v4"/>
+                      </svg>
+                      Embedding模型
+                    </span>
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
                       {{ model.parameterSize }}
                     </span>
@@ -525,15 +545,21 @@
               <!-- 快速操作按钮 -->
               <div class="mt-4 flex items-center justify-end space-x-3">
                 <button
-                  class="inline-flex items-center px-5 py-2.5 bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white text-sm font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 border border-green-400/20 relative overflow-hidden group"
+                  :disabled="isEmbeddingModel(model)"
+                  :title="isEmbeddingModel(model) ? 'Embedding模型不支持对话功能' : '开始对话'"
+                  class="inline-flex items-center px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 border relative overflow-hidden group disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                  :class="isEmbeddingModel(model) 
+                    ? 'bg-gray-500/20 text-gray-500 border-gray-500/30' 
+                    : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white border-green-400/20'"
                   @click.stop="openChatDialog(model)"
                 >
                   <!-- 动画光效 -->
-                  <div class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
+                  <div v-if="!isEmbeddingModel(model)" class="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-700"></div>
                   <svg class="mr-2 h-4 w-4 relative z-10" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
+                    <path v-if="isEmbeddingModel(model)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18 21l-1.636-.636m1.636-1.636a9 9 0 01-12.728 0"/>
+                    <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                   </svg>
-                  <span class="relative z-10">立即对话</span>
+                  <span class="relative z-10">{{ isEmbeddingModel(model) ? '不支持对话' : '立即对话' }}</span>
                 </button>
                 <button
                   class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
@@ -1160,6 +1186,39 @@ const getModelSeries = (modelName: string): string => {
   }
 };
 
+// 检查是否为embedding模型
+const isEmbeddingModel = (model: ModelItem): boolean => {
+  if (!model) return false;
+  
+  // 检查模型类型
+  const type = model.type?.toLowerCase();
+  if (type === 'embedding' || type === 'embeddings') {
+    return true;
+  }
+  
+  // 检查模型名称中的关键词
+  const name = model.name?.toLowerCase() || '';
+  const id = model.id?.toLowerCase() || '';
+  
+  // 常见的embedding模型名称关键词
+  const embeddingKeywords = [
+    'embedding',
+    'embed',
+    'bge-',
+    'text-embedding',
+    'sentence-transformer',
+    'all-minilm',
+    'e5-',
+    'gte-',
+    'multilingual-e5',
+    'text2vec'
+  ];
+  
+  return embeddingKeywords.some(keyword => 
+    name.includes(keyword) || id.includes(keyword)
+  );
+};
+
 // 复制到剪贴板
 const copyToClipboard = async (text: string) => {
   try {
@@ -1216,6 +1275,12 @@ const handleViewDetails = (model: ModelItem) => {
 
 // 对话相关方法
 const openChatDialog = (model: ModelItem) => {
+  // 检查是否为embedding模型，如果是则不允许对话
+  if (isEmbeddingModel(model)) {
+    console.warn('Embedding模型不支持对话功能:', model.name);
+    return;
+  }
+  
   // 跳转到对话页面，传递模型信息
   router.push({
     path: '/chat',
