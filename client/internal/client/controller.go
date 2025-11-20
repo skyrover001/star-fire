@@ -139,7 +139,7 @@ func handleChatMessage(c *Client, message public.WSMessage) {
 			return
 		}
 		defer responseConn.Close()
-		if err := engine.HandleChat(c.ctx, message.FingerPrint, &openaiReq, responseConn); err != nil {
+		if err = engine.HandleChat(c.ctx, message.FingerPrint, &openaiReq, responseConn); err != nil {
 			log.Printf("handle chat message error: %v", err)
 		}
 	}()
