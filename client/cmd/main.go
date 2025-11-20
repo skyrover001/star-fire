@@ -83,43 +83,74 @@ func isChild() bool {
 }
 
 func runClient(cfg *configs.Config) {
+	// 创建退出信号通道
+	quit := make(chan struct{})
+	defer close(quit)
+
+	// 监听系统信号
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		<-sigCh
+		log.Println("收到退出信号，正在关闭服务...")
+		close(quit)
+	}()
+
 	for {
-		c, err := client.NewClient(cfg)
-		if err != nil {
-			log.Printf("创建客户端失败: %v，5秒后重试", err)
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		if err := client.RegisterClient(cfg, c, cfg.StarFireHost, cfg.JoinToken); err != nil {
-			log.Printf("注册客户端失败: %v，5秒后重试", err)
-			c.Close()
-			time.Sleep(5 * time.Second)
-			continue
-		}
-
-		log.Printf("客户端已成功连接到 %s", cfg.StarFireHost)
-
-		// 启动消息处理
-		done := make(chan bool)
-		go func() {
-			client.HandleMessages(c)
-			done <- true
-		}()
-
-		// 等待信号或连接断开
-		sigCh := make(chan os.Signal, 1)
-		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
-
 		select {
-		case <-sigCh:
-			log.Println("收到退出信号，正在关闭服务...")
-			c.Close()
+		case <-quit:
+			log.Println("程序正常退出")
 			return
-		case <-done:
-			log.Println("连接断开，正在重连...")
-			c.Close()
-			time.Sleep(3 * time.Second)
+		default:
+			c, err := client.NewClient(cfg)
+			if err != nil {
+				log.Printf("创建客户端失败: %v，5秒后重试", err)
+				select {
+				case <-time.After(5 * time.Second):
+				case <-quit:
+					log.Println("程序退出")
+					return
+				}
+				continue
+			}
+
+			if err := client.RegisterClient(cfg, c, cfg.StarFireHost, cfg.JoinToken); err != nil {
+				log.Printf("注册客户端失败: %v，5秒后重试", err)
+				c.Close()
+				select {
+				case <-time.After(5 * time.Second):
+				case <-quit:
+					log.Println("程序退出")
+					return
+				}
+				continue
+			}
+
+			log.Printf("客户端已成功连接到 %s", cfg.StarFireHost)
+
+			// 启动消息处理
+			done := make(chan bool)
+			go func() {
+				client.HandleMessages(c)
+				done <- true
+			}()
+
+			select {
+			case <-quit:
+				log.Println("正在关闭连接...")
+				c.Close()
+				return
+			case <-done:
+				log.Println("连接断开，正在重连...")
+				c.Close()
+				select {
+				case <-time.After(3 * time.Second):
+				case <-quit:
+					log.Println("程序退出")
+					return
+				}
+			}
 		}
 	}
 }

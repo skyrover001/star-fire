@@ -22,12 +22,15 @@ type Engine struct {
 	client    *api.Client
 	models    map[string]api.ProcessModelResponse
 	ollamaURL string
+
+	thinkingStarted map[string]bool // fingerprint -> 是否已经开始思考
 }
 
 func NewEngine(ctx context.Context, ollamaURL string, conf *config.Config) (*Engine, error) {
 	engine := &Engine{
-		models:    make(map[string]api.ProcessModelResponse),
-		ollamaURL: ollamaURL,
+		models:          make(map[string]api.ProcessModelResponse),
+		ollamaURL:       ollamaURL,
+		thinkingStarted: make(map[string]bool),
 	}
 
 	if err := engine.Initialize(ctx, conf); err != nil {
@@ -311,7 +314,17 @@ func convertOpenAIToolToOllama(openaiTool openai.Tool) (api.Tool, error) {
 				}
 			}
 
-			ollamaTool.Function.Parameters.Properties = properties
+			// 类型转换：将 map[string]struct{...} 转换为 map[string]api.ToolProperty
+			toolProperties := make(map[string]api.ToolProperty)
+			for key, value := range properties {
+				toolProperties[key] = api.ToolProperty{
+					Type:        value.Type,
+					Items:       value.Items,
+					Description: value.Description,
+					Enum:        value.Enum,
+				}
+			}
+			ollamaTool.Function.Parameters.Properties = toolProperties
 		}
 
 		// 设置其他字段
@@ -334,12 +347,20 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		Stream:   &request.Stream,
 		Messages: convertToOllamaMessages(request.Messages),
 		Options: map[string]interface{}{
-			"temperature": request.Temperature,
+			"temperature":      request.Temperature,
+			"top_p":            request.TopP,
+			"max_tokens":       request.MaxTokens,
+			"reasoning_effort": request.ReasoningEffort,
+			"stream_options":   map[string]interface{}{},
+			"num_predict":      -1,
+			"num_ctx":          8192,
 		},
 		Tools: make([]api.Tool, 0, len(request.Tools)),
 	}
 	for _, tool := range request.Tools {
-		fmt.Println("Tool:", tool)
+		if &tool == nil {
+			continue
+		}
 		ollamaTool, err := convertOpenAIToolToOllama(tool)
 		if err != nil {
 			log.Printf("convert tool error: %v", err)
@@ -349,8 +370,10 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	}
 
 	respFunc := func(resp api.ChatResponse) error {
+		fmt.Println("ollama request is:", *ollamaReq)
 		if request.Stream {
-			openAIStreamResp := convertToOpenAIStreamResponse(&resp, fingerprint)
+			openAIStreamResp := e.convertToOpenAIStreamResponse(&resp, fingerprint)
+			fmt.Println("stream resp message.role is:", resp.Message.Role, "c=", resp.Message.Content, "len(content)=", len(resp.Message.Content))
 			err := responseConn.WriteJSON(public.WSMessage{
 				Type:        public.MESSAGE_STREAM,
 				Content:     openAIStreamResp,
@@ -402,6 +425,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 
 func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Message {
 	ollamaMessages := make([]api.Message, len(messages))
+	index := 0
 	for i, msg := range messages {
 		ollamaMessage := api.Message{
 			Role:    msg.Role,
@@ -438,6 +462,8 @@ func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Mess
 			ollamaMessage.Images = images
 		}
 
+		fmt.Println("function call:", msg.FunctionCall)
+		fmt.Println("tool calls:", msg.ToolCalls)
 		if msg.FunctionCall != nil {
 			ollamaMessage.ToolCalls = make([]api.ToolCall, 0, 1)
 			var args api.ToolCallFunctionArguments
@@ -447,11 +473,12 @@ func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Mess
 			}
 			ollamaMessage.ToolCalls = append(ollamaMessage.ToolCalls, api.ToolCall{
 				Function: api.ToolCallFunction{
-					Index:     0,
+					Index:     index,
 					Name:      msg.FunctionCall.Name,
 					Arguments: args,
 				},
 			})
+			index++
 		}
 
 		ollamaMessages[i] = ollamaMessage
@@ -459,10 +486,32 @@ func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Mess
 	return ollamaMessages
 }
 
-func convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) openai.ChatCompletionStreamResponse {
+func (e *Engine) convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) openai.ChatCompletionStreamResponse {
 	var finishReason openai.FinishReason
 	if resp.Done {
-		finishReason = openai.FinishReasonStop
+		if len(resp.Message.ToolCalls) > 0 {
+			finishReason = openai.FinishReasonToolCalls
+		} else {
+			finishReason = openai.FinishReasonStop
+		}
+	}
+	content := ""
+	// 🔥 关键：只在第一次有 thinking 时添加开始标签
+	if resp.Message.Thinking != "" {
+		if !e.thinkingStarted[fingerprint] {
+			content = "<think>\n"
+			e.thinkingStarted[fingerprint] = true
+		}
+		content += resp.Message.Thinking
+	}
+
+	// 如果 thinking 结束，content 开始
+	if resp.Message.Content != "" && e.thinkingStarted[fingerprint] && resp.Message.Thinking == "" {
+		// thinking 刚结束，添加结束标签
+		content = "\n</think>\n\n" + resp.Message.Content
+		e.thinkingStarted[fingerprint] = false // 标记 thinking 已结束
+	} else if resp.Message.Content != "" {
+		content += resp.Message.Content
 	}
 
 	realResp := openai.ChatCompletionStreamResponse{
@@ -474,7 +523,7 @@ func convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) o
 			{
 				Index: 0,
 				Delta: openai.ChatCompletionStreamChoiceDelta{
-					Content: resp.Message.Content,
+					Content: content,
 					Role: func() string {
 						if !resp.Done {
 							return "assistant"
@@ -486,8 +535,9 @@ func convertToOpenAIStreamResponse(resp *api.ChatResponse, fingerprint string) o
 							toolCalls := make([]openai.ToolCall, len(resp.Message.ToolCalls))
 							for i, tc := range resp.Message.ToolCalls {
 								toolCalls[i] = openai.ToolCall{
-									ID:   fmt.Sprintf("toolcall-%d", i),
-									Type: "function",
+									Index: &i,
+									ID:    fmt.Sprintf("toolcall-%d", i),
+									Type:  "function",
 									Function: openai.FunctionCall{
 										Name: tc.Function.Name,
 										Arguments: func() string {
@@ -532,6 +582,7 @@ func convertToOpenAIResponse(resp *api.ChatResponse, fingerprint string) openai.
 					Role:    resp.Message.Role,
 					Content: resp.Message.Content,
 					FunctionCall: func() *openai.FunctionCall {
+						fmt.Println("function call:", resp.Message.ToolCalls)
 						if len(resp.Message.ToolCalls) > 0 {
 							tc := resp.Message.ToolCalls[0]
 							return &openai.FunctionCall{
@@ -547,8 +598,38 @@ func convertToOpenAIResponse(resp *api.ChatResponse, fingerprint string) openai.
 						}
 						return nil
 					}(),
+					ToolCalls: func() []openai.ToolCall {
+						fmt.Println("tool calls:", resp.Message.ToolCalls)
+						if len(resp.Message.ToolCalls) > 0 {
+							toolCalls := make([]openai.ToolCall, len(resp.Message.ToolCalls))
+							for i, tc := range resp.Message.ToolCalls {
+								toolCalls[i] = openai.ToolCall{
+									Index: &i,
+									ID:    fmt.Sprintf("toolcall-%d", i),
+									Type:  "function",
+									Function: openai.FunctionCall{
+										Name: tc.Function.Name,
+										Arguments: func() string {
+											argsBytes, err := json.Marshal(tc.Function.Arguments)
+											if err != nil {
+												return ""
+											}
+											return string(argsBytes)
+										}(),
+									},
+								}
+							}
+							return toolCalls
+						}
+						return nil
+					}(),
 				},
-				FinishReason: openai.FinishReasonStop,
+				FinishReason: func() openai.FinishReason {
+					if len(resp.Message.ToolCalls) > 0 {
+						return openai.FinishReasonToolCalls
+					}
+					return openai.FinishReasonStop
+				}(),
 			},
 		},
 	}
