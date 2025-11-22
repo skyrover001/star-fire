@@ -43,6 +43,14 @@ class SplashScreen:
         self.root = tk.Tk()
         self.root.overrideredirect(True)
         
+        # 设置启动画面图标
+        try:
+            icon_path = get_resource_path("icon.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except:
+            pass
+        
         width = 400
         height = 300
         screen_width = self.root.winfo_screenwidth()
@@ -117,6 +125,14 @@ class OllamaManager:
         self.root.title("StarFire MaaS 算力分享APP")
         self.root.geometry("1000x700")
         self.root.resizable(True, True)
+        
+        # 设置窗口图标
+        try:
+            icon_path = get_resource_path("icon.ico")
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+        except Exception as e:
+            print(f"设置图标失败: {e}")
         
         self.running_process = None
         self.selected_model = None
