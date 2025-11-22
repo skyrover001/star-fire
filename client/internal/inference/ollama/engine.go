@@ -352,8 +352,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			"max_tokens":       request.MaxTokens,
 			"reasoning_effort": request.ReasoningEffort,
 			"stream_options":   map[string]interface{}{},
-			"num_predict":      -1,
-			"num_ctx":          8192,
+			//"num_predict":      -1,
 		},
 		Tools: make([]api.Tool, 0, len(request.Tools)),
 	}
@@ -370,10 +369,10 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	}
 
 	respFunc := func(resp api.ChatResponse) error {
-		fmt.Println("ollama request is:", *ollamaReq)
+		//fmt.Println("ollama request is:", *ollamaReq)
 		if request.Stream {
 			openAIStreamResp := e.convertToOpenAIStreamResponse(&resp, fingerprint)
-			fmt.Println("stream resp message.role is:", resp.Message.Role, "c=", resp.Message.Content, "len(content)=", len(resp.Message.Content))
+			//fmt.Println("stream resp message.role is:", resp.Message.Role, "c=", resp.Message.Content, "len(content)=", len(resp.Message.Content))
 			err := responseConn.WriteJSON(public.WSMessage{
 				Type:        public.MESSAGE_STREAM,
 				Content:     openAIStreamResp,
@@ -462,8 +461,8 @@ func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Mess
 			ollamaMessage.Images = images
 		}
 
-		fmt.Println("function call:", msg.FunctionCall)
-		fmt.Println("tool calls:", msg.ToolCalls)
+		//fmt.Println("function call:", msg.FunctionCall)
+		//fmt.Println("tool calls:", msg.ToolCalls)
 		if msg.FunctionCall != nil {
 			ollamaMessage.ToolCalls = make([]api.ToolCall, 0, 1)
 			var args api.ToolCallFunctionArguments
