@@ -329,13 +329,13 @@ const downloadClient = (platform: 'windows' | 'macos') => {
   // 客户端下载链接配置
   const downloadUrls = {
     windows: {
-      url: '/download/windows/starfire.exe',
-      filename: 'starfire.exe',
+      url: '/download/windows/starfire.rar',
+      filename: 'starfire.rar',
       size: '~45MB'
     },
     macos: {
-      url: '/download/macos/starfire.dmg',
-      filename: 'starfire.dmg',
+      url: '/download/macos/starfire',
+      filename: 'starfire',
       size: '~52MB'
     }
   };
@@ -393,15 +393,15 @@ const usageGuideMarkdown = `
 ## 2. 安装步骤
 
 ### Windows 安装
-1. 下载 \`model-client-windows.exe\` 安装包
-2. 双击运行安装程序
-3. 按照安装向导完成安装
+1. 下载 \`starfire.rar\` 压缩包
+2. 解压缩到目标目录
+3. 运行解压后的starfire.exe程序
 4. 启动应用程序
 
 ### macOS 安装
-1. 下载 \`model-client-macos.dmg\` 安装包
-2. 双击打开 DMG 文件
-3. 将应用程序拖拽到 Applications 文件夹
+1. 下载 \`starfire\` 应用程序
+2. 将下载的文件移动到 Applications 文件夹
+3. 在终端中运行 chmod +x starfire 赋予执行权限
 4. 在应用程序文件夹中启动客户端
 
 ## 3. 客户端配置
@@ -808,7 +808,7 @@ const usageGuideHtml = computed(() => {
         @click.stop>
         <!-- 对话框头部 -->
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">注册模型</h3>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">下载客户端</h3>
           <button
             class="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
             @click="closeDownloadModal">
@@ -832,8 +832,8 @@ const usageGuideHtml = computed(() => {
                   </svg>
                 </div>
                 <div>
-                  <h4 class="font-medium text-gray-900 dark:text-white">Windows</h4>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">支持 Windows 10/11 (~45MB)</p>
+                  <h4 class="font-medium text-gray-900 dark:text-white">Windows APP</h4>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">支持 Windows 10/11 压缩包 (~45MB)</p>
                 </div>
               </div>
               <button
@@ -858,7 +858,7 @@ const usageGuideHtml = computed(() => {
                 </div>
                 <div>
                   <h4 class="font-medium text-gray-900 dark:text-white">macOS</h4>
-                  <p class="text-sm text-gray-500 dark:text-gray-400">支持 macOS 10.15+ (~52MB)</p>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">支持 macOS 10.15+ 可执行文件 (~52MB)</p>
                 </div>
               </div>
               <button
@@ -882,7 +882,7 @@ const usageGuideHtml = computed(() => {
               </svg>
               <div class="ml-3">
                 <p class="text-sm text-blue-800 dark:text-blue-200">
-                  下载完成后，将二进制文件添加到系统路径中即可。使用方式：starfire.exe -host {host_ip:{port}} -token YOUR_TOKEN
+                  Windows: 下载rar压缩包并解压后运行；macOS: 下载可执行文件并添加执行权限。使用方式：starfire -host {host_ip:{port}} -token YOUR_TOKEN
                 </p>
               </div>
             </div>

@@ -8,6 +8,7 @@ import os
 import sys
 import subprocess
 import shutil
+from create_icon import create_icon
 
 def run_command(cmd, description):
     """执行命令并显示进度"""
@@ -28,13 +29,22 @@ def main():
     print("  StarFire MaaS - Auto Build Script")
     print("=" * 50)
     
-    # Step 1: Install PyInstaller
+    # Step 1: Install dependencies
     if not run_command(
-        [sys.executable, "-m", "pip", "install", "pyinstaller"],
-        "Installing PyInstaller"
+        [sys.executable, "-m", "pip", "install", "pyinstaller", "pillow"],
+        "Installing dependencies"
     ):
-        print("\nFailed to install PyInstaller")
+        print("\nFailed to install dependencies")
         return False
+    
+    # Step 1.5: Create icon
+    print("\n[Creating icon]")
+    try:
+        create_icon()
+        print("✓ Icon created successfully")
+    except Exception as e:
+        print(f"⚠ Icon creation failed: {e}")
+        print("Continuing without custom icon...")
     
     # Step 2: Build executable
     build_cmd = [
@@ -43,8 +53,19 @@ def main():
         "--windowed",
         "--name", "StarFire_MaaS",
         "--clean",
-        "ollama_manager.py"
+        "--add-data", "starfire.exe;.",
+        "--add-data", "icon.ico;.",
     ]
+    
+    # Add icon if it exists
+    if os.path.exists("icon.ico"):
+        build_cmd.extend(["--icon", "icon.ico"])
+        print("✓ Using custom icon")
+    else:
+        print("⚠ No icon file found, using default")
+    
+    # Add the main script at the end
+    build_cmd.append("star_fire.py")
     
     if not run_command(build_cmd, "Building executable"):
         print("\nBuild failed")
@@ -68,6 +89,14 @@ def main():
         os.remove("StarFire_MaaS.spec")
         print("✓ Removed spec file")
     
+    # Copy starfire.exe to dist folder
+    dist_starfire = os.path.join("dist", "starfire.exe")
+    if os.path.exists("starfire.exe"):
+        shutil.copy2("starfire.exe", dist_starfire)
+        print("✓ Copied starfire.exe to dist folder")
+    else:
+        print("⚠ starfire.exe not found in source directory")
+    
     # Step 4: Check output
     exe_path = os.path.join("dist", "StarFire_MaaS.exe")
     if os.path.exists(exe_path):
@@ -77,9 +106,17 @@ def main():
         print("=" * 50)
         print(f"\nOutput: {exe_path}")
         print(f"Size: {size_mb:.2f} MB")
+        
+        # Check if starfire.exe was copied
+        starfire_dist = os.path.join("dist", "starfire.exe")
+        if os.path.exists(starfire_dist):
+            starfire_size = os.path.getsize(starfire_dist) / (1024 * 1024)
+            print(f"StarFire Core: {starfire_size:.2f} MB")
+        
         print("\nNext steps:")
-        print("1. Copy starfire.exe to dist folder")
-        print("2. Run dist\\StarFire_MaaS.exe")
+        print("1. Navigate to dist folder")
+        print("2. Run StarFire_MaaS.exe")
+        print("3. StarFire core (starfire.exe) is included")
         return True
     else:
         print("\n✗ Build failed - executable not found")
