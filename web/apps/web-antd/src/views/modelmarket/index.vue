@@ -8,6 +8,7 @@ import { computed, ref, watch, onMounted, onUnmounted, onActivated } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 
 import { openWindow } from '@vben/utils';
+import { useAppConfig } from '@vben/hooks';
 // 导入请求工具
 import { requestClient } from '#/api/request';
 
@@ -18,6 +19,9 @@ import ModelTrends from './components/ModelTrends.vue';
 
 const router = useRouter();
 const route = useRoute();
+
+// 获取应用配置
+const { serverHost } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
 // 搜索相关状态
 const searchKeyword = ref('');
@@ -242,7 +246,7 @@ const copyToken = async () => {
 const copyCommand = async () => {
   if (!currentToken.value) return;
 
-  const command = `starfire.exe -host 1.94.239.51 -token ${currentToken.value} -ippm 3.8 -oppm 8.3`;
+  const command = `starfire.exe -host ${serverHost} -token ${currentToken.value} -ippm 3.8 -oppm 8.3`;
 
   try {
     // 优先使用现代 Clipboard API
@@ -700,7 +704,7 @@ const usageGuideHtml = computed(() => {
                 <div class="relative">
                   <code
                     class="block w-full rounded-lg bg-gray-100 dark:bg-gray-800 p-3 text-sm font-mono text-gray-900 dark:text-gray-100 pr-12 break-all">
-                  starfire.exe -host 1.94.239.51 -token {{ currentToken }} -ippm 3.8 -oppm 8.3
+                  starfire.exe -host {{ serverHost }} -token {{ currentToken }} -ippm 3.8 -oppm 8.3
                 </code>
                   <button @click="copyCommand"
                     class="absolute top-2 right-2 rounded p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
@@ -713,7 +717,7 @@ const usageGuideHtml = computed(() => {
                 </div>
                 <div class="mt-2 text-xs text-blue-600 dark:text-blue-400">
                   <p>💡 确保 starfire.exe 在您的系统 PATH 中，或使用完整路径</p>
-                  <p>🌐 请根据实际情况修改 host 地址（localhost:8080）</p>
+                  <p>🌐 主机地址已自动配置，如需修改请联系管理员</p>
                 </div>
               </div>
             </div>

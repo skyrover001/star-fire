@@ -884,7 +884,7 @@ class OllamaManager:
         try:
             if platform.system() == "Windows":
                 process = subprocess.Popen(
-                    ["ollama", "run", "--keepalive", "24h", model_name],
+                    ["ollama", "run", "--keepalive", "-1m", model_name],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -893,7 +893,7 @@ class OllamaManager:
                 )
             else:
                 process = subprocess.Popen(
-                    ["ollama", "run", "--keepalive", "24h", model_name],
+                    ["ollama", "run", "--keepalive", "-1m", model_name],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
