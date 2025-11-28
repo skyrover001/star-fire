@@ -16,15 +16,29 @@ import (
 
 // handle user chat request
 func HandleChatRequest(c *gin.Context, server *models.Server) {
-	var request openai.ChatCompletionRequest
-	fingerPrint := uuid.NewString()
+	type ExtendedChatRequest struct {
+		openai.ChatCompletionRequest
+		EnableThink bool `json:"enable_thinking,omitempty"`
+	}
 
-	err := c.ShouldBindJSON(&request)
+	//扩展结构体
+	var extendedRequest ExtendedChatRequest
+	err := c.ShouldBindJSON(&extendedRequest)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
+	request := extendedRequest.ChatCompletionRequest
+	fingerPrint := uuid.NewString()
+
+	if extendedRequest.EnableThink {
+		request.ReasoningEffort = "medium"
+	} else {
+		request.ReasoningEffort = "none"
+	}
+
+	// fmt.Println("request is ..............................", request.Metadata, request.ChatCompletionRequestExtensions, request.ReasoningEffort)
 	client := server.LoadBalance(request.Model)
 	if client == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No available client"})

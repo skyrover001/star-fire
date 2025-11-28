@@ -48,6 +48,8 @@ type Server struct {
 	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
 
 	MailService *MailService // optional, for sending emails
+
+	Conf *configs.Configuration
 }
 
 func NewServer() *Server {
@@ -104,6 +106,7 @@ func NewServer() *Server {
 			SMTPPassword: configs.Config.EmailPassword,
 			FromAddress:  configs.Config.EmailFrom,
 		},
+		Conf: &configs.Config,
 	}
 
 	go func() {

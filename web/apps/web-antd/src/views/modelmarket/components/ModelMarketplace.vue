@@ -369,10 +369,30 @@
               <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
                 {{ getModelSeries(model.id) }}
               </span>
-              <!-- 定价标签 -->
-              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                ¥{{ model.ppm?.toFixed(2) || '0.00' }}/百万Token
-              </span>
+              <!-- 定价标签 - 显示最低价格和提供商 -->
+              <div class="space-y-2">
+                <!-- 输入Token最低价格 -->
+                <div class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                  <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M13 10l3 4M9 12l4-4"/>
+                  </svg>
+                  <span>输入￥{{ model.inputPPM?.toFixed(1) || '10.0' }}/百万</span>
+                  <span v-if="model.inputClientInfo" class="ml-2 text-xs opacity-75">
+                    by {{ model.inputClientInfo.username }}
+                  </span>
+                </div>
+                
+                <!-- 输出Token最低价格 -->
+                <div class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                  <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8a3 3 0 016 0m-6 0v10c0 3.314 2.686 6 6 6s6-2.686 6-6V8m-6 0V5a2 2 0 012-2h2a2 2 0 012 2v3"/>
+                  </svg>
+                  <span>输出￥{{ model.outputPPM?.toFixed(1) || '20.0' }}/百万</span>
+                  <span v-if="model.outputClientInfo" class="ml-2 text-xs opacity-75">
+                    by {{ model.outputClientInfo.username }}
+                  </span>
+                </div>
+              </div>
             </div>
             
             <!-- 模型规格信息 -->
@@ -522,10 +542,30 @@
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
                       <span class="text-xs mr-1">客户端:</span>{{ model.clientCount || 0 }}个
                     </span>
-                    <!-- 定价标签 -->
-                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
-                      <span class="text-xs mr-1">定价:</span>¥{{ model.ppm?.toFixed(2) || '0.00' }}/百万Token
-                    </span>
+                    <!-- 定价标签 - 列表视图显示最低价格 -->
+                    <div class="inline-flex items-center space-x-2">
+                      <!-- 输入Token最低价格 -->
+                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M13 10l3 4M9 12l4-4"/>
+                        </svg>
+                        <span class="text-xs">输入￥{{ model.inputPPM?.toFixed(1) || '10.0' }}/百万</span>
+                        <span v-if="model.inputClientInfo" class="ml-1 text-xs opacity-75">
+                          ({{ model.inputClientInfo.username }})
+                        </span>
+                      </span>
+                      
+                      <!-- 输出Token最低价格 -->
+                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">
+                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8a3 3 0 016 0m-6 0v10c0 3.314 2.686 6 6 6s6-2.686 6-6V8m-6 0V5a2 2 0 012-2h2a2 2 0 012 2v3"/>
+                        </svg>
+                        <span class="text-xs">输出￥{{ model.outputPPM?.toFixed(1) || '20.0' }}/百万</span>
+                        <span v-if="model.outputClientInfo" class="ml-1 text-xs opacity-75">
+                          ({{ model.outputClientInfo.username }})
+                        </span>
+                      </span>
+                    </div>
                   </div>
                 </div>
                 
@@ -656,8 +696,9 @@ interface ClientModel {
   name: string;
   type: string;
   size: string;
-  quantization?: string;
-  ppm?: number; // 每百万Token定价
+  arch?: string; // 量化方式
+  ippm?: number; // 输入定价 (每百万Token)
+  oppm?: number; // 输出定价 (每百万Token)
   openai_model: {
     created: number;
     id: string;
@@ -689,7 +730,13 @@ interface Client {
   created_at: string;
   updated_at: string;
   models: ClientModel[];
+  embedding_models?: ClientModel[];
   user: User;
+  inference_engine?: {
+    name: string;
+    max_tokens: number;
+    num_parallel: number;
+  };
 }
 
 interface ClientModelPair {
@@ -701,7 +748,7 @@ interface ApiModelItem {
   name: string;
   type: string;
   size: string;
-  quantization: string;
+  arch?: string; // 量化方式
   client_models: ClientModelPair[];
 }
 
@@ -718,12 +765,21 @@ interface ModelItem {
   color: string;
   createDate: string;
   size: string;
-  quantization: string; // 替代 arch
+  quantization: string; // 量化方式
   type: string;
   clientCount?: number; // 新增可用客户端数量
   inputPPM?: number; // 输入定价 (每百万Token)
   outputPPM?: number; // 输出定价 (每百万Token)
-  ppm?: number; // 统一定价 (每百万Token)
+  inputClientInfo?: { // 最低输入价格的客户端信息
+    clientId: string;
+    username: string;
+    price: number;
+  } | null;
+  outputClientInfo?: { // 最低输出价格的客户端信息
+    clientId: string;
+    username: string;
+    price: number;
+  } | null;
 }
 
 // 定义Props
@@ -770,7 +826,59 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
   try {
     // 从模型名称解析信息
     const modelName = apiModel.name || 'Unknown Model';
-    const ppm = apiModel.client_models?.[0]?.model?.ppm || 3; // 默认定价为3元/百万Token
+    
+    // 计算所有客户端中的最低价格
+    const getLowestPricing = () => {
+      if (!apiModel.client_models || apiModel.client_models.length === 0) {
+        return {
+          minInputPPM: 10,
+          minOutputPPM: 20,
+          inputClientInfo: null,
+          outputClientInfo: null
+        };
+      }
+
+      let minInputPPM = Number.MAX_VALUE;
+      let minOutputPPM = Number.MAX_VALUE;
+      let inputClientInfo = null;
+      let outputClientInfo = null;
+
+      apiModel.client_models.forEach(clientModel => {
+        const model = clientModel.model;
+        const client = clientModel.client;
+        
+        if (model?.ippm !== undefined && model.ippm < minInputPPM) {
+          minInputPPM = model.ippm;
+          inputClientInfo = {
+            clientId: client?.id?.substring(0, 8) + '...',
+            username: client?.user?.username || '匿名用户',
+            price: model.ippm
+          };
+        }
+        
+        if (model?.oppm !== undefined && model.oppm < minOutputPPM) {
+          minOutputPPM = model.oppm;
+          outputClientInfo = {
+            clientId: client?.id?.substring(0, 8) + '...',
+            username: client?.user?.username || '匿名用户',
+            price: model.oppm
+          };
+        }
+      });
+
+      return {
+        minInputPPM: minInputPPM === Number.MAX_VALUE ? 10 : minInputPPM,
+        minOutputPPM: minOutputPPM === Number.MAX_VALUE ? 20 : minOutputPPM,
+        inputClientInfo,
+        outputClientInfo
+      };
+    };
+
+    const pricingInfo = getLowestPricing();
+    
+    // 获取第一个客户端模型的其他信息作为默认值
+    const firstClientModel = apiModel.client_models?.[0];
+    const modelData = firstClientModel?.model;
     const [name, version] = modelName.split(':');
     
     // 计算文件大小（从字节转换为可读格式）
@@ -810,8 +918,6 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     };
 
     // 获取第一个客户端模型的信息作为默认值
-    const firstClientModel = apiModel.client_models?.[0];
-    const modelData = firstClientModel?.model;
     const clientData = firstClientModel?.client;
     
     // 确定模型状态：根据客户端状态来判断
@@ -829,7 +935,7 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     };
 
     const { icon, color } = getModelIcon(apiModel.type || 'unknown', modelName);
-    console.log("ppm:", ppm, "icon:", icon, "color:", color);
+    
     return {
       id: modelName,
       name: name || modelName,
@@ -837,15 +943,18 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
       modelType: (apiModel.type || 'unknown').toUpperCase(),
       creator: clientData?.user?.username || modelData?.openai_model?.owned_by || 'Unknown',
       status: getModelStatus(),
-      description: `${apiModel.type || 'unknown'} 模型，量化：${apiModel.quantization || 'N/A'}，大小：${formatSize(apiModel.size || '0')}，可用客户端：${apiModel.client_models?.length || 0}个`,
+      description: `${apiModel.type || 'unknown'} 模型，量化：${modelData?.arch || 'N/A'}，大小：${formatSize(apiModel.size || '0')}，可用客户端：${apiModel.client_models?.length || 0}个`,
       icon,
       color,
       createDate: modelData?.openai_model?.created ? new Date(modelData.openai_model.created * 1000).toLocaleDateString() : new Date().toLocaleDateString(),
       size: formatSize(apiModel.size || '0'),
-      quantization: apiModel.quantization || 'N/A', // 使用量化方式
+      quantization: modelData?.arch || 'N/A', // 使用量化方式
       type: apiModel.type || 'unknown',
       clientCount: apiModel.client_models?.length || 0,
-      ppm: ppm // 3-15元统一定价，保留2位小数
+      inputPPM: pricingInfo.minInputPPM,
+      outputPPM: pricingInfo.minOutputPPM,
+      inputClientInfo: pricingInfo.inputClientInfo,
+      outputClientInfo: pricingInfo.outputClientInfo
     };
   } catch (error) {
     console.error('转换模型数据时出错:', error, apiModel);
@@ -870,7 +979,10 @@ const createDefaultModel = (): ModelItem => {
     quantization: 'N/A',
     type: 'unknown',
     clientCount: 0,
-    ppm: 0
+    inputPPM: 10,
+    outputPPM: 20,
+    inputClientInfo: null,
+    outputClientInfo: null
   };
 };
 

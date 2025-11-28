@@ -342,6 +342,19 @@ func convertOpenAIToolToOllama(openaiTool openai.Tool) (api.Tool, error) {
 
 func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	request *openai.ChatCompletionRequest, responseConn *websocket.Conn) error {
+	// think 开关
+	think := &api.ThinkValue{}
+	if strings.Index(request.Model, "qwen") >= 0 || strings.Index(request.Model, "DeepSeek v3.1") >= 0 || strings.Index(request.Model, "DeepSeek v3.2-exp") >= 0 {
+		// qwen系列 支持think 开关的用 enable_thinking (true | false) ，需要将openai API reasoning_effort
+		if request.ReasoningEffort == "none" || request.ReasoningEffort == "" {
+			think.Value = false
+		} else {
+			think.Value = true
+		}
+	}
+	if strings.Contains(request.Model, "Doubao-seed-1-6") || strings.Contains(request.Model, "gpt-5.1") {
+		think.Value = request.ReasoningEffort
+	}
 	ollamaReq := &api.ChatRequest{
 		Model:    request.Model,
 		Stream:   &request.Stream,
@@ -354,6 +367,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			"stream_options":   map[string]interface{}{},
 			//"num_predict":      -1,
 		},
+		Think: think,
 		Tools: make([]api.Tool, 0, len(request.Tools)),
 	}
 	for _, tool := range request.Tools {

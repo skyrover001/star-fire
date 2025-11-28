@@ -26,6 +26,10 @@ type Configuration struct {
 	EnableEmbeddingModels        bool
 	EmbeddingInputTokenPricePerM float64
 	SupportedEmbeddingModels     []string
+
+	// 设置所有模型价格上限，提示用户设置超过这个值，将会被重置为这个值
+	AllModelOutPutMaxPrice float64
+	AllModelInputMaxPrice  float64
 }
 
 var Config = loadConfig()
@@ -53,6 +57,10 @@ func loadConfig() Configuration {
 	// 新增embedding配置加载
 	enableEmbedding, _ := strconv.ParseBool(getEnv("ENABLE_EMBEDDING_MODELS", "true"))
 	embeddingInputPrice, _ := strconv.ParseFloat(getEnv("STAR_FIRE_EMBEDDING_INPUT_TOKEN_PRICE_PER_M", "0.1"), 64)
+
+	// 设置共享到平台的所有模型的输入输出token价格的上限
+	allModelInputMaxPrice, _ := strconv.ParseFloat(getEnv("INPUT_TOKEN_PRICE_PER_MAX", "10.0"), 64)
+	allModelOutputMaxPrice, _ := strconv.ParseFloat(getEnv("OUTPUT_TOKEN_PRICE_PER_MAX", "20.0"), 64)
 
 	// 解析支持的embedding模型列表
 	embeddingModelsStr := getEnv("SUPPORTED_EMBEDDING_MODELS", "text-embedding-ada-002,text-embedding-3-small,text-embedding-3-large")
@@ -86,6 +94,9 @@ func loadConfig() Configuration {
 		EnableEmbeddingModels:        enableEmbedding,
 		EmbeddingInputTokenPricePerM: embeddingInputPrice,
 		SupportedEmbeddingModels:     supportedEmbeddingModels,
+
+		AllModelInputMaxPrice:  allModelInputMaxPrice,
+		AllModelOutPutMaxPrice: allModelOutputMaxPrice,
 	}
 }
 

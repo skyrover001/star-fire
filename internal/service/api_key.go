@@ -33,10 +33,13 @@ type APIKeyResponse struct {
 func (s *APIKeyService) CreateAPIKey(userID string, req *CreateAPIKeyRequest) (*APIKeyResponse, error) {
 	// 使用默认过期时间
 	expiryDays := req.ExpiryDays
-	if expiryDays <= 0 {
+	if expiryDays < 0 {
 		expiryDays = configs.Config.DefaultKeyExpiry
 	}
 
+	if expiryDays == 0 {
+		expiryDays = 365 * 1000
+	}
 	// 检查用户API Key数量是否达到上限
 	count, err := s.apiKeyDB.CountUserAPIKeys(userID)
 	if err != nil {

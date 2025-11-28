@@ -170,12 +170,26 @@
             <!-- 到期时间 -->
             <div class="col-span-2">
               <p class="text-sm text-[var(--text-secondary)]">{{ formatDate(apiKey.expiresAt) }}</p>
-              <span 
-                v-if="apiKey.revoked"
-                class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400 mt-1"
-              >
-                已撤销
-              </span>
+              <div class="flex flex-wrap gap-1 mt-1">
+                <span 
+                  v-if="apiKey.revoked"
+                  class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 dark:bg-red-900/20 dark:text-red-400"
+                >
+                  已撤销
+                </span>
+                <span 
+                  v-else-if="isExpired(apiKey.expiresAt)"
+                  class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/20 dark:text-orange-400"
+                >
+                  已过期
+                </span>
+                <span 
+                  v-else-if="isExpiringSoon(apiKey.expiresAt)"
+                  class="inline-flex items-center px-2 py-0.5 rounded text-xs font-medium bg-yellow-100 text-yellow-800 dark:bg-yellow-900/20 dark:text-yellow-400"
+                >
+                  即将过期
+                </span>
+              </div>
             </div>
 
             <!-- Key -->
@@ -313,6 +327,97 @@
               </div>
             </div>
 
+            <!-- 过期时间设置 -->
+            <div>
+              <label class="block text-sm font-medium text-[var(--text-primary)] mb-3">
+                过期时间设置
+              </label>
+              
+              <!-- 过期选项 -->
+              <div class="space-y-3">
+                <!-- 永不过期 -->
+                <div class="flex items-center space-x-3">
+                  <input
+                    id="never-expire"
+                    v-model="expiryType"
+                    name="expiry-type"
+                    value="never"
+                    type="radio"
+                    class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                  >
+                  <label for="never-expire" class="text-sm text-[var(--text-primary)] cursor-pointer">
+                    永不过期
+                  </label>
+                </div>
+                
+                <!-- 自定义过期时间 -->
+                <div class="flex items-center space-x-3">
+                  <input
+                    id="custom-expire"
+                    v-model="expiryType"
+                    name="expiry-type"
+                    value="custom"
+                    type="radio"
+                    class="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300"
+                  >
+                  <label for="custom-expire" class="text-sm text-[var(--text-primary)] cursor-pointer">
+                    指定过期时间
+                  </label>
+                </div>
+              </div>
+              
+              <!-- 快速选择和自定义日期 -->
+              <div v-if="expiryType === 'custom'" class="mt-4 space-y-4">
+                <!-- 快速选择 -->
+                <div>
+                  <label class="block text-xs font-medium text-[var(--text-secondary)] mb-2">
+                    快速选择
+                  </label>
+                  <div class="grid grid-cols-2 gap-2">
+                    <button
+                      v-for="preset in expiryPresets"
+                      :key="preset.days"
+                      type="button"
+                      class="px-3 py-2 text-sm border border-[var(--border-color)] rounded-lg hover:bg-[var(--bg-color-secondary)] transition-colors text-[var(--text-primary)]"
+                      @click="setExpiryPreset(preset.days)"
+                    >
+                      {{ preset.label }}
+                    </button>
+                  </div>
+                </div>
+                
+                <!-- 自定义日期选择器 -->
+                <div>
+                  <label class="block text-xs font-medium text-[var(--text-secondary)] mb-2">
+                    或选择具体日期
+                  </label>
+                  <input
+                    v-model="customExpiryDate"
+                    type="datetime-local"
+                    :min="getMinDateTime()"
+                    class="w-full px-3 py-2 border border-[var(--border-color)] rounded-lg bg-[var(--input-bg)] text-[var(--text-primary)] focus:ring-2 focus:ring-blue-500 focus:border-blue-500 transition-colors text-sm"
+                  >
+                </div>
+                
+                <!-- 过期时间预览 -->
+                <div v-if="customExpiryDate" class="p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
+                  <div class="flex items-start space-x-2">
+                    <svg class="h-4 w-4 text-blue-500 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+                    </svg>
+                    <div>
+                      <p class="text-sm text-blue-800 dark:text-blue-200">
+                        <strong>过期时间:</strong> {{ formatDateTime(customExpiryDate) }}
+                      </p>
+                      <p class="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                        距离现在大约 {{ getTimeDifference(customExpiryDate) }}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- 安全提示 -->
             <div class="p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
               <div class="flex items-start">
@@ -370,7 +475,7 @@
             <button
               type="button"
               class="inline-flex items-center px-6 py-2 text-sm font-medium text-white bg-gradient-to-r from-blue-600 to-blue-700 hover:from-blue-700 hover:to-blue-800 rounded-lg shadow-lg transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
-              :disabled="!newApiKeyName.trim() || creating"
+              :disabled="!newApiKeyName.trim() || creating || (expiryType === 'custom' && (!customExpiryDate || new Date(customExpiryDate) <= new Date()))"
               @click="createApiKey"
             >
               <svg v-if="creating" class="animate-spin -ml-1 mr-2 h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
@@ -445,6 +550,40 @@
                   </svg>
                   复制
                 </button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 过期信息显示 -->
+          <div v-if="expiryType === 'custom' && customExpiryDate" class="mb-6 p-4 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded-lg">
+            <div class="flex items-start space-x-2">
+              <svg class="h-5 w-5 text-amber-600 dark:text-amber-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
+              </svg>
+              <div>
+                <h4 class="text-sm font-medium text-amber-800 dark:text-amber-200 mb-1">⏰ 过期时间</h4>
+                <p class="text-sm text-amber-700 dark:text-amber-300">
+                  此 API Key 将在 <strong>{{ formatDateTime(customExpiryDate) }}</strong> 过期（{{ getTimeDifference(customExpiryDate) }}后）
+                </p>
+                <p class="text-xs text-amber-600 dark:text-amber-400 mt-1">
+                  过期后将无法使用，请及时续期或创建新的 API Key
+                </p>
+              </div>
+            </div>
+          </div>
+          <div v-else class="mb-6 p-4 bg-green-50 dark:bg-green-900/20 border border-green-200 dark:border-green-800 rounded-lg">
+            <div class="flex items-start space-x-2">
+              <svg class="h-5 w-5 text-green-600 dark:text-green-400 mt-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+              </svg>
+              <div>
+                <h4 class="text-sm font-medium text-green-800 dark:text-green-200 mb-1">♾️ 永不过期</h4>
+                <p class="text-sm text-green-700 dark:text-green-300">
+                  此 API Key 设置为永不过期，可以长期使用
+                </p>
+                <p class="text-xs text-green-600 dark:text-green-400 mt-1">
+                  建议定期轮换密钥以确保安全
+                </p>
               </div>
             </div>
           </div>
@@ -539,6 +678,16 @@ const showNewKeyModal = ref(false);
 const newApiKeyName = ref('');
 const newApiKey = ref('');
 const creating = ref(false);
+
+// 过期时间设置
+const expiryType = ref<'never' | 'custom'>('never');
+const customExpiryDate = ref('');
+const expiryPresets = [
+  { label: '7天', days: 7 },
+  { label: '30天', days: 30 },
+  { label: '90天', days: 90 },
+  { label: '1年', days: 365 }
+];
 
 // 统计数据类型定义
 interface Statistics {
@@ -660,16 +809,54 @@ const refreshApiKeys = async () => {
 
 // 创建 API Key
 const createApiKey = async () => {
+  console.log('=== 开始创建 API Key ===');
+  console.log('当前 expiryType:', expiryType.value);
+  console.log('当前 customExpiryDate:', customExpiryDate.value);
+  
   if (!newApiKeyName.value.trim()) {
     message.error('请输入 API Key 名称');
     return;
   }
 
+  // 验证过期时间设置
+  if (expiryType.value === 'custom' && !customExpiryDate.value) {
+    message.error('请选择过期时间');
+    return;
+  }
+
+  if (expiryType.value === 'custom' && new Date(customExpiryDate.value) <= new Date()) {
+    message.error('过期时间必须晚于当前时间');
+    return;
+  }
+
   creating.value = true;
   try {
-    const response = await requestClient.post('/user/keys', {
+    const requestData: any = {
       name: newApiKeyName.value.trim(),
-    });
+    };
+
+    // 添加过期时间
+    console.log('Debug - expiryType:', expiryType.value);
+    console.log('Debug - customExpiryDate:', customExpiryDate.value);
+    console.log('Debug - 条件检查:', expiryType.value === 'custom', !!customExpiryDate.value);
+    
+    if (expiryType.value === 'custom' && customExpiryDate.value) {
+      const expiryDate = new Date(customExpiryDate.value);
+      const now = new Date();
+      const diffTime = expiryDate.getTime() - now.getTime();
+      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); // 向上取整到天数
+      
+      console.log('Debug - 计算的天数:', diffDays);
+      requestData.expiry_days = diffDays;
+      console.log('Debug - 设置expiry_days后的requestData:', requestData);
+    } else {
+      console.log('Debug - 未进入过期时间设置分支');
+    }
+    
+    console.log('Debug - 最终的requestData:', requestData);
+
+    console.log('准备发送请求，requestData:', JSON.stringify(requestData, null, 2));
+    const response = await requestClient.post('/user/keys', requestData);
     
     newApiKey.value = response.key;
     showCreateModal.value = false;
@@ -697,6 +884,8 @@ const closeNewKeyModal = () => {
 const closeCreateModal = () => {
   showCreateModal.value = false;
   newApiKeyName.value = '';
+  expiryType.value = 'never';
+  customExpiryDate.value = '';
 };
 
 // 撤销 API Key
@@ -799,7 +988,84 @@ const selectAllText = (event: Event) => {
 
 // 格式化日期
 const formatDate = (dateString: string) => {
+  if (!dateString || dateString === '') {
+    return '永不过期';
+  }
   return new Date(dateString).toLocaleString('zh-CN');
+};
+
+// 格式化日期时间（用于显示选择的过期时间）
+const formatDateTime = (dateTimeString: string): string => {
+  if (!dateTimeString) return '';
+  return new Date(dateTimeString).toLocaleString('zh-CN', {
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit'
+  });
+};
+
+// 获取最小日期时间（当前时间）
+const getMinDateTime = (): string => {
+  const now = new Date();
+  // 设置为5分钟后，避免立即过期
+  now.setMinutes(now.getMinutes() + 5);
+  return now.toISOString().slice(0, 16);
+};
+
+// 设置快速过期时间
+const setExpiryPreset = (days: number) => {
+  const future = new Date();
+  future.setDate(future.getDate() + days);
+  customExpiryDate.value = future.toISOString().slice(0, 16);
+};
+
+// 计算时间差
+const getTimeDifference = (dateTimeString: string): string => {
+  if (!dateTimeString) return '';
+  
+  const target = new Date(dateTimeString);
+  const now = new Date();
+  const diffMs = target.getTime() - now.getTime();
+  
+  if (diffMs < 0) {
+    return '已过期';
+  }
+  
+  const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+  const diffHours = Math.floor((diffMs % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+  
+  if (diffDays > 0) {
+    return `${diffDays}天${diffHours > 0 ? diffHours + '小时' : ''}`;
+  } else if (diffHours > 0) {
+    const diffMinutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60));
+    return `${diffHours}小时${diffMinutes > 0 ? diffMinutes + '分钟' : ''}`;
+  } else {
+    const diffMinutes = Math.floor(diffMs / (1000 * 60));
+    return `${diffMinutes}分钟`;
+  }
+};
+
+// 检查API Key是否已过期
+const isExpired = (expiresAt: string): boolean => {
+  if (!expiresAt || expiresAt === '') {
+    return false; // 永不过期
+  }
+  return new Date(expiresAt) < new Date();
+};
+
+// 检查API Key是否即将过期（7天内）
+const isExpiringSoon = (expiresAt: string): boolean => {
+  if (!expiresAt || expiresAt === '') {
+    return false; // 永不过期
+  }
+  const expiry = new Date(expiresAt);
+  const now = new Date();
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
+  
+  return expiry <= sevenDaysFromNow && expiry > now;
 };
 
 // 页面挂载时加载数据

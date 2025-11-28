@@ -66,6 +66,14 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 			} else {
 				client.Models = pong.AvailableModels
 				for _, m := range client.Models {
+					if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
+						log.Println("OPPM price is too high, set starfire platform default value!")
+						m.OPPM = server.Conf.AllModelOutPutMaxPrice
+					}
+					if m.IPPM > server.Conf.AllModelInputMaxPrice {
+						log.Println("IPPM price is too high, set starfire platform default value!")
+						m.IPPM = server.Conf.AllModelInputMaxPrice
+					}
 					server.RegisterModel(m, client)
 					fmt.Println("Client available model:", m.Name, m)
 					// add trend for client keep alive
@@ -175,7 +183,15 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 		client.RegisterTime = time.Now()
 
 		for _, m := range client.Models {
-			fmt.Println("Registering model:", m.Name, "Type:", m.Type, "IPPM:", m.IPPM, "OPPM:", m.OPPM)
+			fmt.Println("Registering model:", m.Name, "Type:", m.Type, "IPPM:", m.IPPM, "OPPM:", m.OPPM, server.Conf.AllModelOutPutMaxPrice, server.Conf.AllModelInputMaxPrice)
+			if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
+				log.Println("OPPM price is too high, set starfire platform default value!")
+				m.OPPM = server.Conf.AllModelOutPutMaxPrice
+			}
+			if m.IPPM > server.Conf.AllModelInputMaxPrice {
+				log.Println("IPPM price is too high, set starfire platform default value!")
+				m.IPPM = server.Conf.AllModelInputMaxPrice
+			}
 			model := public.Model{
 				Name: m.Name,
 				Type: m.Type,
@@ -184,6 +200,7 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 				IPPM: m.IPPM, // 确保传递IPPM价格
 				OPPM: m.OPPM, // 确保传递OPPM价格
 			}
+			fmt.Println("model is", model, m.OPPM, m.IPPM)
 			server.RegisterModel(&model, client)
 
 			// 为embedding模型添加特殊的trend记录

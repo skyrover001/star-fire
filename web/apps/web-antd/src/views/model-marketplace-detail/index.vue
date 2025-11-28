@@ -152,6 +152,14 @@
                   <h4 class="text-lg font-medium text-[var(--text-primary)]">
                     客户端 #{{ index + 1 }}
                   </h4>
+                  <div class="flex items-center space-x-2">
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                      输入￥{{ clientModel.model.ippm || 10 }}/百万
+                    </span>
+                    <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                      输出￥{{ clientModel.model.oppm || 20 }}/百万
+                    </span>
+                  </div>
                   <span
                     :class="[
                       'inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border',
@@ -293,6 +301,26 @@
                         <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
                           {{ clientModel.model.quantization || clientModel.model.arch || 'N/A' }}
                         </span>
+                      </div>
+                    </div>
+                  </div>
+                  
+                  <!-- 此客户端的定价信息 -->
+                  <div class="mt-4 pt-4 border-t border-emerald-500/20">
+                    <div class="flex items-center space-x-2 mb-3">
+                      <svg class="w-5 h-5 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1"/>
+                      </svg>
+                      <span class="font-semibold text-[var(--text-primary)]">Token 定价</span>
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                      <div class="text-center p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
+                        <div class="text-xl font-bold text-emerald-500">￥{{ clientModel.model.ippm || 10 }}</div>
+                        <div class="text-xs text-emerald-600 dark:text-emerald-400">输入Token/百万</div>
+                      </div>
+                      <div class="text-center p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
+                        <div class="text-xl font-bold text-blue-500">￥{{ clientModel.model.oppm || 20 }}</div>
+                        <div class="text-xs text-blue-600 dark:text-blue-400">输出Token/百万</div>
                       </div>
                     </div>
                   </div>

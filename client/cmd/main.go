@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"star-fire/client/internal/client"
 	configs "star-fire/client/internal/config"
+	"strings"
 	"syscall"
 	"time"
 )
@@ -117,7 +118,15 @@ func runClient(cfg *configs.Config) {
 
 			if err := client.RegisterClient(cfg, c, cfg.StarFireHost, cfg.JoinToken); err != nil {
 				log.Printf("注册客户端失败: %v，5秒后重试", err)
-				c.Close()
+				if strings.Contains(err.Error(), "401 Unauthorized") {
+					fmt.Println("注册码错误，请重新获取注册码！")
+					return
+				}
+				if strings.Contains(err.Error(), "No connection could be made because the target machine actively refused it") {
+					fmt.Println("远程服务错误，请登录starfire官方网站，并确认服务正常!")
+					return
+				}
+				_ = c.Close()
 				select {
 				case <-time.After(5 * time.Second):
 				case <-quit:
@@ -139,11 +148,11 @@ func runClient(cfg *configs.Config) {
 			select {
 			case <-quit:
 				log.Println("正在关闭连接...")
-				c.Close()
+				_ = c.Close()
 				return
 			case <-done:
 				log.Println("连接断开，正在重连...")
-				c.Close()
+				_ = c.Close()
 				select {
 				case <-time.After(3 * time.Second):
 				case <-quit:

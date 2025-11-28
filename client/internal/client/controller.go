@@ -19,7 +19,10 @@ func RegisterClient(conf *configs.Config, c *Client, host, token string) error {
 	requestHeader := http.Header{}
 	requestHeader.Set("X-Registration-Token", token)
 
-	conn, _, err := websocket.DefaultDialer.Dial(u.String(), requestHeader)
+	conn, res, err := websocket.DefaultDialer.Dial(u.String(), requestHeader)
+	if res != nil && res.StatusCode != http.StatusSwitchingProtocols {
+		return fmt.Errorf("bad status: %v", res.Status)
+	}
 	if err != nil {
 		return fmt.Errorf("WebSocket connet error: %w", err)
 	}
