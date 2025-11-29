@@ -339,7 +339,7 @@ const downloadClient = (platform: 'windows' | 'macos') => {
     },
     macos: {
       url: '/download/macos/starfire',
-      filename: 'starfire',
+      filename: 'starfire.zip',
       size: '~52MB'
     }
   };
