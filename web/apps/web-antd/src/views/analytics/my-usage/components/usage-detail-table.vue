@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { ref, onMounted, computed } from 'vue';
-import { requestClient } from '#/api/request';
+import { ref, computed, inject, watch } from 'vue';
+import type { Ref } from 'vue';
 
 interface TokenUsageRecord {
   ID: number;
@@ -18,8 +18,12 @@ interface TokenUsageRecord {
   Timestamp: string;
 }
 
-const loading = ref(false);
-const usageRecords = ref<TokenUsageRecord[]>([]);
+const usageRecords = inject<Ref<TokenUsageRecord[]>>(
+  'usageRecords',
+  ref<TokenUsageRecord[]>([]),
+);
+
+const loading = inject<Ref<boolean>>('usageLoading', ref(false));
 const currentPage = ref(1);
 const pageSize = ref(15);
 
@@ -38,29 +42,25 @@ const paginatedRecords = computed(() => {
 
 // 总页数
 const totalPages = computed(() => {
-  return Math.ceil(usageRecords.value.length / pageSize.value);
+  const total = Math.ceil(usageRecords.value.length / pageSize.value);
+  return total === 0 ? 1 : total;
 });
 
-// 获取使用数据
-const fetchUsageData = async () => {
-  loading.value = true;
-  try {
-    const response = await requestClient.get('/user/income');
-    
-    if (response && response.data && Array.isArray(response.data)) {
-      usageRecords.value = response.data;
-    } else if (Array.isArray(response)) {
-      usageRecords.value = response;
-    } else {
-      usageRecords.value = [];
-    }
-  } catch (error) {
-    console.error('获取使用数据失败:', error);
-    usageRecords.value = [];
-  } finally {
-    loading.value = false;
+const totalItems = computed(() => usageRecords.value.length);
+
+const rangeStart = computed(() => {
+  if (totalItems.value === 0) {
+    return 0;
   }
-};
+  return (currentPage.value - 1) * pageSize.value + 1;
+});
+
+const rangeEnd = computed(() => {
+  if (totalItems.value === 0) {
+    return 0;
+  }
+  return Math.min(currentPage.value * pageSize.value, totalItems.value);
+});
 
 // 格式化时间
 const formatTime = (timestamp: string) => {
@@ -81,9 +81,17 @@ const goToPage = (page: number) => {
   }
 };
 
-onMounted(() => {
-  fetchUsageData();
-});
+watch(
+  () => usageRecords.value.length,
+  () => {
+    if (currentPage.value > totalPages.value) {
+      currentPage.value = totalPages.value;
+    }
+    if (usageRecords.value.length === 0) {
+      currentPage.value = 1;
+    }
+  },
+);
 </script>
 
 <template>
@@ -174,7 +182,7 @@ onMounted(() => {
     <!-- 分页信息 -->
     <div class="flex items-center justify-between">
       <div class="text-sm text-[var(--text-secondary)]">
-        显示第 {{ (currentPage - 1) * pageSize + 1 }} 到 {{ Math.min(currentPage * pageSize, usageRecords.length) }} 项，共 {{ usageRecords.length }} 项
+        显示第 {{ rangeStart }} 到 {{ rangeEnd }} 项，共 {{ totalItems }} 项
         <span class="ml-2 text-[var(--text-tertiary)]">
           (收益计算：(输入tokens × IPPM + 输出tokens × OPPM) / 1,000,000)
         </span>

@@ -275,45 +275,77 @@ const formatDateTime = (dateTimeStr: string): string => {
 
 
 
+// 兼容不同数据结构的工具函数
+const normalizeTokenUsageResponse = (payload: unknown): TokenUsageRecord[] => {
+  if (!payload) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload as TokenUsageRecord[];
+  }
+
+  if (typeof payload === 'object') {
+    const body = payload as Record<string, unknown>;
+
+    if (Array.isArray(body.data)) {
+      return body.data as TokenUsageRecord[];
+    }
+
+    if (
+      body.data &&
+      typeof body.data === 'object' &&
+      Array.isArray((body.data as Record<string, unknown>).data)
+    ) {
+      return (body.data as Record<string, unknown>).data as TokenUsageRecord[];
+    }
+
+    if (Array.isArray(body.records)) {
+      return body.records as TokenUsageRecord[];
+    }
+
+    if (Array.isArray(body.items)) {
+      return body.items as TokenUsageRecord[];
+    }
+  }
+
+  return [];
+};
+
+const resetTokenUsageStats = () => {
+  Object.assign(tokenUsage, {
+    todayUsage: 0,
+    monthlyUsage: 0,
+    totalUsage: 0,
+    averageDailyUsage: 0,
+  });
+  modelStats.value = [];
+};
+
 // 获取 Token 使用情况
 const fetchTokenUsage = async () => {
   loading.value = true;
   try {
-    // 使用实际的API端点
     const response = await requestClient.get('/user/token-usage');
     console.log('Token使用情况API响应:', response);
-    
-    // 根据实际返回的数据结构处理数据
-    let records: TokenUsageRecord[] = [];
-    
-    if (response && response.data && Array.isArray(response.data)) {
-      // 直接使用返回的数据结构
-      records = response.data;
-    } else if (Array.isArray(response)) {
-      // 如果直接返回数组
-      records = response;
-    } else {
-      console.warn('Token使用数据格式不正确:', response);
-      throw new Error('数据格式错误');
+
+    const records = normalizeTokenUsageResponse(response);
+
+    if (records.length === 0) {
+      console.warn('Token使用数据为空');
+      resetTokenUsageStats();
+      message.info('您还没开始使用Token，请先进行调用');
+      return;
     }
-    
+
     console.log('处理的Token记录数量:', records.length);
-    
-    // 计算统计数据
+
     calculateStatistics(records);
-    
-    // 处理模型统计数据
     processModelStats(records);
-    
   } catch (error) {
     console.error('获取Token使用情况失败:', error);
     message.error('获取Token使用情况失败，请稍后重试');
-    
-    // 开发环境模拟数据
-    if (import.meta.env.DEV) {
-      console.log('加载模拟数据');
-      loadMockData();
-    }
+    resetTokenUsageStats();
   } finally {
     loading.value = false;
   }
@@ -428,54 +460,6 @@ const processModelStats = (records: TokenUsageRecord[]) => {
   console.log('模型统计数据:', statsWithPercentage);
   
   modelStats.value = statsWithPercentage;
-};
-
-// 开发环境模拟数据
-const loadMockData = () => {
-  // 生成更多模拟数据，覆盖不同日期和模型
-  const mockRecords: TokenUsageRecord[] = [];
-  const models = ['qwen3:0.6b', 'gpt-3.5-turbo', 'claude-3-haiku', 'gemini-pro', 'llama2:7b'];
-  
-  // 生成过去30天的模拟数据
-  for (let i = 0; i < 30; i++) {
-    const date = new Date();
-    date.setDate(date.getDate() - i);
-    
-    // 每天生成2-5条记录，使用不同模型
-    const recordsPerDay = Math.floor(Math.random() * 4) + 2;
-    
-    for (let j = 0; j < recordsPerDay; j++) {
-      const timestamp = new Date(date);
-      timestamp.setHours(Math.floor(Math.random() * 24));
-      timestamp.setMinutes(Math.floor(Math.random() * 60));
-      
-      const inputTokens = Math.floor(Math.random() * 300) + 50;
-      const outputTokens = Math.floor(Math.random() * 400) + 100;
-      const model = models[Math.floor(Math.random() * models.length)];
-      
-      mockRecords.push({
-        ID: i * 10 + j + 1,
-        RequestID: `mock-${i}-${j}-${Date.now()}`,
-        UserID: "2",
-        APIKey: "key-1750211178363226700",
-        ClientID: "",
-        ClientIP: "::1",
-        Model: model,
-        InputTokens: inputTokens,
-        OutputTokens: outputTokens,
-        TotalTokens: inputTokens + outputTokens,
-        Timestamp: timestamp.toISOString()
-      });
-    }
-  }
-  
-  console.log('生成的模拟数据:', mockRecords.length, '条记录');
-  
-  // 计算统计数据
-  calculateStatistics(mockRecords);
-  
-  // 处理模型统计数据
-  processModelStats(mockRecords);
 };
 
 // 导出刷新方法
