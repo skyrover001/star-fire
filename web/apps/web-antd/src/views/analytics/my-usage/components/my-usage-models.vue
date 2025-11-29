@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { ref, onMounted, computed } from 'vue';
-import { requestClient } from '#/api/request';
+import { ref, computed, inject } from 'vue';
+import type { Ref } from 'vue';
 
 interface TokenUsageRecord {
   ID: number;
@@ -30,8 +30,12 @@ interface ModelUsageSummary {
   totalConsumption: number; // 总消费金额
 }
 
-const usageRecords = ref<TokenUsageRecord[]>([]);
-const loading = ref(false);
+const usageRecords = inject<Ref<TokenUsageRecord[]>>(
+  'usageRecords',
+  ref<TokenUsageRecord[]>([]),
+);
+
+const loading = inject<Ref<boolean>>('usageLoading', ref(false));
 
 // 计算单次调用收益（输入tokens数 * IPPM + 输出tokens数 * OPPM）
 const calculateSingleCallConsumption = (record: TokenUsageRecord) => {
@@ -90,114 +94,12 @@ const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
   }).sort((a, b) => b.totalCalls - a.totalCalls); // 按调用次数排序
 });
 
-const fetchUsageData = async () => {
-  loading.value = true;
-  try {
-    console.log('正在获取Token使用数据...');
-    const response = await requestClient.get('/user/income');
-    
-    if (response && response.data && Array.isArray(response.data)) {
-      usageRecords.value = response.data;
-      console.log('获取到Token使用记录:', usageRecords.value.length, '条');
-    } else if (Array.isArray(response)) {
-      usageRecords.value = response;
-      console.log('获取到Token使用记录:', usageRecords.value.length, '条');
-    } else {
-      console.warn('Token使用数据格式不正确:', response);
-      throw new Error('数据格式错误');
-    }
-  } catch (error) {
-    console.error('获取使用数据失败:', error);
-    // 使用模拟数据
-    loadMockData();
-  } finally {
-    loading.value = false;
-  }
-};
-
-const loadMockData = () => {
-  // 使用提供的真实数据格式作为模拟数据
-  usageRecords.value = [
-    // {
-    //   ID: 24,
-    //   RequestID: "c8664981-1bc9-47b9-976b-d0d405284a7e",
-    //   UserID: "2",
-    //   APIKey: "key-1750211178363226700",
-    //   ClientID: "",
-    //   ClientIP: "::1",
-    //   Model: "qwen3:0.6b",
-    //   InputTokens: 256,
-    //   OutputTokens: 213,
-    //   TotalTokens: 469,
-    //   Timestamp: "2025-06-18T18:25:31.1905443+08:00"
-    // },
-    // {
-    //   ID: 23,
-    //   RequestID: "ad5eee14-bed4-40a6-b2a5-bab188f94117",
-    //   UserID: "2",
-    //   APIKey: "key-1750211178363226700",
-    //   ClientID: "",
-    //   ClientIP: "::1",
-    //   Model: "qwen3:0.6b",
-    //   InputTokens: 136,
-    //   OutputTokens: 298,
-    //   TotalTokens: 434,
-    //   Timestamp: "2025-06-18T17:21:19.0153747+08:00"
-    // },
-    // {
-    //   ID: 22,
-    //   RequestID: "ae5d358e-d586-4852-9a6c-e820fc771210",
-    //   UserID: "2",
-    //   APIKey: "key-1750211178363226700",
-    //   ClientID: "",
-    //   ClientIP: "::1",
-    //   Model: "qwen3:0.6b",
-    //   InputTokens: 14,
-    //   OutputTokens: 315,
-    //   TotalTokens: 329,
-    //   Timestamp: "2025-06-18T17:20:49.2163893+08:00"
-    // },
-    // // 添加更多模型的数据
-    // {
-    //   ID: 25,
-    //   RequestID: "test-llama-request",
-    //   UserID: "2",
-    //   APIKey: "key-1750211178363226700",
-    //   ClientID: "",
-    //   ClientIP: "::1",
-    //   Model: "llama2:7b",
-    //   InputTokens: 180,
-    //   OutputTokens: 250,
-    //   TotalTokens: 430,
-    //   Timestamp: "2025-06-19T10:15:30.0000000+08:00"
-    // },
-    // {
-    //   ID: 26,
-    //   RequestID: "test-deepseek-request",
-    //   UserID: "2",
-    //   APIKey: "key-1750211178363226700",
-    //   ClientID: "",
-    //   ClientIP: "::1",
-    //   Model: "deepseek-coder:6.7b",
-    //   InputTokens: 120,
-    //   OutputTokens: 180,
-    //   TotalTokens: 300,
-    //   Timestamp: "2025-06-19T09:30:15.0000000+08:00"
-    // }
-  ];
-  console.log('加载模拟数据完成');
-};
-
 const formatTokens = (tokens: number) => {
   if (tokens >= 1000) {
     return `${(tokens / 1000).toFixed(1)}K`;
   }
   return tokens.toString();
 };
-
-onMounted(() => {
-  fetchUsageData();
-});
 </script>
 
 <template>

@@ -1,131 +1,190 @@
 <template>
-  <div class="p-5">
-    <!-- 总计收益 - 突出显示的主卡片 -->
-    <div class="mb-6">
-      <div class="relative rounded-2xl bg-gradient-to-br from-green-500 via-emerald-500 to-teal-600 border-2 border-green-300 shadow-2xl p-8 overflow-hidden">
-        <!-- 背景装饰 -->
-        <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
-        <div class="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-12 -translate-x-12"></div>
-        
-        <!-- 主要内容 -->
-        <div class="relative z-10">
-          <div class="flex items-center justify-between mb-6">
-            <div class="flex items-center">
-              <div class="flex items-center justify-center h-20 w-20 rounded-2xl bg-white/20 backdrop-blur-sm border border-white/30 mr-6">
-                <SvgCakeIcon class="h-10 w-10 text-white" />
-              </div>
-              <div>
-                <h2 class="text-2xl font-bold text-white mb-2">💰 总计收益</h2>
-                <p class="text-white/80 text-lg">累计收入总额</p>
-              </div>
-            </div>
-            <div class="text-right">
-              <p class="text-6xl font-black text-white drop-shadow-lg mb-2">
-                <span v-if="loading" class="inline-block animate-pulse bg-white/20 rounded-lg h-16 w-48"></span>
-                <span v-else>¥{{ timeStatsData.total.income.toFixed(4) }}</span>
-              </p>              <div class="flex space-x-6 text-white/90 mb-4">
-                <div class="text-center">
-                  <p class="text-sm font-medium">调用次数</p>
-                  <p class="text-xl font-bold">{{ timeStatsData.total.calls.toLocaleString() }}</p>
+  <div class="p-5 space-y-5">
+    <!-- 收益概览网格 -->
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-5">
+      <!-- 总计收益主卡片 -->
+      <div class="lg:col-span-2 flex">
+        <div class="relative rounded-2xl bg-gradient-to-br from-green-500 via-emerald-500 to-teal-600 border-2 border-green-300 shadow-2xl p-4 overflow-hidden flex-1">
+          <div class="absolute top-0 right-0 w-32 h-32 bg-white/10 rounded-full -translate-y-16 translate-x-16"></div>
+          <div class="absolute bottom-0 left-0 w-24 h-24 bg-white/5 rounded-full translate-y-12 -translate-x-12"></div>
+          
+          <div class="relative z-10">
+            <!-- 顶部标题和金额 -->
+            <div class="flex items-center justify-between mb-3">
+              <div class="flex items-center gap-2.5">
+                <div class="flex items-center justify-center h-10 w-10 rounded-xl bg-white/20 backdrop-blur-sm border border-white/30">
+                  <SvgCakeIcon class="h-5 w-5 text-white" />
                 </div>
-                <div class="text-center">
-                  <p class="text-sm font-medium">总Token</p>
-                  <p class="text-xl font-bold">{{ timeStatsData.total.totalTokens.toLocaleString() }}</p>
-                </div>
-                <div class="text-center">
-                  <p class="text-sm font-medium">模型数</p>
-                  <p class="text-xl font-bold">{{ timeStatsData.total.models }}</p>
+                <div>
+                  <h2 class="text-base font-bold text-white leading-tight">💰 总计收益</h2>
+                  <p class="text-white/60 text-xs leading-tight">累计收入总额</p>
                 </div>
               </div>
-              <!-- 详单按钮 -->
-              <div class="flex justify-end">
-                <button 
-                  @click="showDetailTable = !showDetailTable"
-                  class="px-4 py-2 bg-white/20 hover:bg-white/30 rounded-lg border border-white/30 text-white text-sm font-medium transition-all duration-200 backdrop-blur-sm flex items-center space-x-2"
-                >
-                  <SvgCardIcon class="h-4 w-4" />
-                  <span>{{ showDetailTable ? '隐藏详单' : '查看详单' }}</span>
-                </button>
+              <div class="text-right">
+                <p class="text-3xl font-black text-white drop-shadow-lg">
+                  <span v-if="loading" class="inline-block animate-pulse bg-white/20 rounded-lg h-9 w-32"></span>
+                  <span v-else>¥{{ timeStatsData.total.income.toFixed(4) }}</span>
+                </p>
               </div>
             </div>
-          </div>
-        </div>
-      </div>    </div>
-
-    <!-- 其他统计卡片 -->
-    <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-
-      <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
-        <div class="flex items-center">
-          <div class="flex-shrink-0">
-            <div class="flex items-center justify-center h-12 w-12 rounded-lg bg-purple-100 dark:bg-purple-900/20">
-              <SvgDownloadIcon class="h-6 w-6 text-purple-600 dark:text-purple-400" />
+            
+            <!-- 收益指标 -->
+            <div class="mb-3">
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">💵 收益指标</div>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">总收益</p>
+                  <p class="text-sm font-bold text-white">¥{{ timeStatsData.total.income.toFixed(4) }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">平均单次</p>
+                  <p class="text-sm font-bold text-white">¥{{ averageIncomePerCall.toFixed(6) }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">最高单次</p>
+                  <p class="text-sm font-bold text-white">¥{{ maxIncomePerCall.toFixed(6) }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">最低单次</p>
+                  <p class="text-sm font-bold text-white">¥{{ minIncomePerCall.toFixed(6) }}</p>
+                </div>
+              </div>
             </div>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">平均单次收益</p>
-            <p class="text-2xl font-semibold text-[var(--text-primary)]">
-              <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
-              <span v-else class="text-green-600">¥{{ averageIncomePerCall.toFixed(6) }}</span>
-            </p>
-            <p class="text-xs text-[var(--text-tertiary)]">单次平均</p>
+            
+            <!-- 调用统计 -->
+            <div class="mb-3">
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">📞 调用统计</div>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">总调用次数</p>
+                  <p class="text-sm font-bold text-white">{{ timeStatsData.total.calls.toLocaleString() }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">成功率</p>
+                  <p class="text-sm font-bold text-white">{{ successRate.toFixed(1) }}%</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">活跃客户端</p>
+                  <p class="text-sm font-bold text-white">{{ uniqueClientsCount }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">活跃用户数</p>
+                  <p class="text-sm font-bold text-white">{{ uniqueUsersCount }}</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- Token统计 -->
+            <div class="mb-3">
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">🎯 Token统计</div>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">总Token</p>
+                  <p class="text-sm font-bold text-white">{{ timeStatsData.total.totalTokens.toLocaleString() }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">输入Token</p>
+                  <p class="text-sm font-bold text-white">{{ timeStatsData.total.inputTokens.toLocaleString() }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">输出Token</p>
+                  <p class="text-sm font-bold text-white">{{ timeStatsData.total.outputTokens.toLocaleString() }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">平均Token</p>
+                  <p class="text-sm font-bold text-white">{{ averageTokensPerCall.toLocaleString() }}</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 模型统计 -->
+            <div class="mb-3">
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">🤖 模型统计</div>
+              <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">活跃模型数</p>
+                  <p class="text-sm font-bold text-white">{{ timeStatsData.total.models }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">最热模型</p>
+                  <p class="text-sm font-bold text-white truncate" :title="topModel">{{ topModel }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">最赚钱模型</p>
+                  <p class="text-sm font-bold text-white truncate" :title="topIncomeModel">{{ topIncomeModel }}</p>
+                </div>
+                <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
+                  <p class="text-xs font-medium text-white/70 mb-0.5">平均模型价格</p>
+                  <p class="text-sm font-bold text-white">¥{{ averageModelPrice.toFixed(6) }}</p>
+                </div>
+              </div>
+            </div>
+            
+            <!-- 底部按钮 -->
+            <div class="flex justify-end">
+              <button 
+                @click="showDetailTable = !showDetailTable"
+                class="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg border border-white/30 text-white text-sm font-medium transition-all duration-200 backdrop-blur-sm flex items-center gap-2"
+              >
+                <SvgCardIcon class="h-4 w-4" />
+                <span>{{ showDetailTable ? '隐藏详单' : '查看详单' }}</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
 
-      <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
-        <div class="flex items-center">
-          <div class="flex-shrink-0">
-            <div class="flex items-center justify-center h-12 w-12 rounded-lg bg-orange-100 dark:bg-orange-900/20">
-              <SvgBellIcon class="h-6 w-6 text-orange-600 dark:text-orange-400" />
-            </div>
+      <!-- 时段收益卡片 -->
+      <div class="flex flex-col gap-2.5">
+        <!-- 今日收益 -->
+        <div class="rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/20 border border-blue-200 dark:border-blue-800 p-2.5 shadow-md flex-1">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">今日收益</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full bg-blue-200 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">Today</span>
           </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">最高单次收益</p>
-            <p class="text-2xl font-semibold text-[var(--text-primary)]">
-              <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
-              <span v-else class="text-green-600">¥{{ maxIncomePerCall.toFixed(6) }}</span>
-            </p>
-            <p class="text-xs text-[var(--text-tertiary)]">单次最高</p>
+          <p class="text-xl font-bold text-blue-900 dark:text-blue-100 mb-1.5">
+            <span v-if="loading" class="inline-block animate-pulse bg-blue-200 dark:bg-blue-800 rounded h-7 w-24"></span>
+            <span v-else>¥{{ timeStatsData.today.income.toFixed(4) }}</span>
+          </p>
+          <div class="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300">
+            <span>{{ timeStatsData.today.calls }} 次调用</span>
+            <span>{{ timeStatsData.today.totalTokens.toLocaleString() }} tokens</span>
+          </div>
+        </div>
+
+        <!-- 本周收益 -->
+        <div class="rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/20 border border-purple-200 dark:border-purple-800 p-2.5 shadow-md flex-1">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wide">近7日收益</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full bg-purple-200 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">7 Days</span>
+          </div>
+          <p class="text-xl font-bold text-purple-900 dark:text-purple-100 mb-1.5">
+            <span v-if="loading" class="inline-block animate-pulse bg-purple-200 dark:bg-purple-800 rounded h-7 w-24"></span>
+            <span v-else>¥{{ timeStatsData.week.income.toFixed(4) }}</span>
+          </p>
+          <div class="flex items-center justify-between text-xs text-purple-700 dark:text-purple-300">
+            <span>{{ timeStatsData.week.calls }} 次调用</span>
+            <span>{{ timeStatsData.week.totalTokens.toLocaleString() }} tokens</span>
+          </div>
+        </div>
+
+        <!-- 本月收益 -->
+        <div class="rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950/30 dark:to-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-2.5 shadow-md flex-1">
+          <div class="flex items-center justify-between mb-1.5">
+            <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">本月收益</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-200 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">This Month</span>
+          </div>
+          <p class="text-xl font-bold text-emerald-900 dark:text-emerald-100 mb-1.5">
+            <span v-if="loading" class="inline-block animate-pulse bg-emerald-200 dark:bg-emerald-800 rounded h-7 w-24"></span>
+            <span v-else>¥{{ timeStatsData.month.income.toFixed(4) }}</span>
+          </p>
+          <div class="flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
+            <span>{{ timeStatsData.month.calls }} 次调用</span>
+            <span>{{ timeStatsData.month.totalTokens.toLocaleString() }} tokens</span>
           </div>
         </div>
       </div>
-
-      <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
-        <div class="flex items-center">
-          <div class="flex-shrink-0">
-            <div class="flex items-center justify-center h-12 w-12 rounded-lg bg-indigo-100 dark:bg-indigo-900/20">
-              <SvgDownloadIcon class="h-6 w-6 text-indigo-600 dark:text-indigo-400" />
-            </div>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">活跃模型数</p>
-            <p class="text-2xl font-semibold text-[var(--text-primary)]">
-              <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-12"></span>
-              <span v-else>{{ timeStatsData.total.models }}</span>
-            </p>
-            <p class="text-xs text-[var(--text-tertiary)]">使用中</p>
-          </div>
-        </div>
-      </div>
-
-      <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
-        <div class="flex items-center">
-          <div class="flex-shrink-0">
-            <div class="flex items-center justify-center h-12 w-12 rounded-lg bg-pink-100 dark:bg-pink-900/20">
-              <SvgCardIcon class="h-6 w-6 text-pink-600 dark:text-pink-400" />
-            </div>
-          </div>
-          <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">成功率</p>
-            <p class="text-2xl font-semibold text-[var(--text-primary)]">
-              <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-12"></span>
-              <span v-else class="text-green-600">{{ successRate.toFixed(1) }}%</span>
-            </p>
-            <p class="text-xs text-[var(--text-tertiary)]">调用成功</p>
-          </div>
-        </div>
-      </div>    </div>
+    </div>
 
     <!-- 收益详单表格 -->
     <div v-if="showDetailTable" class="mt-5">
@@ -421,10 +480,8 @@ import {
   AnalysisChartCard,
 } from '@vben/common-ui'
 import {
-  SvgBellIcon,
   SvgCakeIcon,
   SvgCardIcon,
-  SvgDownloadIcon,
 } from '@vben/icons'
 
 interface IncomeRecord {
@@ -541,6 +598,42 @@ const averageIncomePerCall = computed(() => {
 const maxIncomePerCall = computed(() => {
   if (incomeData.value.length === 0) return 0
   return Math.max(...incomeData.value.map(record => calculateSingleCallIncome(record)))
+})
+
+const minIncomePerCall = computed(() => {
+  if (incomeData.value.length === 0) return 0
+  return Math.min(...incomeData.value.map(record => calculateSingleCallIncome(record)))
+})
+
+const averageTokensPerCall = computed(() => {
+  if (timeStatsData.value.total.calls === 0) return 0
+  return Math.round(timeStatsData.value.total.totalTokens / timeStatsData.value.total.calls)
+})
+
+const uniqueClientsCount = computed(() => {
+  return new Set(incomeData.value.map(r => r.ClientID)).size
+})
+
+const uniqueUsersCount = computed(() => {
+  return new Set(incomeData.value.map(r => r.UserID)).size
+})
+
+const topModel = computed(() => {
+  if (modelStats.value.length === 0) return '-'
+  const sorted = [...modelStats.value].sort((a: any, b: any) => b.calls - a.calls)
+  return sorted[0]?.name || '-'
+})
+
+const topIncomeModel = computed(() => {
+  if (modelStats.value.length === 0) return '-'
+  return modelStats.value[0]?.name || '-'
+})
+
+const averageModelPrice = computed(() => {
+  if (incomeData.value.length === 0) return 0
+  const totalIPPM = incomeData.value.reduce((sum, r) => sum + r.IPPM, 0)
+  const totalOPPM = incomeData.value.reduce((sum, r) => sum + r.OPPM, 0)
+  return (totalIPPM + totalOPPM) / (incomeData.value.length * 2000000)
 })
 
 const successRate = computed(() => {

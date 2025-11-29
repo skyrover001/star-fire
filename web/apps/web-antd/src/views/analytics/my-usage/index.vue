@@ -42,8 +42,45 @@ interface TokenUsageRecord {
 const loading = ref(false);
 const usageRecords = ref<TokenUsageRecord[]>([]);
 
-// 向子组件提供使用记录数据
 provide('usageRecords', usageRecords);
+provide('usageLoading', loading);
+
+const normalizeUsageRecords = (payload: unknown): TokenUsageRecord[] => {
+  if (!payload) {
+    return [];
+  }
+
+  if (Array.isArray(payload)) {
+    return payload as TokenUsageRecord[];
+  }
+
+  if (typeof payload === 'object') {
+    const body = payload as Record<string, unknown>;
+
+    if (Array.isArray(body.data)) {
+      return body.data as TokenUsageRecord[];
+    }
+
+    if (
+      body.data &&
+      typeof body.data === 'object' &&
+      Array.isArray((body.data as Record<string, unknown>).data)
+    ) {
+      return (body.data as Record<string, unknown>).data as TokenUsageRecord[];
+    }
+
+    if (Array.isArray(body.records)) {
+      return body.records as TokenUsageRecord[];
+    }
+
+    if (Array.isArray(body.items)) {
+      return body.items as TokenUsageRecord[];
+    }
+  }
+
+  return [];
+};
+
 
 // 计算单次调用消费（收益）
 const calculateSingleCallConsumption = (record: TokenUsageRecord) => {
@@ -195,21 +232,18 @@ const fetchUsageData = async () => {
   loading.value = true;
   try {
     console.log('正在获取Token使用数据...');
-    const response = await requestClient.get('/user/income');
+    const response = await requestClient.get('/user/token-usage');
     console.log('API响应:', response);
-    
-    if (response && response.data && Array.isArray(response.data)) {
-      usageRecords.value = response.data;
-      console.log('获取到Token使用记录:', usageRecords.value.length, '条');
-      console.log('样本数据:', usageRecords.value.slice(0, 2));
-    } else if (Array.isArray(response)) {
-      usageRecords.value = response;
-      console.log('获取到Token使用记录(直接数组):', usageRecords.value.length, '条');
-      console.log('样本数据:', usageRecords.value.slice(0, 2));
-    } else {
-      console.warn('Token使用数据格式不正确:', response);
-      usageRecords.value = [];
+
+    const records = normalizeUsageRecords(response);
+
+    if (records.length === 0) {
+      console.warn('Token使用数据为空或格式不正确:', response);
     }
+
+    usageRecords.value = records;
+    console.log('获取到Token使用记录:', usageRecords.value.length, '条');
+    console.log('样本数据:', usageRecords.value.slice(0, 2));
   } catch (error) {
     console.error('获取使用数据失败:', error);
     usageRecords.value = [];
