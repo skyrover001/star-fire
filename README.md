@@ -77,7 +77,9 @@ make install 进行编译安装，完成后，可在build目录下找到server�
 
    (2) 在模型广场页面点击注册到Star Fire 获取注册token
 
-   (3) 注册客户端（windows）： starfire.exe -host (host) -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0}
+   (3) 注册客户端（windows）： 
+
+       starfire.exe -host (host) -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0}
 
        注册客户端（macos）： starfire -host {host} -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0} 
 
