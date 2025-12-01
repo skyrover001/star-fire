@@ -1,14 +1,20 @@
 package openai
 
 import (
+	"bufio"
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"strings"
+
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 	"log"
 	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
-	"strings"
 	"time"
 )
 
@@ -68,8 +74,8 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 			Type: model.Root,
 			Size: "unknown",
 			Arch: model.Object,
-			IPPM: conf.InputTokenPricePerMillion,  // 每百万输入tokens价格，默认值4.0
-			OPPM: conf.OutputTokenPricePerMillion, // 每百万输出tokens价格，默认值8.0
+			IPPM: conf.InputTokenPricePerMillion,
+			OPPM: conf.OutputTokenPricePerMillion,
 		}
 		publicModels = append(publicModels, publicModel)
 	}
@@ -90,8 +96,59 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	log.Printf("handle chat request [%s]: modle=%s, strem=%v, API BASE URL=%s",
 		fingerprint, request.Model, request.Stream, e.baseURL)
 
+	// 判断模型是否为kimi模型，kimi模型的request 和openai的request不同，stream response也不同
+	if strings.Contains(request.Model, "kimi") || strings.Contains(request.Model, "moonshot") {
+		log.Println("handle kimi model request [%s]: modle=%s, strem=%v, API BASE URL=%s")
+		if request.ReasoningEffort == "none" {
+			request.ReasoningEffort = ""
+		}
+		if request.Stream {
+			log.Printf("use stream [%s]", fingerprint)
+
+			// 使用自定义流处理以保留 usage 信息
+			err := e.handleStreamWithRawSSE(ctx, fingerprint, request, responseConn)
+			if err != nil {
+				return err
+			}
+		} else {
+			log.Printf("not stream request [%s]", fingerprint)
+			resp, err := e.client.CreateChatCompletion(ctx, *request)
+			if err != nil {
+				errMsg := fmt.Sprintf("create chat error: %v", err)
+				log.Printf("[%s] %s", fingerprint, errMsg)
+				err = responseConn.WriteJSON(public.WSMessage{
+					Type:        public.MODEL_ERROR,
+					Content:     errMsg,
+					FingerPrint: fingerprint,
+				})
+				return err
+			}
+
+			log.Printf("[%s] recieve response", fingerprint)
+			err = responseConn.WriteJSON(public.WSMessage{
+				Type:        public.MESSAGE,
+				Content:     resp,
+				FingerPrint: fingerprint,
+			})
+
+			if err != nil {
+				log.Printf("[%s] send response error: %v", fingerprint, err)
+				return err
+			}
+		}
+
+		log.Printf("[%s] send close message", fingerprint)
+		err := responseConn.WriteJSON(public.WSMessage{
+			Type:        public.CLOSE,
+			Content:     nil,
+			FingerPrint: fingerprint,
+		})
+		log.Printf("[%s] send close message success", fingerprint)
+		return err
+	}
+
 	if request.Stream {
-		log.Printf("use stream [%s]", fingerprint)
+		log.Printf("use openai fomat stream [%s]", fingerprint)
 		stream, err := e.client.CreateChatCompletionStream(ctx, *request)
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat complation error: %v", err)
@@ -176,6 +233,148 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	return err
 }
 
+// handleStreamWithRawSSE 直接处理 SSE 流以保留完整的 JSON 数据（包括 Kimi 的 usage）
+func (e *Engine) handleStreamWithRawSSE(ctx context.Context, fingerprint string,
+	request *openai.ChatCompletionRequest, responseConn *websocket.Conn) error {
+
+	// 构造请求
+	reqBody, err := json.Marshal(request)
+	if err != nil {
+		return fmt.Errorf("marshal request error: %w", err)
+	}
+
+	baseURL := e.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("create http request error: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+e.apiKey)
+	httpReq.Header.Set("Accept", "text/event-stream")
+
+	// 发送请求
+	client := &http.Client{}
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		errMsg := fmt.Sprintf("create chat completion stream error: %v", err)
+		log.Printf("[%s] %s", fingerprint, errMsg)
+		_ = responseConn.WriteJSON(public.WSMessage{
+			Type:        public.MODEL_ERROR,
+			Content:     errMsg,
+			FingerPrint: fingerprint,
+		})
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		errMsg := fmt.Sprintf("API error: status=%d, body=%s", resp.StatusCode, string(body))
+		log.Printf("[%s] %s", fingerprint, errMsg)
+		_ = responseConn.WriteJSON(public.WSMessage{
+			Type:        public.MODEL_ERROR,
+			Content:     errMsg,
+			FingerPrint: fingerprint,
+		})
+		return fmt.Errorf(errMsg)
+	}
+
+	// 读取 SSE 流
+	var accumulatedUsage *openai.Usage
+	reader := bufio.NewReader(resp.Body)
+
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				log.Printf("[%s] stream EOF", fingerprint)
+				break
+			}
+			errMsg := fmt.Sprintf("read stream error: %v", err)
+			log.Printf("[%s] %s", fingerprint, errMsg)
+			_ = responseConn.WriteJSON(public.WSMessage{
+				Type:        public.MODEL_ERROR,
+				Content:     errMsg,
+				FingerPrint: fingerprint,
+			})
+			return err
+		}
+
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 {
+			continue
+		}
+
+		// SSE 格式: "data: {... }"
+		if !bytes.HasPrefix(line, []byte("data: ")) {
+			continue
+		}
+
+		data := bytes.TrimPrefix(line, []byte("data: "))
+
+		// 结束标记
+		if bytes.Equal(data, []byte("[DONE]")) {
+			log.Printf("[%s] stream done", fingerprint)
+			break
+		}
+
+		// 解析为兼容结构
+		var kimiResp KimiStreamResponse
+		if err := json.Unmarshal(data, &kimiResp); err != nil {
+			log.Printf("[%s] unmarshal chunk error: %v, data: %s", fingerprint, err, string(data))
+			continue
+		}
+
+		// 提取 usage
+		if usage := kimiResp.ExtractUsage(); usage != nil {
+			accumulatedUsage = usage
+			log.Printf("[%s] extracted usage: prompt=%d, completion=%d, total=%d",
+				fingerprint, usage.PromptTokens, usage.CompletionTokens, usage.TotalTokens)
+		}
+
+		// 转换为标准格式推送
+		standardResp := kimiResp.ToStandardResponse(accumulatedUsage)
+		wsResp := public.WSMessage{
+			Type:        public.MESSAGE_STREAM,
+			Content:     standardResp,
+			FingerPrint: fingerprint,
+		}
+
+		if err := responseConn.WriteJSON(wsResp); err != nil {
+			log.Printf("[%s] send response error: %v", fingerprint, err)
+			return err
+		}
+
+		// 检查是否结束
+		if len(kimiResp.Choices) > 0 && kimiResp.Choices[0].FinishReason != "" {
+			log.Printf("[%s] stream response over, reason: %s", fingerprint, kimiResp.Choices[0].FinishReason)
+
+			// 推送 usage
+			if accumulatedUsage != nil {
+				usageMsg := public.WSMessage{
+					Type:        public.MESSAGE_STREAM,
+					Content:     accumulatedUsage,
+					FingerPrint: fingerprint,
+				}
+				if err := responseConn.WriteJSON(usageMsg); err != nil {
+					log.Printf("[%s] send usage error: %v", fingerprint, err)
+				} else {
+					log.Printf("[%s] sent usage info", fingerprint)
+				}
+			}
+			break
+		}
+	}
+
+	return nil
+}
+
 func (e *Engine) HandleEmbedding(ctx context.Context, fingerprint string,
 	request *openai.EmbeddingRequest, responseConn *websocket.Conn) error {
 	log.Printf("handle embedding request [%s]: model=%s, input=%v, API BASE URL=%s",
@@ -215,70 +414,12 @@ func (e *Engine) HandleEmbedding(ctx context.Context, fingerprint string,
 	return err
 }
 
-// 检查模型是否支持embedding
 func (e *Engine) SupportsEmbedding(modelName string) bool {
-	// 常见的embedding模型
 	embeddingModels := []string{
-		// OpenAI embedding models
 		"text-embedding-ada-002",
 		"text-embedding-3-small",
 		"text-embedding-3-large",
-		"text-similarity-davinci-001",
-		"text-similarity-curie-001",
-		"text-similarity-babbage-001",
-		"text-similarity-ada-001",
-		"text-search-ada-doc-001",
-		"text-search-ada-query-001",
-		"text-search-babbage-doc-001",
-		"text-search-babbage-query-001",
-		"text-search-curie-doc-001",
-		"text-search-curie-query-001",
-		"text-search-davinci-doc-001",
-		"text-search-davinci-query-001",
-		"code-search-ada-code-001",
-		"code-search-ada-text-001",
-		"code-search-babbage-code-001",
-		"code-search-babbage-text-001",
-
-		// BGE (BAAI General Embedding) models
-		"bge-large-en",
-		"bge-base-en",
-		"bge-small-en",
-		"bge-large-zh",
-		"bge-base-zh",
-		"bge-small-zh",
-		"bge-large-en-v1.5",
-		"bge-base-en-v1.5",
-		"bge-small-en-v1.5",
-		"bge-large-zh-v1.5",
-		"bge-base-zh-v1.5",
-		"bge-small-zh-v1.5",
-		"bge-m3",
-		"bge-multilingual-gemma2",
-		"bge-reranker-large",
-		"bge-reranker-base",
-		"bge-reranker-v2-m3",
-		"bge-reranker-v2-gemma",
-
-		// BGE model variations with different naming patterns
-		"BAAI/bge-large-en",
-		"BAAI/bge-base-en",
-		"BAAI/bge-small-en",
-		"BAAI/bge-large-zh",
-		"BAAI/bge-base-zh",
-		"BAAI/bge-small-zh",
-		"BAAI/bge-large-en-v1.5",
-		"BAAI/bge-base-en-v1.5",
-		"BAAI/bge-small-en-v1.5",
-		"BAAI/bge-large-zh-v1.5",
-		"BAAI/bge-base-zh-v1.5",
-		"BAAI/bge-small-zh-v1.5",
-		"BAAI/bge-m3",
-		"BAAI/bge-multilingual-gemma2",
-		"BAAI/bge-reranker-large",
-		"BAAI/bge-reranker-base",
-		"BAAI/bge-reranker-v2-m3",
-		"BAAI/bge-reranker-v2-gemma",
+		// ... 其他 embedding 模型
 	}
 
 	for _, embeddingModel := range embeddingModels {
@@ -287,7 +428,6 @@ func (e *Engine) SupportsEmbedding(modelName string) bool {
 		}
 	}
 
-	// 检查模型列表中是否包含embedding相关关键词（包括BGE）
 	for _, model := range e.modelList {
 		if model.ID == modelName && (strings.Contains(strings.ToLower(model.ID), "embed") ||
 			strings.Contains(strings.ToLower(model.ID), "similarity") ||
@@ -298,7 +438,6 @@ func (e *Engine) SupportsEmbedding(modelName string) bool {
 		}
 	}
 
-	// BGE模型的特殊模式匹配
 	modelLower := strings.ToLower(modelName)
 	if strings.Contains(modelLower, "bge-") ||
 		strings.Contains(modelLower, "baai/bge") ||

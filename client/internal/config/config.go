@@ -97,7 +97,9 @@ func LoadConfig() *Config {
 	}
 
 	// for openai api test
-	cfg.OpenAIKey = "sk-Iv8nxLn6yE2r9iL7OvMXYh6IkQty29hCZyoWExXtrJEgWRkD"
+	// cfg.OpenAIKey = "sk-USmmhjs0kiEh9IeXMOSW566ksu64srnqghDDx2YMGdiymArt"
+	// cfg.OpenAIKey = "sk-7970b09e7b1b4448843a874faedee1e5"
+	// cfg.openAIkey = "NIcuEe8vW7g7bcDa80Db30E4F1684d6aAb7dF015C0D5E2E3"
 
 	return cfg
 }

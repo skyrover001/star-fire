@@ -161,7 +161,11 @@ class OllamaManager:
             'host': '115.190.26.60',
             'token': '',
             'ippm': '3.8',
-            'oppm': '8.3'
+            'oppm': '8.3',
+            'model_mode': 'ollama',  # ollama, vllm, proxy, llamacpp
+            'proxy_base_url': 'http://localhost:8000/v1',
+            'proxy_api_key': '',
+            'ollama_num_parallel': ''  # Ollama并发请求数
         }
         
         try:
@@ -207,6 +211,50 @@ class OllamaManager:
         }
         return names.get(category, '对话')
     
+    def on_mode_change(self):
+        """模型接入方式变更时的回调"""
+        mode = self.model_mode_var.get()
+        
+        # 显示/隐藏配置
+        if mode == 'proxy':
+            self.proxy_config_frame.pack(fill=tk.X, pady=(10, 0))
+            self.ollama_config_frame.pack_forget()
+            self.status_label.config(
+                text="✓ 代理模式 - 请配置 Base URL 和 API Key",
+                foreground="blue"
+            )
+            # 在代理模式下禁用Ollama相关按钮
+            self.refresh_btn.config(state=tk.DISABLED)
+            self.run_btn.config(state=tk.DISABLED)
+            self.stop_btn.config(state=tk.DISABLED)
+            self.log("已切换到代理模式", "blue")
+        elif mode == 'ollama':
+            self.proxy_config_frame.pack_forget()
+            self.ollama_config_frame.pack(fill=tk.X, pady=(10, 0))
+            self.refresh_btn.config(state=tk.NORMAL)
+            self.check_ollama()
+            self.log("已切换到 Ollama 模式", "blue")
+        elif mode == 'vllm':
+            self.proxy_config_frame.pack_forget()
+            self.ollama_config_frame.pack_forget()
+            self.status_label.config(
+                text="vLLM 模式开发中...",
+                foreground="orange"
+            )
+            self.refresh_btn.config(state=tk.DISABLED)
+            self.run_btn.config(state=tk.DISABLED)
+            self.stop_btn.config(state=tk.DISABLED)
+        elif mode == 'llamacpp':
+            self.proxy_config_frame.pack_forget()
+            self.ollama_config_frame.pack_forget()
+            self.status_label.config(
+                text="llama.cpp 模式开发中...",
+                foreground="orange"
+            )
+            self.refresh_btn.config(state=tk.DISABLED)
+            self.run_btn.config(state=tk.DISABLED)
+            self.stop_btn.config(state=tk.DISABLED)
+    
     def create_widgets(self):
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
         main_paned.pack(fill=tk.BOTH, expand=True, padx=5, pady=5)
@@ -221,12 +269,118 @@ class OllamaManager:
         top_frame = ttk.Frame(left_frame, padding="10")
         top_frame.pack(fill=tk.X)
         
+        # 模型接入方式选择
+        mode_frame = ttk.LabelFrame(top_frame, text="🔌 模型接入方式", padding="10")
+        mode_frame.pack(fill=tk.X, pady=(0, 10))
+        
+        self.model_mode_var = tk.StringVar(value=self.config.get('model_mode', 'ollama'))
+        
+        modes_container = ttk.Frame(mode_frame)
+        modes_container.pack(fill=tk.X)
+        
+        ttk.Radiobutton(
+            modes_container,
+            text="Ollama (本地)",
+            variable=self.model_mode_var,
+            value="ollama",
+            command=self.on_mode_change
+        ).pack(side=tk.LEFT, padx=10)
+        
+        ttk.Radiobutton(
+            modes_container,
+            text="vLLM (开发中)",
+            variable=self.model_mode_var,
+            value="vllm",
+            command=self.on_mode_change,
+            state=tk.DISABLED
+        ).pack(side=tk.LEFT, padx=10)
+        
+        ttk.Radiobutton(
+            modes_container,
+            text="llama.cpp (开发中)",
+            variable=self.model_mode_var,
+            value="llamacpp",
+            command=self.on_mode_change,
+            state=tk.DISABLED
+        ).pack(side=tk.LEFT, padx=10)
+        
+        ttk.Radiobutton(
+            modes_container,
+            text="代理模式",
+            variable=self.model_mode_var,
+            value="proxy",
+            command=self.on_mode_change
+        ).pack(side=tk.LEFT, padx=10)
+        
+        # 代理模式配置（初始隐藏）
+        self.proxy_config_frame = ttk.Frame(mode_frame)
+        
+        proxy_url_frame = ttk.Frame(self.proxy_config_frame)
+        proxy_url_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(proxy_url_frame, text="Base URL:", width=10).pack(side=tk.LEFT)
+        self.proxy_base_url_entry = ttk.Entry(proxy_url_frame)
+        self.proxy_base_url_entry.insert(0, self.config.get('proxy_base_url', 'http://localhost:8000/v1'))
+        self.proxy_base_url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        
+        proxy_key_frame = ttk.Frame(self.proxy_config_frame)
+        proxy_key_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(proxy_key_frame, text="API Key:", width=10).pack(side=tk.LEFT)
+        self.proxy_api_key_entry = ttk.Entry(proxy_key_frame, show="*")
+        self.proxy_api_key_entry.insert(0, self.config.get('proxy_api_key', ''))
+        self.proxy_api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        
+        def toggle_proxy_key():
+            if self.proxy_api_key_entry['show'] == '*':
+                self.proxy_api_key_entry['show'] = ''
+                toggle_proxy_btn.config(text="👁️")
+            else:
+                self.proxy_api_key_entry['show'] = '*'
+                toggle_proxy_btn.config(text="🔒")
+        
+        toggle_proxy_btn = ttk.Button(proxy_key_frame, text="🔒", width=3, command=toggle_proxy_key)
+        toggle_proxy_btn.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 根据当前模式显示/隐藏代理配置
+        if self.model_mode_var.get() == 'proxy':
+            self.proxy_config_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Ollama 并发设置（仅在 Ollama 模式下显示）
+        self.ollama_config_frame = ttk.Frame(mode_frame)
+        
+        ollama_parallel_frame = ttk.Frame(self.ollama_config_frame)
+        ollama_parallel_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(ollama_parallel_frame, text="并发请求数:", width=10).pack(side=tk.LEFT)
+        self.ollama_num_parallel_entry = ttk.Entry(ollama_parallel_frame, width=10)
+        self.ollama_num_parallel_entry.insert(0, self.config.get('ollama_num_parallel', ''))
+        self.ollama_num_parallel_entry.pack(side=tk.LEFT, padx=(5, 5))
+        
+        ttk.Label(
+            ollama_parallel_frame, 
+            text="(空值=自动，推荐4或1)",
+            foreground="gray",
+            font=("Arial", 8)
+        ).pack(side=tk.LEFT)
+        
+        # 提示信息
+        ollama_tip = ttk.Label(
+            self.ollama_config_frame,
+            text="💡 每个模型同时处理的最大并行请求数。默认根据可用内存自动选择4或1",
+            foreground="#666",
+            font=("Arial", 8),
+            wraplength=400
+        )
+        ollama_tip.pack(fill=tk.X, pady=(0, 5))
+        
+        # 根据当前模式显示/隐藏Ollama配置
+        if self.model_mode_var.get() == 'ollama':
+            self.ollama_config_frame.pack(fill=tk.X, pady=(10, 0))
+        
         self.status_label = ttk.Label(
             top_frame, 
-            text="正在检查 Ollama 安装状态...", 
+            text="正在检查模型服务状态...", 
             font=("Arial", 10)
         )
-        self.status_label.pack(anchor=tk.W)
+        self.status_label.pack(anchor=tk.W, pady=(10, 0))
         
         list_frame = ttk.LabelFrame(left_frame, text="📦 已安装的模型", padding="10")
         list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
@@ -497,6 +651,10 @@ class OllamaManager:
         self.config['token'] = self.token_entry.get().strip()
         self.config['ippm'] = self.ippm_entry.get().strip()
         self.config['oppm'] = self.oppm_entry.get().strip()
+        self.config['model_mode'] = self.model_mode_var.get()
+        self.config['proxy_base_url'] = self.proxy_base_url_entry.get().strip()
+        self.config['proxy_api_key'] = self.proxy_api_key_entry.get().strip()
+        self.config['ollama_num_parallel'] = self.ollama_num_parallel_entry.get().strip()
         
         self.save_config()
         self.starfire_log("✓ 配置已保存", "green")
@@ -507,10 +665,19 @@ class OllamaManager:
         token = self.token_entry.get().strip()
         ippm = self.ippm_entry.get().strip()
         oppm = self.oppm_entry.get().strip()
+        model_mode = self.model_mode_var.get()
         
         if not all([host, token, ippm, oppm]):
             messagebox.showwarning("配置不完整", "请填写所有必填配置项！")
             return
+        
+        # 代理模式需要额外检查配置
+        if model_mode == 'proxy':
+            proxy_url = self.proxy_base_url_entry.get().strip()
+            proxy_key = self.proxy_api_key_entry.get().strip()
+            if not all([proxy_url, proxy_key]):
+                messagebox.showwarning("配置不完整", "代理模式需要配置 Base URL 和 API Key！")
+                return
         
         #starfire_exe = "starfire.exe" if platform.system() == "Windows" else "./starfire"
         # 改为：
@@ -527,6 +694,7 @@ class OllamaManager:
             return
         
         try:
+            # 基础命令参数
             cmd = [
                 starfire_exe,
                 "-host", host,
@@ -535,11 +703,32 @@ class OllamaManager:
                 "-oppm", oppm
             ]
             
+            # 根据模型模式添加额外参数
+            if model_mode == 'proxy':
+                proxy_url = self.proxy_base_url_entry.get().strip()
+                proxy_key = self.proxy_api_key_entry.get().strip()
+                cmd.extend([
+                    "-engine", "openai",
+                    "-openai-url", proxy_url,
+                    "-openai-key", proxy_key
+                ])
+            
             self.starfire_log("=" * 50, "blue")
             self.starfire_log(f"正在启动 Starfire 算力注册...", "blue")
+            self.starfire_log(f"模型模式: {model_mode}", "blue")
             self.starfire_log(f"服务器: {host}", "blue")
+            if model_mode == 'proxy':
+                self.starfire_log(f"代理地址: {proxy_url}", "blue")
             self.starfire_log(f"输入价格: {ippm} ¥/M tokens", "blue")
             self.starfire_log(f"输出价格: {oppm} ¥/M tokens", "blue")
+            
+            # 设置环境变量
+            env = os.environ.copy()
+            ollama_parallel = self.ollama_num_parallel_entry.get().strip()
+            if ollama_parallel and model_mode == 'ollama':
+                env['OLLAMA_NUM_PARALLEL'] = ollama_parallel
+                self.starfire_log(f"并发请求数: {ollama_parallel}", "blue")
+            
             self.starfire_log("=" * 50, "blue")
             
             if platform.system() == "Windows":
@@ -548,7 +737,8 @@ class OllamaManager:
                     stdout=subprocess.PIPE,
                     stderr=subprocess.STDOUT,
                     bufsize=0,
-                    creationflags=SUBPROCESS_FLAGS
+                    creationflags=SUBPROCESS_FLAGS,
+                    env=env
                 )
             else:
                 self.starfire_process = subprocess.Popen(
@@ -557,7 +747,8 @@ class OllamaManager:
                     stderr=subprocess.STDOUT,
                     text=True,
                     bufsize=1,
-                    universal_newlines=True
+                    universal_newlines=True,
+                    env=env
                 )
             
             self.starfire_running = True
@@ -695,6 +886,10 @@ class OllamaManager:
     
     def check_ollama(self):
         """检查Ollama是否已安装 - 关键修复：添加 CREATE_NO_WINDOW"""
+        # 只在 ollama 模式下检查
+        if self.model_mode_var.get() != 'ollama':
+            return
+        
         try:
             result = subprocess.run(
                 ["ollama", "--version"], 
@@ -724,6 +919,10 @@ class OllamaManager:
             self.log(f"错误: {str(e)}", "red")
     
     def show_install_prompt(self):
+        # 只在ollama模式下显示安装提示
+        if self.model_mode_var.get() != 'ollama':
+            return
+        
         self.status_label.config(
             text="✗ 未检测到 Ollama", 
             foreground="red"
@@ -741,6 +940,11 @@ class OllamaManager:
     
     def check_running_models(self):
         """检查正在运行的模型 - 关键修复：添加 CREATE_NO_WINDOW"""
+        # 只在 ollama 模式下检查
+        if self.model_mode_var.get() != 'ollama':
+            self.root.after(5000, self.check_running_models)
+            return
+        
         try:
             result = subprocess.run(
                 ["ollama", "ps"],
@@ -884,7 +1088,7 @@ class OllamaManager:
         try:
             if platform.system() == "Windows":
                 process = subprocess.Popen(
-                    ["ollama", "run", "--keepalive", "-1m", model_name],
+                    ["ollama", "run", "--keepalive", "24h", model_name],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
@@ -893,7 +1097,7 @@ class OllamaManager:
                 )
             else:
                 process = subprocess.Popen(
-                    ["ollama", "run", "--keepalive", "-1m", model_name],
+                    ["ollama", "run", "--keepalive", "24h", model_name],
                     stdin=subprocess.PIPE,
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,

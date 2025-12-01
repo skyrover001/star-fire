@@ -217,7 +217,7 @@ const copyToken = async () => {
       message.success('Token已复制到剪贴板');
       return;
     }
-    
+
     // Fallback: 使用传统方法
     const textArea = document.createElement('textarea');
     textArea.value = currentToken.value;
@@ -227,10 +227,10 @@ const copyToken = async () => {
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    
+
     const successful = document.execCommand('copy');
     document.body.removeChild(textArea);
-    
+
     if (successful) {
       message.success('Token已复制到剪贴板');
     } else {
@@ -255,7 +255,7 @@ const copyCommand = async () => {
       message.success('使用命令已复制到剪贴板');
       return;
     }
-    
+
     // Fallback: 使用传统方法
     const textArea = document.createElement('textarea');
     textArea.value = command;
@@ -265,10 +265,10 @@ const copyCommand = async () => {
     document.body.appendChild(textArea);
     textArea.focus();
     textArea.select();
-    
+
     const successful = document.execCommand('copy');
     document.body.removeChild(textArea);
-    
+
     if (successful) {
       message.success('使用命令已复制到剪贴板');
     } else {
@@ -335,18 +335,18 @@ const downloadClient = (platform: 'windows' | 'macos') => {
     windows: {
       url: '/download/windows/starfire.rar',
       filename: 'starfire.rar',
-      size: '~45MB'
+      size: '~20MB'
     },
     macos: {
-      url: '/download/macos/starfire',
+      url: '/download/macos/starfire.zip',
       filename: 'starfire',
-      size: '~52MB'
+      size: '~20MB'
     }
   };
 
   const clientInfo = downloadUrls[platform];
   const platformName = platform === 'windows' ? 'Windows' : 'macOS';
-  
+
   try {
     // 创建下载链接
     const link = document.createElement('a');
@@ -354,15 +354,15 @@ const downloadClient = (platform: 'windows' | 'macos') => {
     link.download = clientInfo.filename;
     link.style.display = 'none';
     document.body.appendChild(link);
-    
+
     // 触发下载
     link.click();
-    
+
     // 清理
     document.body.removeChild(link);
-    
+
     message.success(`正在下载 ${platformName} 客户端 (${clientInfo.size})`);
-    
+
     // 可选：记录下载统计
     requestClient.post('/api/stats/client-download', {
       platform: platform,
@@ -371,7 +371,7 @@ const downloadClient = (platform: 'windows' | 'macos') => {
     }).catch(() => {
       // 忽略统计错误，不影响下载
     });
-    
+
   } catch (error) {
     console.error('下载客户端失败:', error);
     message.error(`下载 ${platformName} 客户端失败，请稍后重试`);
