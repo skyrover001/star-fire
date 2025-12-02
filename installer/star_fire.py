@@ -17,6 +17,15 @@ import re
 import json
 from datetime import datetime
 import locale
+import socket
+import struct
+
+# 导入音效模块
+try:
+    import winsound
+    SOUND_AVAILABLE = True
+except ImportError:
+    SOUND_AVAILABLE = False
 
 def get_resource_path(relative_path):
     """获取资源文件的绝对路径（支持打包后）"""
@@ -34,6 +43,304 @@ if platform.system() == "Windows":
     SUBPROCESS_FLAGS = subprocess.CREATE_NO_WINDOW
 else:
     SUBPROCESS_FLAGS = 0
+
+
+def play_money_sound():
+    """播放收钱音效"""
+    if not SOUND_AVAILABLE:
+        return
+    
+    try:
+        # 在后台线程播放音效，避免阻塞UI
+        def _play():
+            try:
+                # 使用系统默认的"叮"声
+                # 可以替换为自定义wav文件: winsound.PlaySound("money.wav", winsound.SND_FILENAME | winsound.SND_ASYNC)
+                winsound.MessageBeep(winsound.MB_ICONASTERISK)
+            except:
+                pass
+        
+        threading.Thread(target=_play, daemon=True).start()
+    except:
+        pass
+
+
+# ============ Toast 通知类 ============
+class ToastNotification:
+    """优雅的Toast通知,用于显示收益等消息"""
+    active_toasts = []  # 存储当前活动的toast
+    
+    def __init__(self, parent, message, title="通知", duration=4000, toast_type="info"):
+        self.parent = parent
+        self.duration = duration
+        
+        # 播放收钱音效(仅针对收益类型)
+        if toast_type == "money":
+            play_money_sound()
+        
+        # 创建顶层窗口
+        self.toast = tk.Toplevel(parent)
+        self.toast.overrideredirect(True)  # 无边框
+        self.toast.attributes('-topmost', True)  # 置顶
+        
+        # 设置透明度(Windows)
+        try:
+            self.toast.attributes('-alpha', 0.95)
+        except:
+            pass
+        
+        # 配色方案
+        colors = {
+            'info': {'bg': '#3b82f6', 'fg': 'white'},
+            'success': {'bg': '#10b981', 'fg': 'white'},
+            'warning': {'bg': '#f59e0b', 'fg': 'white'},
+            'error': {'bg': '#ef4444', 'fg': 'white'},
+            'money': {'bg': '#10b981', 'fg': 'white'}  # 收益专用
+        }
+        
+        color = colors.get(toast_type, colors['info'])
+        
+        # 主容器
+        container = tk.Frame(self.toast, bg=color['bg'], padx=20, pady=15)
+        container.pack(fill=tk.BOTH, expand=True)
+        
+        # 标题
+        title_label = tk.Label(
+            container,
+            text=title,
+            font=('Microsoft YaHei UI', 10, 'bold'),
+            bg=color['bg'],
+            fg=color['fg']
+        )
+        title_label.pack(anchor=tk.W)
+        
+        # 消息内容
+        msg_label = tk.Label(
+            container,
+            text=message,
+            font=('Microsoft YaHei UI', 9),
+            bg=color['bg'],
+            fg=color['fg'],
+            wraplength=300,
+            justify=tk.LEFT
+        )
+        msg_label.pack(anchor=tk.W, pady=(5, 0))
+        
+        # 更新窗口以获取实际大小
+        self.toast.update_idletasks()
+        
+        # 计算位置(右下角)
+        self._position_toast()
+        
+        # 绑定点击关闭
+        container.bind('<Button-1>', lambda e: self.close())
+        title_label.bind('<Button-1>', lambda e: self.close())
+        msg_label.bind('<Button-1>', lambda e: self.close())
+        
+        # 添加到活动列表
+        ToastNotification.active_toasts.append(self)
+        
+        # 滑入动画
+        self._slide_in()
+        
+        # 自动关闭
+        if duration > 0:
+            self.toast.after(duration, self.close)
+    
+    def _position_toast(self):
+        """定位toast到右下角,考虑已有toast的位置"""
+        screen_width = self.parent.winfo_screenwidth()
+        screen_height = self.parent.winfo_screenheight()
+        
+        toast_width = self.toast.winfo_width()
+        toast_height = self.toast.winfo_height()
+        
+        # 右下角位置
+        x = screen_width - toast_width - 20
+        
+        # 计算y位置,堆叠在其他toast上方
+        y_offset = 20
+        for toast in ToastNotification.active_toasts:
+            if toast != self and toast.toast.winfo_exists():
+                y_offset += toast.toast.winfo_height() + 10
+        
+        y = screen_height - toast_height - y_offset
+        
+        # 初始位置(屏幕外)
+        self.start_x = screen_width
+        self.end_x = x
+        self.y = y
+        
+        self.toast.geometry(f'+{self.start_x}+{self.y}')
+    
+    def _slide_in(self):
+        """滑入动画"""
+        current_x = int(self.toast.winfo_x())
+        if current_x > self.end_x:
+            step = max(10, (current_x - self.end_x) // 10)
+            new_x = current_x - step
+            self.toast.geometry(f'+{new_x}+{self.y}')
+            self.toast.after(10, self._slide_in)
+        else:
+            self.toast.geometry(f'+{self.end_x}+{self.y}')
+    
+    def _slide_out(self, callback):
+        """滑出动画"""
+        current_x = int(self.toast.winfo_x())
+        screen_width = self.parent.winfo_screenwidth()
+        if current_x < screen_width:
+            step = max(10, (screen_width - current_x) // 10)
+            new_x = current_x + step
+            self.toast.geometry(f'+{new_x}+{self.y}')
+            self.toast.after(10, lambda: self._slide_out(callback))
+        else:
+            callback()
+    
+    def close(self):
+        """关闭toast"""
+        if self in ToastNotification.active_toasts:
+            ToastNotification.active_toasts.remove(self)
+        
+        def destroy():
+            if self.toast.winfo_exists():
+                self.toast.destroy()
+        
+        self._slide_out(destroy)
+
+
+# ============ 收益消息解析函数 ============
+def parse_income_message(line):
+    """解析starfire输出中的收益消息
+    返回: (is_income, amount, currency) 或 (False, None, None)
+    """
+    import re
+    
+    # 常见收益消息模式
+    patterns = [
+        r'收益[:\s]*([\d.]+)\s*([¥$元])',
+        r'获得[:\s]*([\d.]+)\s*([¥$元])',
+        r'赚取[:\s]*([\d.]+)\s*([¥$元])',
+        r'income[:\s]*([\d.]+)\s*(CNY|USD|¥|\$)',
+        r'earned[:\s]*([\d.]+)\s*(CNY|USD|¥|\$)',
+        r'profit[:\s]*([\d.]+)\s*(CNY|USD|¥|\$)',
+    ]
+    
+    line_lower = line.lower()
+    for pattern in patterns:
+        match = re.search(pattern, line, re.IGNORECASE)
+        if match:
+            amount = match.group(1)
+            currency = match.group(2)
+            return True, amount, currency
+    
+    return False, None, None
+
+
+# ============ TCP服务器类 ============
+class IncomeTCPServer:
+    """TCP服务器,接收starfire.exe发送的收益消息"""
+    
+    def __init__(self, host='127.0.0.1', port=19527, callback=None):
+        self.host = host
+        self.port = port
+        self.callback = callback  # 收到消息时的回调函数
+        self.server_socket = None
+        self.running = False
+        self.server_thread = None
+        
+    def start(self):
+        """启动TCP服务器"""
+        if self.running:
+            return False, "服务器已在运行中"
+        
+        try:
+            self.server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            self.server_socket.bind((self.host, self.port))
+            self.server_socket.listen(5)
+            self.running = True
+            
+            # 在后台线程中运行服务器
+            self.server_thread = threading.Thread(target=self._run_server, daemon=True)
+            self.server_thread.start()
+            
+            return True, f"TCP服务器已启动: {self.host}:{self.port}"
+        except Exception as e:
+            return False, f"启动失败: {str(e)}"
+    
+    def _run_server(self):
+        """服务器主循环"""
+        while self.running:
+            try:
+                # 设置超时,避免阻塞
+                self.server_socket.settimeout(1.0)
+                try:
+                    client_socket, client_address = self.server_socket.accept()
+                    # 在新线程中处理客户端连接
+                    threading.Thread(
+                        target=self._handle_client,
+                        args=(client_socket, client_address),
+                        daemon=True
+                    ).start()
+                except socket.timeout:
+                    continue
+            except Exception as e:
+                if self.running:
+                    if self.callback:
+                        self.callback('error', f"服务器错误: {str(e)}")
+                break
+    
+    def _handle_client(self, client_socket, client_address):
+        """处理客户端连接"""
+        try:
+            if self.callback:
+                self.callback('connect', f"客户端连接: {client_address}")
+            
+            while self.running:
+                # 接收数据长度(4字节)
+                length_data = client_socket.recv(4)
+                if not length_data:
+                    break
+                
+                # 解析长度
+                message_length = struct.unpack('!I', length_data)[0]
+                
+                # 接收完整消息
+                message_data = b''
+                while len(message_data) < message_length:
+                    chunk = client_socket.recv(message_length - len(message_data))
+                    if not chunk:
+                        break
+                    message_data += chunk
+                
+                if len(message_data) == message_length:
+                    # 解码消息
+                    try:
+                        message = message_data.decode('utf-8')
+                        # 回调处理消息
+                        if self.callback:
+                            self.callback('message', message)
+                    except Exception as e:
+                        if self.callback:
+                            self.callback('error', f"解码消息失败: {str(e)}")
+        
+        except Exception as e:
+            if self.callback:
+                self.callback('error', f"处理客户端错误: {str(e)}")
+        finally:
+            client_socket.close()
+            if self.callback:
+                self.callback('disconnect', f"客户端断开: {client_address}")
+    
+    def stop(self):
+        """停止TCP服务器"""
+        self.running = False
+        if self.server_socket:
+            try:
+                self.server_socket.close()
+            except:
+                pass
+        return True, "TCP服务器已停止"
 
 
 # ============ 添加启动画面 ============
@@ -119,12 +426,15 @@ class SplashScreen:
         self.root.destroy()
 
 
-class OllamaManager:
+class StarFireAPP:
     def __init__(self, root):
         self.root = root
         self.root.title("StarFire MaaS 算力分享APP")
         self.root.geometry("1000x700")
         self.root.resizable(True, True)
+        
+        # 设置窗口关闭事件
+        self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
         
         # 设置窗口图标
         try:
@@ -140,6 +450,18 @@ class OllamaManager:
         self.running_models = set()
         self.starfire_process = None
         self.starfire_running = False
+        self.total_income = 0.0  # 累计收益
+        
+        # 创建TCP服务器并自动启动
+        self.tcp_server = IncomeTCPServer(
+            host='127.0.0.1',
+            port=19527,
+            callback=self.handle_tcp_message
+        )
+        # 自动启动TCP服务器
+        success, msg = self.tcp_server.start()
+        if not success:
+            print(f"TCP服务器启动失败: {msg}")
         
         self.model_categories = {
             'embedding': ['embed', 'nomic-embed', 'mxbai-embed', 'bge-', 'gte-'],
@@ -175,13 +497,66 @@ class OllamaManager:
                     self.config.update(saved_config)
         except:
             pass
+        
+        # 备份原始配置,用于检测修改
+        self.original_config = self.config.copy()
     
     def save_config(self):
         try:
+            # 仅在手动保存时备份配置到历史目录
+            # 判断是否是自动保存(通过检查调用栈)
+            import traceback
+            stack = traceback.extract_stack()
+            is_auto_save = any('auto_save_config' in frame.name for frame in stack)
+            
+            if not is_auto_save:
+                # 手动保存时才备份到历史目录
+                history_dir = "config_history"
+                if not os.path.exists(history_dir):
+                    os.makedirs(history_dir)
+                
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                history_file = os.path.join(history_dir, f"starfire_config_{timestamp}.json")
+                
+                # 如果配置文件已存在,先备份
+                if os.path.exists(self.config_file):
+                    try:
+                        with open(self.config_file, 'r', encoding='utf-8') as f:
+                            old_config = json.load(f)
+                        with open(history_file, 'w', encoding='utf-8') as f:
+                            json.dump(old_config, f, indent=2, ensure_ascii=False)
+                    except:
+                        pass
+            
+            # 保存新配置
             with open(self.config_file, 'w', encoding='utf-8') as f:
                 json.dump(self.config, f, indent=2, ensure_ascii=False)
+            
+            # 更新原始配置备份
+            self.original_config = self.config.copy()
         except Exception as e:
             self.log(f"保存配置失败: {str(e)}", "red")
+    
+    def auto_save_config(self, field_name):
+        """自动检测配置修改并保存"""
+        # 获取当前输入框的值
+        current_values = {
+            'host': self.host_entry.get().strip(),
+            'token': self.token_entry.get().strip(),
+            'ippm': self.ippm_entry.get().strip(),
+            'oppm': self.oppm_entry.get().strip(),
+            'proxy_base_url': self.proxy_base_url_entry.get().strip(),
+            'proxy_api_key': self.proxy_api_key_entry.get().strip(),
+            'ollama_num_parallel': self.ollama_num_parallel_entry.get().strip()
+        }
+        
+        # 检查是否有修改
+        if field_name in current_values and current_values[field_name] != self.original_config.get(field_name, ''):
+            # 更新配置
+            self.config[field_name] = current_values[field_name]
+            # 保存到文件
+            self.save_config()
+            self.starfire_log(f"✓ 配置已自动保存: {field_name}", "green")
     
     def get_model_category(self, model_name):
         model_lower = model_name.lower()
@@ -214,6 +589,12 @@ class OllamaManager:
     def on_mode_change(self):
         """模型接入方式变更时的回调"""
         mode = self.model_mode_var.get()
+        
+        # 自动保存模型模式变更
+        if mode != self.original_config.get('model_mode', 'ollama'):
+            self.config['model_mode'] = mode
+            self.save_config()
+            self.starfire_log(f"✓ 模型接入方式已自动保存: {mode}", "green")
         
         # 显示/隐藏配置
         if mode == 'proxy':
@@ -321,6 +702,7 @@ class OllamaManager:
         self.proxy_base_url_entry = ttk.Entry(proxy_url_frame)
         self.proxy_base_url_entry.insert(0, self.config.get('proxy_base_url', 'http://localhost:8000/v1'))
         self.proxy_base_url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        self.proxy_base_url_entry.bind('<FocusOut>', lambda e: self.auto_save_config('proxy_base_url'))
         
         proxy_key_frame = ttk.Frame(self.proxy_config_frame)
         proxy_key_frame.pack(fill=tk.X, pady=5)
@@ -328,6 +710,7 @@ class OllamaManager:
         self.proxy_api_key_entry = ttk.Entry(proxy_key_frame, show="*")
         self.proxy_api_key_entry.insert(0, self.config.get('proxy_api_key', ''))
         self.proxy_api_key_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        self.proxy_api_key_entry.bind('<FocusOut>', lambda e: self.auto_save_config('proxy_api_key'))
         
         def toggle_proxy_key():
             if self.proxy_api_key_entry['show'] == '*':
@@ -353,6 +736,7 @@ class OllamaManager:
         self.ollama_num_parallel_entry = ttk.Entry(ollama_parallel_frame, width=10)
         self.ollama_num_parallel_entry.insert(0, self.config.get('ollama_num_parallel', ''))
         self.ollama_num_parallel_entry.pack(side=tk.LEFT, padx=(5, 5))
+        self.ollama_num_parallel_entry.bind('<FocusOut>', lambda e: self.auto_save_config('ollama_num_parallel'))
         
         ttk.Label(
             ollama_parallel_frame, 
@@ -474,6 +858,15 @@ class OllamaManager:
         )
         self.stop_btn.pack(side=tk.LEFT, padx=5)
         
+        # 测试Toast通知按钮
+        test_toast_btn = ttk.Button(
+            button_frame,
+            text="🔔 测试通知",
+            command=self.test_toast_notification,
+            width=12
+        )
+        test_toast_btn.pack(side=tk.LEFT, padx=5)
+        
         log_frame = ttk.LabelFrame(left_frame, text="📋 运行日志", padding="10")
         log_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
         
@@ -505,6 +898,7 @@ class OllamaManager:
         self.host_entry = ttk.Entry(host_frame)
         self.host_entry.insert(0, self.config['host'])
         self.host_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        self.host_entry.bind('<FocusOut>', lambda e: self.auto_save_config('host'))
         
         token_frame = ttk.Frame(config_frame)
         token_frame.pack(fill=tk.X, pady=5)
@@ -512,6 +906,7 @@ class OllamaManager:
         self.token_entry = ttk.Entry(token_frame, show="*")
         self.token_entry.insert(0, self.config['token'])
         self.token_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        self.token_entry.bind('<FocusOut>', lambda e: self.auto_save_config('token'))
         
         def toggle_token():
             if self.token_entry['show'] == '*':
@@ -530,6 +925,7 @@ class OllamaManager:
         self.ippm_entry = ttk.Entry(ippm_frame, width=15)
         self.ippm_entry.insert(0, self.config['ippm'])
         self.ippm_entry.pack(side=tk.LEFT, padx=(5, 0))
+        self.ippm_entry.bind('<FocusOut>', lambda e: self.auto_save_config('ippm'))
         ttk.Label(ippm_frame, text="¥/M tokens").pack(side=tk.LEFT, padx=(5, 0))
         
         oppm_frame = ttk.Frame(config_frame)
@@ -538,6 +934,7 @@ class OllamaManager:
         self.oppm_entry = ttk.Entry(oppm_frame, width=15)
         self.oppm_entry.insert(0, self.config['oppm'])
         self.oppm_entry.pack(side=tk.LEFT, padx=(5, 0))
+        self.oppm_entry.bind('<FocusOut>', lambda e: self.auto_save_config('oppm'))
         ttk.Label(oppm_frame, text="¥/M tokens").pack(side=tk.LEFT, padx=(5, 0))
         
         starfire_button_frame = ttk.Frame(config_frame)
@@ -577,9 +974,38 @@ class OllamaManager:
         )
         self.starfire_status_label.pack(side=tk.LEFT, padx=10)
         
+        # TCP服务器状态
+        self.tcp_status_label = tk.Label(
+            status_indicator_frame,
+            text=" ○ TCP未启动 ",
+            bg="#D3D3D3",
+            fg="gray",
+            relief=tk.RAISED,
+            padx=8,
+            font=("Arial", 9)
+        )
+        self.tcp_status_label.pack(side=tk.LEFT, padx=5)
+        
+        # 更新TCP状态为运行中
+        self.tcp_status_label.config(
+            text=" ● TCP运行中 ",
+            bg="#90EE90",
+            fg="green"
+        )
+        
         control_buttons = ttk.Frame(control_frame)
         control_buttons.pack(fill=tk.X)
         
+        # TCP服务器信息
+        tcp_info_label = ttk.Label(
+            control_frame,
+            text="💡 TCP服务器地址: 127.0.0.1:19527 (自动启动)",
+            foreground="gray",
+            font=("Arial", 8)
+        )
+        tcp_info_label.pack(pady=(0, 10))
+        
+        # Starfire控制按钮
         self.start_starfire_btn = ttk.Button(
             control_buttons,
             text="▶️ 启动算力注册",
@@ -659,6 +1085,23 @@ class OllamaManager:
         self.save_config()
         self.starfire_log("✓ 配置已保存", "green")
         messagebox.showinfo("成功", "配置已保存！")
+    
+    def on_closing(self):
+        """窗口关闭时的清理工作"""
+        # 停止TCP服务器
+        if hasattr(self, 'tcp_server'):
+            self.tcp_server.stop()
+        
+        # 停止Starfire进程
+        if self.starfire_running and self.starfire_process:
+            try:
+                self.starfire_process.terminate()
+                self.starfire_process.wait(timeout=3)
+            except:
+                pass
+        
+        # 关闭窗口
+        self.root.destroy()
     
     def start_starfire(self):
         host = self.host_entry.get().strip()
@@ -799,7 +1242,14 @@ class OllamaManager:
                             line = line_bytes.decode('utf-8', errors='ignore').rstrip()
                         
                         if line:
-                            if any(keyword in line.lower() for keyword in ['error', 'failed', '失败', '错误']):
+                            # 检测收益消息
+                            is_income, amount, currency = parse_income_message(line)
+                            if is_income:
+                                self.starfire_log(line, "green")
+                                # 显示toast通知
+                                self.total_income += float(amount)
+                                self.show_income_toast(amount, currency)
+                            elif any(keyword in line.lower() for keyword in ['error', 'failed', '失败', '错误']):
                                 self.starfire_log(line, "red")
                             elif any(keyword in line.lower() for keyword in ['success', 'connected', '成功', '连接']):
                                 self.starfire_log(line, "green")
@@ -819,7 +1269,14 @@ class OllamaManager:
                     if line:
                         line = line.rstrip()
                         
-                        if any(keyword in line.lower() for keyword in ['error', 'failed', '失败', '错误']):
+                        # 检测收益消息
+                        is_income, amount, currency = parse_income_message(line)
+                        if is_income:
+                            self.starfire_log(line, "green")
+                            # 显示toast通知
+                            self.total_income += float(amount)
+                            self.show_income_toast(amount, currency)
+                        elif any(keyword in line.lower() for keyword in ['error', 'failed', '失败', '错误']):
                             self.starfire_log(line, "red")
                         elif any(keyword in line.lower() for keyword in ['success', 'connected', '成功', '连接']):
                             self.starfire_log(line, "green")
@@ -873,6 +1330,142 @@ class OllamaManager:
                 
             except Exception as e:
                 self.starfire_log(f"✗ 停止时出错: {str(e)}", "red")
+    
+    def handle_tcp_message(self, msg_type, content):
+        """处理TCP服务器接收到的消息"""
+        if msg_type == 'connect':
+            self.starfire_log(f"🔗 {content}", "blue")
+        elif msg_type == 'disconnect':
+            self.starfire_log(f"🔌 {content}", "gray")
+        elif msg_type == 'error':
+            self.starfire_log(f"❌ {content}", "red")
+        elif msg_type == 'message':
+            # 输出原始消息用于调试
+            self.starfire_log(f"🔍 [DEBUG] 收到原始消息: {content}", "purple")
+            
+            # 解析收益消息
+            try:
+                # 尝试解析JSON格式
+                data = json.loads(content)
+                
+                # 输出解析后的数据
+                self.starfire_log(f"🔍 [DEBUG] 解析后数据类型: {type(data)}", "purple")
+                self.starfire_log(f"🔍 [DEBUG] 数据内容: {data}", "purple")
+                
+                # 支持Go语言发送的格式 - 优先检查是否有total_income字段
+                if 'total_income' in data:
+                    # 新格式: 包含total_income字段
+                    amount = float(data.get('amount', 0))
+                    total = float(data.get('total_income', 0))
+                    model = data.get('model', '')
+                    usage = data.get('usage', {})
+                    currency = data.get('currency', '¥')
+                    
+                    # 调试日志
+                    self.starfire_log(f"🔍 解析收益: amount={amount}, total_income={total}", "gray")
+                    
+                    # 更新累计收益(直接使用服务端传来的total_income)
+                    self.total_income = total
+                    
+                    # 显示toast通知
+                    self.show_income_toast(amount, currency, model, usage)
+                    
+                    # 记录日志
+                    log_msg = f"💰 收益到账: {amount:.6f} {currency}"
+                    if model:
+                        log_msg += f" (模型: {model})"
+                    if usage:
+                        tokens = usage.get('total_tokens', 0)
+                        if tokens:
+                            log_msg += f" [tokens: {tokens}]"
+                    self.starfire_log(log_msg, "green")
+                    self.starfire_log(f"📊 累计收益: {self.total_income:.6f} {currency}", "blue")
+                    
+                # 兼容旧格式: 只有type和amount,没有total_income
+                elif 'type' in data and data['type'] == 'income' and 'total_income' not in data:
+                    amount = data.get('amount', '0')
+                    currency = data.get('currency', '¥')
+                    message = data.get('message', '')
+                    
+                    # 更新累计收益
+                    self.total_income += float(amount)
+                    
+                    # 显示toast通知
+                    self.show_income_toast(amount, currency)
+                    
+                    # 记录日志
+                    log_msg = f"💰 收益到账: {amount} {currency}"
+                    if message:
+                        log_msg += f" ({message})"
+                    self.starfire_log(log_msg, "green")
+                else:
+                    # 其他类型的消息
+                    self.starfire_log(f"📨 收到消息: {content}", "blue")
+            except json.JSONDecodeError:
+                # 不是JSON格式,尝试文本解析
+                is_income, amount, currency = parse_income_message(content)
+                if is_income:
+                    self.total_income += float(amount)
+                    self.show_income_toast(amount, currency)
+                    self.starfire_log(f"💰 收益到账: {amount} {currency}", "green")
+                else:
+                    self.starfire_log(f"📨 {content}", "blue")
+    
+    def show_income_toast(self, amount, currency, model='', usage=None):
+        """显示收益通知"""
+        # 格式化金额显示
+        if isinstance(amount, (int, float)):
+            amount_str = f"{amount:.6f}" if amount < 0.01 else f"{amount:.2f}"
+        else:
+            amount_str = str(amount)
+        
+        # 构建消息内容
+        message_lines = []
+        
+        # 模型信息放在最前面(最醒目)
+        if model:
+            message_lines.append(f"🤖 模型: {model}")
+            message_lines.append(f"━━━━━━━━━━━━━━")
+        
+        message_lines.append(f"💵 本次收益: {amount_str} {currency}")
+        message_lines.append(f"💰 累计总收益: {self.total_income:.6f} {currency}")
+        
+        # 添加token使用信息
+        if usage and isinstance(usage, dict):
+            prompt_tokens = usage.get('prompt_tokens', 0)
+            completion_tokens = usage.get('completion_tokens', 0)
+            total_tokens = usage.get('total_tokens', 0)
+            if total_tokens:
+                message_lines.append(f"📝 Tokens: ↑{prompt_tokens} ↓{completion_tokens}")
+        
+        message = "\n".join(message_lines)
+        
+        ToastNotification(
+            self.root,
+            message=message,
+            title="💰 收益到账",
+            duration=5000,
+            toast_type="money"
+        )
+    
+    def test_toast_notification(self):
+        """测试Toast通知效果"""
+        import random
+        
+        # 模拟不同类型的收益
+        test_types = [
+            ("15.80", "¥"),
+            ("23.50", "¥"),
+            ("8.20", "¥"),
+            ("42.00", "¥")
+        ]
+        
+        amount, currency = random.choice(test_types)
+        self.total_income += float(amount)
+        self.show_income_toast(amount, currency)
+        
+        # 同时在日志中显示
+        self.starfire_log(f"✓ 测试收益通知: {amount} {currency} (累计: {self.total_income:.2f} {currency})", "green")
     
     def _reset_starfire_ui(self):
         self.start_starfire_btn.config(state=tk.NORMAL)
@@ -1194,7 +1787,7 @@ def main():
     splash.close()
     
     root = tk.Tk()
-    app = OllamaManager(root)
+    app = StarFireAPP(root)
     root.mainloop()
 
 

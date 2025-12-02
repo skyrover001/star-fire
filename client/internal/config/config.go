@@ -17,6 +17,7 @@ type Config struct {
 	InputTokenPricePerMillion  float64 // 每输入百万tokens定价
 	OutputTokenPricePerMillion float64
 	Deamon                     bool // 是否以守护进程方式运行
+	APPPort                    int
 }
 
 func LoadConfig() *Config {
@@ -38,6 +39,7 @@ func LoadConfig() *Config {
 	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", cfg.InputTokenPricePerMillion, "每输入百万tokens定价 (默认: 4.0)")
 	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", cfg.OutputTokenPricePerMillion, "每输出百万tokens定价 (默认: 8.0)")
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
+	flag.IntVar(&cfg.APPPort, "port", 19527, "服务端口 (默认:19527)")
 
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(os.Stderr, "StarFire 客户端\n\n")

@@ -149,6 +149,11 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 
 	if request.Stream {
 		log.Printf("use openai fomat stream [%s]", fingerprint)
+		if strings.Contains(strings.ToLower(request.Model), "qwen") {
+			if strings.Contains(strings.ToLower(request.Model), "think") || strings.Contains(strings.ToLower(request.Model), "qwen") {
+				request.ReasoningEffort = "low"
+			}
+		}
 		stream, err := e.client.CreateChatCompletionStream(ctx, *request)
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat complation error: %v", err)
@@ -166,7 +171,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			response, err := stream.Recv()
 			if err != nil {
 				if strings.Contains(err.Error(), "stream closed") || err.Error() == "EOF" {
-					log.Printf("[%s] stram stop", fingerprint)
+					log.Printf("[%s] stream stop", fingerprint)
 					break
 				}
 				errMsg := fmt.Sprintf("read stream error: %v", err)
@@ -179,8 +184,8 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 				})
 				return err
 			}
-			fmt.Println("stream response:", response, "response.Choices[0].FinishReason:", response.Choices[0].FinishReason,
-				"response.usage:", response.Usage, "response.choices:", response.Choices)
+
+			// 发送流响应（包括可能只有 usage 的数据块）
 			wsResp := public.WSMessage{
 				Type:        public.MESSAGE_STREAM,
 				Content:     response,
@@ -192,9 +197,14 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 				return err
 			}
 
+			// 记录日志
+			if response.Usage != nil {
+				log.Printf("[%s] received usage: prompt=%d, completion=%d, total=%d",
+					fingerprint, response.Usage.PromptTokens, response.Usage.CompletionTokens, response.Usage.TotalTokens)
+			}
+
 			if len(response.Choices) > 0 && response.Choices[0].FinishReason != "" {
-				log.Printf("[%s] stream response over，on: %s", fingerprint, response.Choices[0].FinishReason)
-				break
+				log.Printf("[%s] received finish_reason: %s", fingerprint, response.Choices[0].FinishReason)
 			}
 		}
 	} else {

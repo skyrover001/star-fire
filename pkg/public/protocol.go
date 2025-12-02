@@ -3,6 +3,7 @@ package public
 const KEEPALIVE = "keepalive"
 const REGISTER = "register"
 const MESSAGE = "message"
+const INCOME = "income"
 const RECONNECT = "reconnect"
 const MESSAGE_STREAM = "stream"
 const CLOSE = "close"

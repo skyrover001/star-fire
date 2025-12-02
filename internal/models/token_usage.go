@@ -14,8 +14,8 @@ type TokenUsage struct {
 	ClientID     string `gorm:"index"`
 	ClientIP     string
 	Model        string    `gorm:"not null"`
-	IPPM         float64   `gorm:"not null"` // 输入tokens价格
-	OPPM         float64   `gorm:"not null"` // 输出tokens价格
+	IPPM         float64   `gorm:"column:ip_pm;not null"` // 输入tokens价格 - 数据库列名是 ip_pm
+	OPPM         float64   `gorm:"column:oppm;not null"`  // 输出tokens价格 - 数据库列名是 oppm
 	InputTokens  int       `gorm:"not null"`
 	OutputTokens int       `gorm:"not null"`
 	TotalTokens  int       `gorm:"not null"`
@@ -185,4 +185,45 @@ func (tdb *TokenUsageDB) GetRevenueStats(clientIDs []string, startTime, endTime 
 		"chat":      result.ChatRevenue,
 		"embedding": result.EmbeddingRevenue,
 	}, nil
+}
+
+func (tdb *TokenUsageDB) GetTotalIncomeByUserID(id string, clientDB *ClientDB) (interface{}, interface{}) {
+	// 获取某个用户的总收益
+	// 1. 先获取该用户的所有客户端
+	// 2. 查询这些客户端的所有 token 使用记录
+	// 3. 计算总收益 = (IPPM × InputTokens + OPPM × OutputTokens) / 1,000,000
+
+	// 获取用户的所有客户端
+	userClients, err := clientDB.GetClientsByUserID(id)
+	if err != nil {
+		return 0.0, err
+	}
+
+	if len(userClients) == 0 {
+		// 没有客户端，返回 0
+		return 0.0, nil
+	}
+
+	// 获取所有客户端 ID
+	clientIDs := make([]string, 0, len(userClients))
+	for _, client := range userClients {
+		clientIDs = append(clientIDs, client.ID)
+	}
+
+	// 查询这些客户端的总收益
+	type Result struct {
+		TotalIncome float64
+	}
+
+	var result Result
+	err = tdb.db.Model(&TokenUsage{}).
+		Select("SUM((ip_pm * input_tokens + oppm * output_tokens) / 1000000.0) as total_income").
+		Where("client_id IN ?", clientIDs).
+		Scan(&result).Error
+
+	if err != nil {
+		return 0.0, err
+	}
+
+	return result.TotalIncome, nil
 }

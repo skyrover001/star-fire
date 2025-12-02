@@ -6,10 +6,12 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	configs "star-fire/client/internal/config"
 	"star-fire/pkg/public"
+	"time"
 )
 
 func RegisterClient(conf *configs.Config, c *Client, host, token string) error {
@@ -84,6 +86,8 @@ func HandleMessages(c *Client) {
 				handleEmbeddingMessage(c, message)
 			case public.RECONNECT:
 				handleReconnect(c, message)
+			case public.INCOME:
+				handleIncome(message)
 			case public.CLOSE:
 				log.Println("server close message:", message.Content)
 				return
@@ -187,4 +191,107 @@ func openResponseConn(host, fingerprint string) (*websocket.Conn, error) {
 	}
 
 	return conn, nil
+}
+
+func handleIncome(message public.WSMessage) {
+	content, ok := message.Content.(map[string]interface{})
+	if !ok {
+		log.Printf("invalid income message content format")
+		return
+	}
+
+	// 提取收益信息
+	log.Printf("收到收益消息: %+v", content)
+
+	// 提取各个字段
+	usage, hasUsage := content["usage"].(map[string]interface{})
+	income, hasIncome := content["income"]
+
+	if !hasUsage || !hasIncome {
+		log.Printf("income message missing required fields (usage: %v, income: %v)", hasUsage, hasIncome)
+		return
+	}
+
+	// 将 income 转换为 float64
+	var incomeValue float64
+	switch v := income.(type) {
+	case float64:
+		incomeValue = v
+	case float32:
+		incomeValue = float64(v)
+	case int:
+		incomeValue = float64(v)
+	case int64:
+		incomeValue = float64(v)
+	default:
+		log.Printf("income value has unexpected type: %T", income)
+		return
+	}
+
+	// 提取可选字段
+	model := content["model"]
+	totalIncome := content["total_income"]
+	timestamp := content["timestamp"]
+
+	// 构造 JSON 消息（发送给 Python 桌面应用）
+	incomeData := map[string]interface{}{
+		"type":     "income",
+		"amount":   fmt.Sprintf("%.8f", incomeValue),
+		"currency": "¥",
+		"usage":    usage,
+		"model":    model,
+	}
+
+	// 添加可选字段
+	if totalIncome != nil {
+		incomeData["total_income"] = totalIncome
+	}
+	if timestamp != nil {
+		incomeData["timestamp"] = timestamp
+	}
+
+	jsonBytes, err := json.Marshal(incomeData)
+	if err != nil {
+		log.Printf("marshal income message error: %v", err)
+		return
+	}
+
+	// 发送到 TCP 服务器
+	if err := sendToTCPServer("127.0.0.1:19527", string(jsonBytes)); err != nil {
+		log.Printf("发送收益到 TCP 服务器失败: %v", err)
+	} else {
+		log.Printf("✓ 收益已发送: %.8f ¥ (模型: %v, 总收益: %v)", incomeValue, model, totalIncome)
+	}
+}
+
+// sendToTCPServer 发送消息到 TCP 服务器（协议: 4字节长度头 + UTF-8内容）
+func sendToTCPServer(address string, message string) error {
+	// 连接到 TCP 服务器
+	conn, err := net.DialTimeout("tcp", address, 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("connect to TCP server error: %w", err)
+	}
+	defer conn.Close()
+
+	// 编码消息为 UTF-8
+	messageBytes := []byte(message)
+	length := uint32(len(messageBytes))
+
+	// 发送长度头（4字节，网络字节序）
+	lengthBytes := make([]byte, 4)
+	lengthBytes[0] = byte(length >> 24)
+	lengthBytes[1] = byte(length >> 16)
+	lengthBytes[2] = byte(length >> 8)
+	lengthBytes[3] = byte(length)
+
+	if _, err := conn.Write(lengthBytes); err != nil {
+		return fmt.Errorf("write length header error: %w", err)
+	}
+
+	// 发送消息内容
+	if _, err := conn.Write(messageBytes); err != nil {
+		return fmt.Errorf("write message content error: %w", err)
+	}
+
+	return nil
 }
