@@ -2,11 +2,12 @@ package service
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"star-fire/internal/models"
 	"star-fire/pkg/public"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -36,6 +37,11 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		request.ReasoningEffort = "medium"
 	} else {
 		request.ReasoningEffort = "none"
+	}
+
+	// qwen 系列模型兼容reasoning effort
+	if strings.Contains(strings.ToLower(request.Model), "qwen") && (strings.Contains(strings.ToLower(request.Model), "think") || strings.Contains(strings.ToLower(request.Model), "235b")) {
+		request.ReasoningEffort = "low"
 	}
 
 	// fmt.Println("request is ..............................", request.Metadata, request.ChatCompletionRequestExtensions, request.ReasoningEffort)
@@ -189,9 +195,6 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 		var chatResponse openai.ChatCompletionStreamResponse
 		err = json.Unmarshal(jsonData, &chatResponse)
-		fmt.Println("chatResponse:", chatResponse, "chatResponse.Choices:", chatResponse.Choices,
-			" chatResponse.Choices[0].Delta:", chatResponse.Choices[0].Delta, " chatResponse.Choices[0].FinishReason:",
-			chatResponse.Choices[0].FinishReason)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
 			_ = server.RespClients[fingerPrint].Close()
@@ -199,6 +202,12 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			return true
 		}
 
+		if chatResponse.Usage != nil {
+			log.Printf("chatResponse: usage prompt=%d, completion=%d, total=%d",
+				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
+		}
+
+		// 发送数据到客户端
 		_, err = c.Writer.Write([]byte("data: " + string(jsonData) + "\n\n"))
 		if err != nil {
 			log.Println("Error while writing response:", err)
@@ -208,22 +217,48 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		}
 		c.Writer.Flush()
 
-		if chatResponse.Choices[0].FinishReason == "stop" {
-			_, err = c.Writer.Write([]byte("data:[DONE]\n\n"))
-			if usage, hasUsage := content["usage"].(map[string]interface{}); hasUsage {
-				promptTokens := int(usage["prompt_tokens"].(float64))
-				completionTokens := int(usage["completion_tokens"].(float64))
-				totalTokens := int(usage["total_tokens"].(float64))
-				// Record token usage
-				fmt.Println("chatResponse:", chatResponse, " promptTokens:", promptTokens,
-					" completionTokens:", completionTokens, " totalTokens:", totalTokens)
-				recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
-					promptTokens, completionTokens, totalTokens, clientID, ippm, oppm)
-			}
+		// 检查是否有 usage 信息（可能在 finish_reason 之后的单独数据块中）
+		if chatResponse.Usage != nil && chatResponse.Usage.TotalTokens > 0 {
+			log.Printf("Recording usage: prompt=%d, completion=%d, total=%d",
+				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
+
+			recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
+				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
+				chatResponse.Usage.TotalTokens, clientID, ippm, oppm)
+
+			// 收到 usage 后发送 [DONE] 并结束
+			_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			c.Writer.Flush()
 			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
 			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return true
+		}
+
+		// 检查是否完成（finish_reason 为 stop）
+		if len(chatResponse.Choices) > 0 && chatResponse.Choices[0].FinishReason == "stop" {
+			log.Printf("Received finish_reason: stop")
+			// 如果这个数据块中已经有 usage，直接处理
+			if usage, hasUsage := content["usage"].(map[string]interface{}); hasUsage {
+				promptTokens := int(usage["prompt_tokens"].(float64))
+				completionTokens := int(usage["completion_tokens"].(float64))
+				totalTokens := int(usage["total_tokens"].(float64))
+
+				log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d",
+					promptTokens, completionTokens, totalTokens)
+
+				recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
+					promptTokens, completionTokens, totalTokens, clientID, ippm, oppm)
+
+				_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
+				c.Writer.Flush()
+				_ = server.RespClients[fingerPrint].Close()
+				server.RemoveRespClient(fingerPrint)
+				_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+				return true
+			}
+			// 如果没有 usage，继续等待下一个可能包含 usage 的数据块
+			log.Printf("Finish reason received but no usage yet, waiting for usage block...")
 		}
 
 		return false
@@ -273,5 +308,53 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		log.Printf("保存token使用记录失败: %v", err)
 	} else {
 		log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
+		go func(server *models.Server, model string, clientID string, inputTokens, outputTokens, totalTokens int, ippm, oppm float64) {
+			// 检查 clients 是否存在
+			if server.Clients == nil {
+				log.Printf("server.Clients is nil, cannot send income message")
+				return
+			}
+
+			// 检查模型是否存在
+			modelClients, modelExists := server.Clients[model]
+			if !modelExists || modelClients == nil {
+				log.Printf("model %s not found in server.Clients", model)
+				return
+			}
+
+			// 检查客户端是否存在
+			client, clientExists := modelClients[clientID]
+			if !clientExists || client == nil {
+				log.Printf("client %s not found for model %s", clientID, model)
+				return
+			}
+
+			// 检查控制连接是否存在
+			if client.ControlConn == nil {
+				log.Printf("client %s ControlConn is nil", clientID)
+				return
+			}
+
+			// 根据client的用户userid 获取最新的总收入
+			totalIncome, err := server.TokenUsageDB.GetTotalIncomeByUserID(client.User.ID, server.ClientDB)
+			if err != nil {
+				log.Printf("获取用户 %s 总收入失败: %v", client.User.ID, err)
+				return
+			}
+			_ = client.ControlConn.WriteJSON(public.WSMessage{
+				Type: public.INCOME,
+				Content: map[string]interface{}{
+					"model": model,
+					"usage": map[string]interface{}{
+						"prompt_tokens":     inputTokens,
+						"completion_tokens": outputTokens,
+						"total_tokens":      totalTokens,
+					},
+					"income":       (ippm*float64(inputTokens) + oppm*float64(outputTokens)) / 1000000,
+					"total_income": totalIncome,
+					"timestamp":    strconv.Itoa(int(time.Now().Unix())),
+				},
+			})
+		}(server, model, clientID, inputTokens, outputTokens, totalTokens, ippm, oppm)
 	}
 }
