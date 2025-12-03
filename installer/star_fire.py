@@ -919,6 +919,10 @@ class StarFireAPP:
         toggle_btn = ttk.Button(token_frame, text="🔒", width=3, command=toggle_token)
         toggle_btn.pack(side=tk.LEFT, padx=(5, 0))
         
+        # 添加获取Token按钮
+        get_token_btn = ttk.Button(token_frame, text="🔑 获取", width=8, command=self.get_token_from_server)
+        get_token_btn.pack(side=tk.LEFT, padx=(5, 0))
+        
         ippm_frame = ttk.Frame(config_frame)
         ippm_frame.pack(fill=tk.X, pady=5)
         ttk.Label(ippm_frame, text="输入价格:", width=12).pack(side=tk.LEFT)
@@ -1085,6 +1089,73 @@ class StarFireAPP:
         self.save_config()
         self.starfire_log("✓ 配置已保存", "green")
         messagebox.showinfo("成功", "配置已保存！")
+    
+    def get_token_from_server(self):
+        """从服务器获取注册Token"""
+        host = self.host_entry.get().strip()
+        
+        if not host:
+            messagebox.showwarning("提示", "请先填写服务器地址！")
+            return
+        
+        # 在后台线程中获取token，避免阻塞UI
+        def _fetch_token():
+            try:
+                import urllib.request
+                import urllib.error
+                
+                # 动态拼接获取token的URL
+                # 如果host已经包含http(s)://，直接使用，否则添加http://
+                if host.startswith('http://') or host.startswith('https://'):
+                    base_url = host
+                else:
+                    base_url = f"http://{host}"
+                
+                # 拼接API端点
+                url = f"{base_url}/api/register"
+                
+                self.starfire_log(f"正在从服务器获取Token: {url}", "blue")
+                
+                # 发送GET请求获取token
+                req = urllib.request.Request(url, method='GET')
+                req.add_header('User-Agent', 'StarFire-Client/1.0')
+                
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    if response.status == 200:
+                        data = json.loads(response.read().decode('utf-8'))
+                        
+                        # 根据实际API响应格式调整
+                        if 'token' in data:
+                            token = data['token']
+                        elif 'data' in data and 'token' in data['data']:
+                            token = data['data']['token']
+                        else:
+                            raise Exception("响应中未找到token字段")
+                        
+                        # 在主线程中更新UI
+                        def _update_ui():
+                            self.token_entry.delete(0, tk.END)
+                            self.token_entry.insert(0, token)
+                            self.config['token'] = token
+                            self.save_config()
+                            self.starfire_log(f"✓ 成功获取Token: {token[:20]}...", "green")
+                            messagebox.showinfo("成功", f"Token已获取并保存！\n{token[:30]}...")
+                        
+                        self.root.after(0, _update_ui)
+                    else:
+                        raise Exception(f"服务器返回错误状态码: {response.status}")
+                        
+            except urllib.error.URLError as e:
+                error_msg = f"网络错误: {str(e)}"
+                self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
+                self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
+            except Exception as e:
+                error_msg = f"获取Token失败: {str(e)}"
+                self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
+                self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
+        
+        # 在后台线程执行
+        threading.Thread(target=_fetch_token, daemon=True).start()
     
     def on_closing(self):
         """窗口关闭时的清理工作"""
@@ -1763,7 +1834,19 @@ class StarFireAPP:
             self.log(f"✗ 停止模型时出错: {str(e)}", "red")
     
     def open_starfire(self):
-        url = "http://115.190.26.60/"
+        """打开Starfire官网（使用配置中的服务器地址）"""
+        host = self.host_entry.get().strip()
+        
+        if not host:
+            messagebox.showwarning("提示", "请先填写服务器地址！")
+            return
+        
+        # 动态拼接URL
+        if host.startswith('http://') or host.startswith('https://'):
+            url = host
+        else:
+            url = f"http://{host}/"
+        
         webbrowser.open(url)
         self.starfire_log(f"已打开 Starfire 官网: {url}")
 
