@@ -6,15 +6,12 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 	"log"
-	"net"
 	"net/http"
 	"net/url"
-	configs "star-fire/client/internal/config"
 	"star-fire/pkg/public"
-	"time"
 )
 
-func RegisterClient(conf *configs.Config, c *Client, host, token string) error {
+func RegisterClient(c *Client, host, token string) error {
 	u := url.URL{Scheme: "ws", Host: host, Path: fmt.Sprintf("/register/%s", c.ID)}
 	log.Printf("link %s", u.String())
 
@@ -47,7 +44,7 @@ func RegisterClient(conf *configs.Config, c *Client, host, token string) error {
 	return nil
 }
 
-func HandleMessages(c *Client) {
+func (c *Client) HandleMessages() {
 	defer c.controlConn.Close()
 
 	// 创建消息通道
@@ -79,15 +76,15 @@ func HandleMessages(c *Client) {
 		case message := <-messageCh:
 			switch message.Type {
 			case public.KEEPALIVE:
-				handleKeepAlive(c, message)
+				c.handleKeepAlive(message)
 			case public.MESSAGE:
-				handleChatMessage(c, message)
+				c.handleChatMessage(message)
 			case public.EMBEDDING_REQUEST:
-				handleEmbeddingMessage(c, message)
+				c.handleEmbeddingMessage(message)
 			case public.RECONNECT:
-				handleReconnect(c, message)
+				c.handleReconnect(message)
 			case public.INCOME:
-				handleIncome(message)
+				c.handleIncome(message)
 			case public.CLOSE:
 				log.Println("server close message:", message.Content)
 				return
@@ -98,9 +95,14 @@ func HandleMessages(c *Client) {
 	}
 }
 
-func handleKeepAlive(c *Client, message public.WSMessage) {
+func (c *Client) handleKeepAlive(message public.WSMessage) {
 	log.Printf("recieve pong")
 	_ = c.refreshModels()
+	// for test update model price
+	log.Println("update model price...")
+	for _, model := range c.Models {
+		fmt.Println("model:", model.Name, "price:", model.OPPM, "inputPrice:", model.IPPM)
+	}
 	pong := public.PPMessage{
 		Type:            public.PONG,
 		Timestamp:       message.Content.(map[string]interface{})["timestamp"].(string),
@@ -117,13 +119,13 @@ func handleKeepAlive(c *Client, message public.WSMessage) {
 	fmt.Println("pong message is:", response)
 }
 
-func handleReconnect(c *Client, message public.WSMessage) {
+func (c *Client) handleReconnect(message public.WSMessage) {
 	// update fingerprint
 	log.Printf("recieve reconnect message: %v", message.FingerPrint)
 	c.cfg.JoinToken = message.FingerPrint
 }
 
-func handleChatMessage(c *Client, message public.WSMessage) {
+func (c *Client) handleChatMessage(message public.WSMessage) {
 	log.Printf("recieve chat message request: %v", message.FingerPrint)
 
 	tmp, _ := json.Marshal(message.Content)
@@ -152,7 +154,7 @@ func handleChatMessage(c *Client, message public.WSMessage) {
 	}()
 }
 
-func handleEmbeddingMessage(c *Client, message public.WSMessage) {
+func (c *Client) handleEmbeddingMessage(message public.WSMessage) {
 	log.Printf("recieve embedding request: %v", message.FingerPrint)
 
 	tmp, _ := json.Marshal(message.Content)
@@ -193,7 +195,7 @@ func openResponseConn(host, fingerprint string) (*websocket.Conn, error) {
 	return conn, nil
 }
 
-func handleIncome(message public.WSMessage) {
+func (c *Client) handleIncome(message public.WSMessage) {
 	content, ok := message.Content.(map[string]interface{})
 	if !ok {
 		log.Printf("invalid income message content format")
@@ -257,7 +259,7 @@ func handleIncome(message public.WSMessage) {
 	}
 
 	// 发送到 TCP 服务器
-	if err := sendToTCPServer("127.0.0.1:19527", string(jsonBytes)); err != nil {
+	if err := c.sendToTCPServer(string(jsonBytes)); err != nil {
 		log.Printf("发送收益到 TCP 服务器失败: %v", err)
 	} else {
 		log.Printf("✓ 收益已发送: %.8f ¥ (模型: %v, 总收益: %v)", incomeValue, model, totalIncome)
@@ -265,13 +267,11 @@ func handleIncome(message public.WSMessage) {
 }
 
 // sendToTCPServer 发送消息到 TCP 服务器（协议: 4字节长度头 + UTF-8内容）
-func sendToTCPServer(address string, message string) error {
-	// 连接到 TCP 服务器
-	conn, err := net.DialTimeout("tcp", address, 3*time.Second)
-	if err != nil {
-		return fmt.Errorf("connect to TCP server error: %w", err)
+func (c *Client) sendToTCPServer(message string) error {
+	// 确保 TCP 连接可用
+	if err := c.ensureTCPConnection(); err != nil {
+		return fmt.Errorf("ensure TCP connection error: %w", err)
 	}
-	defer conn.Close()
 
 	// 编码消息为 UTF-8
 	messageBytes := []byte(message)
@@ -284,12 +284,20 @@ func sendToTCPServer(address string, message string) error {
 	lengthBytes[2] = byte(length >> 8)
 	lengthBytes[3] = byte(length)
 
-	if _, err := conn.Write(lengthBytes); err != nil {
-		return fmt.Errorf("write length header error: %w", err)
+	if _, err := c.AppClient.Write(lengthBytes); err != nil {
+		// 写入失败，可能是连接断开，尝试重连一次
+		log.Printf("write length header failed: %v, attempting to reconnect...", err)
+		if reconnectErr := c.ensureTCPConnection(); reconnectErr != nil {
+			return fmt.Errorf("reconnect failed: %w", reconnectErr)
+		}
+		// 重新尝试发送长度头
+		if _, retryErr := c.AppClient.Write(lengthBytes); retryErr != nil {
+			return fmt.Errorf("write length header error after reconnect: %w", retryErr)
+		}
 	}
 
 	// 发送消息内容
-	if _, err := conn.Write(messageBytes); err != nil {
+	if _, err := c.AppClient.Write(messageBytes); err != nil {
 		return fmt.Errorf("write message content error: %w", err)
 	}
 

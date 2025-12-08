@@ -7,6 +7,9 @@ import (
 	"strconv"
 )
 
+const IPPM_MAX = 3.99
+const OPPM_MAX = 7.99
+
 type Config struct {
 	StarFireHost               string
 	JoinToken                  string
@@ -18,6 +21,8 @@ type Config struct {
 	OutputTokenPricePerMillion float64
 	Deamon                     bool // 是否以守护进程方式运行
 	APPPort                    int
+	IPPMMax                    float64
+	OPPMMax                    float64
 }
 
 func LoadConfig() *Config {
@@ -36,8 +41,8 @@ func LoadConfig() *Config {
 	flag.StringVar(&cfg.OllamaHost, "ollama-host", cfg.OllamaHost, "Ollama API 服务器地址")
 	flag.StringVar(&cfg.OpenAIKey, "openai-key", "", "OpenAI API 密钥")
 	flag.StringVar(&cfg.OpenAIBaseURL, "openai-url", cfg.OpenAIBaseURL, "OpenAI API 基础URL")
-	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", cfg.InputTokenPricePerMillion, "每输入百万tokens定价 (默认: 4.0)")
-	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", cfg.OutputTokenPricePerMillion, "每输出百万tokens定价 (默认: 8.0)")
+	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", IPPM_MAX, "每输入百万tokens定价最大值 (默认: 3.99)")
+	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", OPPM_MAX, "每输出百万tokens定价最大值 (默认: 7.99)")
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 	flag.IntVar(&cfg.APPPort, "port", 19527, "服务端口 (默认:19527)")
 
