@@ -84,11 +84,11 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	}
 
 	waitStart := time.Now()
-	handleChatResponse(c, server, fingerPrint, waitStart, client.ID, ippm, oppm)
+	handleChatResponse(c, server, fingerPrint, waitStart, client.ID, ippm, oppm, request.Model)
 }
 
 // handle chat response
-func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm float64) {
+func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm float64, reqModel string) {
 	for {
 		if server.RespClients[fingerPrint] == nil {
 			time.Sleep(1 * time.Millisecond)
@@ -112,11 +112,11 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 
 		switch response.Type {
 		case public.MESSAGE:
-			handleStandardChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm)
+			handleStandardChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, reqModel)
 			return
 
 		case public.MESSAGE_STREAM:
-			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm)
+			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, reqModel)
 			if finished {
 				return
 			}
@@ -153,7 +153,7 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 }
 
 // handle standard chat response
-func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm float64) {
+func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm float64, reqModel string) {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
@@ -175,7 +175,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 
 		c.JSON(http.StatusOK, content)
 
-		recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
+		recordTokenUsage(c, server, fingerPrint, reqModel,
 			chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
 			chatResponse.Usage.TotalTokens, clientID, ippm, oppm)
 	} else {
@@ -186,7 +186,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 }
 
 // handle stream chat response
-func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm float64) bool {
+func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm float64, reqModel string) bool {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
@@ -225,7 +225,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			log.Printf("Recording usage: prompt=%d, completion=%d, total=%d",
 				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
 
-			recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
+			recordTokenUsage(c, server, fingerPrint, reqModel,
 				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
 				chatResponse.Usage.TotalTokens, clientID, ippm, oppm)
 
@@ -250,7 +250,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 				log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d",
 					promptTokens, completionTokens, totalTokens)
 
-				recordTokenUsage(c, server, fingerPrint, chatResponse.Model,
+				recordTokenUsage(c, server, fingerPrint, reqModel,
 					promptTokens, completionTokens, totalTokens, clientID, ippm, oppm)
 
 				_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))

@@ -555,8 +555,8 @@ class StarFireAPP:
         self.config = {
             'host': '115.190.26.60',
             'token': '',
-            'ippm': '3.8',
-            'oppm': '8.3',
+            'ippm': '3.8',   # 默认输入价格 3.8 元 / 百万 tokens
+            'oppm': '8.3',   # 默认输出价格 8.3 元 / 百万 tokens
             'model_mode': 'ollama',  # ollama, vllm, proxy, llamacpp
             'proxy_base_url': 'http://localhost:8000/v1',
             'proxy_api_key': '',
@@ -613,12 +613,10 @@ class StarFireAPP:
     
     def auto_save_config(self, field_name):
         """自动检测配置修改并保存"""
-        # 获取当前输入框的值
+        # 获取当前输入框的值 - 移除了 ippm 和 oppm，它们现在在模型价格设置中
         current_values = {
             'host': self.host_entry.get().strip(),
             'token': self.token_entry.get().strip(),
-            'ippm': self.ippm_entry.get().strip(),
-            'oppm': self.oppm_entry.get().strip(),
             'proxy_base_url': self.proxy_base_url_entry.get().strip(),
             'proxy_api_key': self.proxy_api_key_entry.get().strip(),
             'ollama_num_parallel': self.ollama_num_parallel_entry.get().strip()
@@ -1016,27 +1014,29 @@ class StarFireAPP:
         toggle_btn = ttk.Button(token_frame, text="🔒", width=3, command=toggle_token)
         toggle_btn.pack(side=tk.LEFT, padx=(5, 0))
         
-        # 添加获取Token按钮
-        get_token_btn = ttk.Button(token_frame, text="🔑 获取", width=8, command=self.get_token_from_server)
-        get_token_btn.pack(side=tk.LEFT, padx=(5, 0))
-        
-        ippm_frame = ttk.Frame(config_frame)
-        ippm_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(ippm_frame, text="输入价格:", width=12).pack(side=tk.LEFT)
-        self.ippm_entry = ttk.Entry(ippm_frame, width=15)
-        self.ippm_entry.insert(0, self.config['ippm'])
-        self.ippm_entry.pack(side=tk.LEFT, padx=(5, 0))
-        self.ippm_entry.bind('<FocusOut>', lambda e: self.auto_save_config('ippm'))
-        ttk.Label(ippm_frame, text="¥/M tokens").pack(side=tk.LEFT, padx=(5, 0))
-        
-        oppm_frame = ttk.Frame(config_frame)
-        oppm_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(oppm_frame, text="输出价格:", width=12).pack(side=tk.LEFT)
-        self.oppm_entry = ttk.Entry(oppm_frame, width=15)
-        self.oppm_entry.insert(0, self.config['oppm'])
-        self.oppm_entry.pack(side=tk.LEFT, padx=(5, 0))
-        self.oppm_entry.bind('<FocusOut>', lambda e: self.auto_save_config('oppm'))
-        ttk.Label(oppm_frame, text="¥/M tokens").pack(side=tk.LEFT, padx=(5, 0))
+        # 去掉获取Token按钮，仅保留显示与显隐切换
+        # 添加收益信息展示
+        income_frame = ttk.Frame(config_frame)
+        income_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(income_frame, text="总收益:", width=12).pack(side=tk.LEFT)
+        self.total_income_label = ttk.Label(
+            income_frame,
+            text="0.00 ¥",
+            foreground="green",
+            font=("Arial", 10, "bold")
+        )
+        self.total_income_label.pack(side=tk.LEFT, padx=(5, 0))
+
+        latest_frame = ttk.Frame(config_frame)
+        latest_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(latest_frame, text="最新收益:", width=12).pack(side=tk.LEFT)
+        self.latest_income_label = ttk.Label(
+            latest_frame,
+            text="0.00 ¥",
+            foreground="blue",
+            font=("Arial", 10)
+        )
+        self.latest_income_label.pack(side=tk.LEFT, padx=(5, 0))
         
         # 模型价格设置按钮
         model_price_frame = ttk.Frame(config_frame)
@@ -1210,8 +1210,6 @@ class StarFireAPP:
     def save_config_action(self):
         self.config['host'] = self.host_entry.get().strip()
         self.config['token'] = self.token_entry.get().strip()
-        self.config['ippm'] = self.ippm_entry.get().strip()
-        self.config['oppm'] = self.oppm_entry.get().strip()
         self.config['model_mode'] = self.model_mode_var.get()
         self.config['proxy_base_url'] = self.proxy_base_url_entry.get().strip()
         self.config['proxy_api_key'] = self.proxy_api_key_entry.get().strip()
@@ -1288,57 +1286,52 @@ class StarFireAPP:
         # 在后台线程执行
         threading.Thread(target=_fetch_token, daemon=True).start()
     
-    def get_available_models(self):
-        """获取可用模型列表（支持Ollama和OpenAI）"""
-        model_mode = self.model_mode_var.get()
-        models = []
+
+    def get_all_available_models(self):
+        """返回所有可用模型及其引擎类型的字典 {model_name: engine}"""
+        models = {}
         
+        # 获取ollama正在运行的模型
         try:
-            if model_mode == 'ollama':
-                # 获取Ollama模型列表
-                result = subprocess.run(
-                    ["ollama", "list"],
-                    capture_output=True,
-                    text=True,
-                    timeout=10,
-                    creationflags=SUBPROCESS_FLAGS
-                )
-                
-                if result.returncode == 0:
-                    lines = result.stdout.strip().split('\n')
-                    for line in lines[1:]:  # 跳过标题行
-                        parts = line.split()
-                        if parts:
-                            models.append(parts[0])
-            
-            elif model_mode == 'proxy':
-                # 获取OpenAI兼容API的模型列表
-                base_url = self.proxy_base_url_entry.get().strip()
-                api_key = self.proxy_api_key_entry.get().strip()
-                
-                if not base_url or not api_key:
-                    raise Exception("请先配置代理URL和API Key")
-                
-                # 构建models API endpoint
+            result = subprocess.run(
+                ["ollama", "ps"],
+                capture_output=True,
+                text=True,
+                timeout=10,
+                creationflags=SUBPROCESS_FLAGS
+            )
+            if result.returncode == 0:
+                lines = result.stdout.strip().split('\n')
+                for line in lines[1:]:
+                    parts = line.split()
+                    if parts:
+                        models[parts[0]] = 'ollama'
+        except Exception as e:
+            self.starfire_log(f"❌ 获取Ollama运行中模型失败: {str(e)}", "red")
+
+        # 获取代理模型
+        try:
+            base_url = self.proxy_base_url_entry.get().strip()
+            api_key = self.proxy_api_key_entry.get().strip()
+            if base_url and api_key:
                 if base_url.endswith('/v1'):
                     models_url = f"{base_url}/models"
                 else:
                     models_url = f"{base_url}/models"
-                
                 import urllib.request
                 req = urllib.request.Request(models_url)
                 req.add_header('Authorization', f'Bearer {api_key}')
-                
                 with urllib.request.urlopen(req, timeout=10) as response:
                     data = json.loads(response.read().decode('utf-8'))
                     if 'data' in data:
-                        models = [m['id'] for m in data['data']]
+                        for m in data['data']:
+                            models[m['id']] = 'openai'
                     elif 'models' in data:
-                        models = data['models']
-        
+                        for m in data['models']:
+                            models[m] = 'openai'
         except Exception as e:
-            self.starfire_log(f"❌ 获取模型列表失败: {str(e)}", "red")
-        
+            self.starfire_log(f"❌ 获取代理模型失败: {str(e)}", "red")
+
         return models
     
     def open_model_price_window(self):
@@ -1357,9 +1350,14 @@ class StarFireAPP:
         info_frame.pack(fill=tk.X)
         ttk.Label(
             info_frame,
-            text="💡 为每个模型单独设置输入/输出价格，未设置的模型将使用默认价格。\n关闭窗口即自动保存并同步到Starfire，无需手动发送。",
+            text=(
+                "💡 为每个模型单独设置输入/输出价格；"
+                "如未设置则使用默认价格 (输入 < 10 元/百万 tokens，输出 < 20 元/百万 tokens)。\n"
+                "关闭窗口即自动保存并同步到 Starfire ，无需手动发送。"
+            ),
             foreground="blue",
-            font=("Arial", 9)
+            font=("Arial", 9),
+            wraplength=650
         ).pack(anchor=tk.W)
         
         # 按钮区域
@@ -1423,28 +1421,56 @@ class StarFireAPP:
         for item in tree.get_children():
             tree.delete(item)
         
-        # 获取模型列表
-        models = self.get_available_models()
+        # 获取模型列表（字典：{model_name: engine}）
+        models_dict = self.get_all_available_models()
         
-        if not models:
+        if not models_dict:
             messagebox.showwarning("提示", "未找到可用模型！", parent=window)
             return
         
         # 获取已保存的价格配置
-        model_prices = self.config.get('model_prices', {})
+        model_prices = self.config.get('model_prices', {}) or {}
+
+        # 全局默认价格（确保为字符串，便于显示）
+        # 强制使用 3.8 和 8.3 作为默认值，忽略配置文件中的旧全局设置
+        default_ippm = '3.8'
+        default_oppm = '8.3'
         
         # 填充数据
-        for model in models:
+        for model, engine in sorted(models_dict.items()):
             if model in model_prices:
-                ippm = model_prices[model].get('ippm', self.config['ippm'])
-                oppm = model_prices[model].get('oppm', self.config['oppm'])
+                # 如果配置中存在该模型，但缺少ippm或oppm，则使用默认值
+                ippm = str(model_prices[model].get('ippm', default_ippm))
+                oppm = str(model_prices[model].get('oppm', default_oppm))
+                
+                # 如果读取到的值为空字符串，也使用默认值
+                if not ippm: ippm = default_ippm
+                if not oppm: oppm = default_oppm
+                
+                # 更新引擎类型（如果配置中没有或不同）
+                if model_prices[model].get('engine') != engine:
+                    model_prices[model]['engine'] = engine
             else:
-                ippm = self.config['ippm']
-                oppm = self.config['oppm']
+                # 模型不在配置中，使用默认值并立即保存到配置
+                ippm = default_ippm
+                oppm = default_oppm
+                # 将默认值添加到配置中，包含引擎类型
+                if 'model_prices' not in self.config:
+                    self.config['model_prices'] = {}
+                self.config['model_prices'][model] = {
+                    'ippm': ippm,
+                    'oppm': oppm,
+                    'engine': engine
+                }
             
             tree.insert("", tk.END, values=(model, ippm, oppm))
         
-        self.starfire_log(f"✓ 已加载 {len(models)} 个模型的价格配置", "green")
+        # 如果有新增的默认价格或引擎类型更新，保存配置
+        if self.config.get('model_prices', {}) != model_prices:
+            self.save_config()
+            self.starfire_log(f"✓ 已为新模型设置默认价格 (输入: {default_ippm}, 输出: {default_oppm})", "green")
+        
+        self.starfire_log(f"✓ 已加载 {len(models_dict)} 个模型的价格配置", "green")
     
     def edit_model_price_inline(self, tree, event, parent_window):
         """在单元格内直接编辑模型价格"""
@@ -1579,30 +1605,33 @@ class StarFireAPP:
         """通过TCP发送价格配置到starfire.exe"""
         try:
             model_prices = self.config.get('model_prices', {})
-            model_mode = self.model_mode_var.get()
-            engine_map = {
-                'ollama': 'ollama',
-                'proxy': 'openai',
-                'vllm': 'vllm',
-                'llamacpp': 'llama.cpp'
-            }
-            engine = engine_map.get(model_mode, 'ollama')
             models_data = []
             if model_prices:
                 for model_name, prices in model_prices.items():
+                    # 使用配置中存储的引擎类型，如果没有则默认为 ollama
+                    engine = prices.get('engine', 'ollama')
                     models_data.append({
                         'model': model_name,
                         'engine': engine,
-                        'ippm': str(prices.get('ippm', self.config.get('ippm', '0'))),
-                        'oppm': str(prices.get('oppm', self.config.get('oppm', '0')))
+                        'ippm': str(prices.get('ippm', self.config.get('ippm', '3.8'))),
+                        'oppm': str(prices.get('oppm', self.config.get('oppm', '8.3')))
                     })
             else:
+                # 如果没有配置任何模型价格，使用当前模式的引擎作为默认
+                model_mode = self.model_mode_var.get()
+                engine_map = {
+                    'ollama': 'ollama',
+                    'proxy': 'openai',
+                    'vllm': 'vllm',
+                    'llamacpp': 'llama.cpp'
+                }
+                engine = engine_map.get(model_mode, 'ollama')
                 self.starfire_log("⚠️ 没有配置模型价格，将发送默认价格配置", "orange")
                 models_data.append({
                     'model': '*',
                     'engine': engine,
-                    'ippm': str(self.config.get('ippm', '0')),
-                    'oppm': str(self.config.get('oppm', '0'))
+                    'ippm': str(self.config.get('ippm', '3.8')),
+                    'oppm': str(self.config.get('oppm', '8.3'))
                 })
             message = {
                 'id': 'model_price_config',
@@ -1649,12 +1678,13 @@ class StarFireAPP:
     def start_starfire(self):
         host = self.host_entry.get().strip()
         token = self.token_entry.get().strip()
-        ippm = self.ippm_entry.get().strip()
-        oppm = self.oppm_entry.get().strip()
+        # 使用配置文件中的默认价格，如果没有则使用 3.8 和 8.3
+        ippm = self.config.get('ippm', '3.8')
+        oppm = self.config.get('oppm', '8.3')
         model_mode = self.model_mode_var.get()
         
-        if not all([host, token, ippm, oppm]):
-            messagebox.showwarning("配置不完整", "请填写所有必填配置项！")
+        if not all([host, token]):
+            messagebox.showwarning("配置不完整", "请填写服务器地址和 Token！")
             return
         
         # 代理模式需要额外检查配置
@@ -2170,7 +2200,7 @@ class StarFireAPP:
             mode = self.model_mode_var.get()
             if mode == 'proxy':
                 # 使用代理接口获取模型
-                models = self.get_available_models()
+                models = self.get_all_available_models()
                 if not models:
                     self.log("代理模式下未获取到模型", "orange")
                     messagebox.showinfo("提示", "代理模式未获取到模型\n请检查 Base URL 与 API Key")

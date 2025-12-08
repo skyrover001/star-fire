@@ -169,6 +169,9 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		}
 		defer stream.Close()
 
+		var lastResponse *openai.ChatCompletionStreamResponse
+		hasFinishReason := false
+
 		for {
 			response, err := stream.Recv()
 			if err != nil {
@@ -199,15 +202,42 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 				return err
 			}
 
-			// 记录日志
-			if response.Usage != nil {
+			// 记录最后一个响应
+			lastResponse = &response
+
+			// 记录日志并检查 usage
+			if response.Usage != nil && response.Usage.TotalTokens > 0 {
 				log.Printf("[%s] received usage: prompt=%d, completion=%d, total=%d",
 					fingerprint, response.Usage.PromptTokens, response.Usage.CompletionTokens, response.Usage.TotalTokens)
+
+				// 如果已经收到了 finish_reason，现在收到 usage，可以结束了
+				if hasFinishReason {
+					log.Printf("[%s] received usage after finish_reason, stream complete", fingerprint)
+					break
+				}
 			}
 
+			// 检查 finish_reason
 			if len(response.Choices) > 0 && response.Choices[0].FinishReason != "" {
 				log.Printf("[%s] received finish_reason: %s", fingerprint, response.Choices[0].FinishReason)
+				hasFinishReason = true
+
+				// 如果这个数据块同时包含 usage，可以结束
+				if response.Usage != nil && response.Usage.TotalTokens > 0 {
+					log.Printf("[%s] finish_reason and usage in same block, stream complete", fingerprint)
+					break
+				}
+
+				// 否则继续等待下一个可能包含 usage 的数据块
+				log.Printf("[%s] finish_reason received, waiting for usage block...", fingerprint)
 			}
+		}
+
+		// 确保最后发送了包含 usage 的数据块（如果有的话）
+		if lastResponse != nil && lastResponse.Usage != nil && lastResponse.Usage.TotalTokens > 0 {
+			log.Printf("[%s] stream ended with usage info available", fingerprint)
+		} else {
+			log.Printf("[%s] warning: stream ended without usage info", fingerprint)
 		}
 	} else {
 		log.Printf("not stream request [%s]", fingerprint)
