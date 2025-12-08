@@ -107,14 +107,22 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 		}
 		c.engines = append(c.engines, openaiEngine)
 
-	case "all":
-		ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost, cfg)
-		if err != nil {
-			log.Printf("init ollama engine error: %v", err)
+		// 如果不是 OpenAIOnly 模式，也尝试初始化本地 Ollama 引擎
+		if !cfg.OpenAIOnly {
+			log.Println("OpenAI mode with local engines enabled, attempting to init Ollama...")
+			ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost, cfg)
+			if err != nil {
+				log.Printf("⚠️ Init Ollama engine error (optional): %v", err)
+			} else {
+				c.engines = append(c.engines, ollamaEngine)
+				log.Println("✓ Ollama engine added alongside OpenAI")
+			}
 		} else {
-			c.engines = append(c.engines, ollamaEngine)
+			log.Println("OpenAI-only mode enabled, skipping local engines")
 		}
 
+	case "all":
+		// 先初始化 OpenAI（如果配置了）
 		if cfg.OpenAIKey != "" {
 			openaiEngine, err := openai.NewEngine(c.ctx, cfg.OpenAIKey, cfg.OpenAIBaseURL, cfg)
 			if err != nil {
@@ -122,6 +130,18 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 			} else {
 				c.engines = append(c.engines, openaiEngine)
 			}
+		}
+
+		// 如果不是 OpenAIOnly 模式，才初始化本地引擎
+		if !cfg.OpenAIOnly {
+			ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost, cfg)
+			if err != nil {
+				log.Printf("init ollama engine error: %v", err)
+			} else {
+				c.engines = append(c.engines, ollamaEngine)
+			}
+		} else {
+			log.Println("OpenAI-only mode enabled in 'all' engine mode, skipping Ollama")
 		}
 
 	default:
@@ -195,7 +215,12 @@ func (c *Client) refreshModels() error {
 	// 更新模型列表
 	c.Models = newModels
 
-	log.Printf("discovery %d models (including embedding models)", len(c.Models))
+	if c.cfg.OpenAIOnly {
+		log.Printf("📊 OpenAI-only mode: discovered %d models (OpenAI + running local models)", len(c.Models))
+	} else {
+		log.Printf("📊 Discovery %d models (including all local models)", len(c.Models))
+	}
+
 	// 记录发现的embedding模型
 	embeddingCount := 0
 	for _, model := range c.Models {

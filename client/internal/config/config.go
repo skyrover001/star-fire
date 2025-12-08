@@ -23,6 +23,7 @@ type Config struct {
 	APPPort                    int
 	IPPMMax                    float64
 	OPPMMax                    float64
+	OpenAIOnly                 bool // 仅使用 OpenAI 引擎，不包含本地引擎模型
 }
 
 func LoadConfig() *Config {
@@ -45,6 +46,7 @@ func LoadConfig() *Config {
 	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", OPPM_MAX, "每输出百万tokens定价最大值 (默认: 7.99)")
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 	flag.IntVar(&cfg.APPPort, "port", 19527, "服务端口 (默认:19527)")
+	flag.BoolVar(&cfg.OpenAIOnly, "openai-only", false, "仅使用 OpenAI 引擎，不注册本地引擎模型到服务器")
 
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(os.Stderr, "StarFire 客户端\n\n")
