@@ -1381,16 +1381,18 @@ class StarFireAPP:
         list_frame.pack(fill=tk.BOTH, expand=True)
         
         # 创建表格
-        columns = ("模型名称", "输入价格(¥/M)", "输出价格(¥/M)")
+        columns = ("模型名称", "引擎", "输入价格(¥/M)", "输出价格(¥/M)")
         tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
         
         tree.heading("模型名称", text="模型名称")
+        tree.heading("引擎", text="引擎")
         tree.heading("输入价格(¥/M)", text="输入价格(¥/M)")
         tree.heading("输出价格(¥/M)", text="输出价格(¥/M)")
         
-        tree.column("模型名称", width=300)
-        tree.column("输入价格(¥/M)", width=150, anchor=tk.CENTER)
-        tree.column("输出价格(¥/M)", width=150, anchor=tk.CENTER)
+        tree.column("模型名称", width=280)
+        tree.column("引擎", width=100, anchor=tk.CENTER)
+        tree.column("输入价格(¥/M)", width=140, anchor=tk.CENTER)
+        tree.column("输出价格(¥/M)", width=140, anchor=tk.CENTER)
         
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -1428,47 +1430,55 @@ class StarFireAPP:
             messagebox.showwarning("提示", "未找到可用模型！", parent=window)
             return
         
-        # 获取已保存的价格配置
-        model_prices = self.config.get('model_prices', {}) or {}
+        # 获取已保存的价格配置（确保是同一个引用，便于就地更新）
+        model_prices = self.config.setdefault('model_prices', {})
 
         # 全局默认价格（确保为字符串，便于显示）
         # 强制使用 3.8 和 8.3 作为默认值，忽略配置文件中的旧全局设置
         default_ippm = '3.8'
         default_oppm = '8.3'
+
+        config_changed = False
         
         # 填充数据
         for model, engine in sorted(models_dict.items()):
-            if model in model_prices:
-                # 如果配置中存在该模型，但缺少ippm或oppm，则使用默认值
-                ippm = str(model_prices[model].get('ippm', default_ippm))
-                oppm = str(model_prices[model].get('oppm', default_oppm))
-                
-                # 如果读取到的值为空字符串，也使用默认值
-                if not ippm: ippm = default_ippm
-                if not oppm: oppm = default_oppm
-                
-                # 更新引擎类型（如果配置中没有或不同）
-                if model_prices[model].get('engine') != engine:
-                    model_prices[model]['engine'] = engine
-            else:
-                # 模型不在配置中，使用默认值并立即保存到配置
+            entry = model_prices.get(model, {})
+
+            ippm = str(entry.get('ippm', default_ippm)) if entry else default_ippm
+            oppm = str(entry.get('oppm', default_oppm)) if entry else default_oppm
+
+            if not ippm:
                 ippm = default_ippm
+            if not oppm:
                 oppm = default_oppm
-                # 将默认值添加到配置中，包含引擎类型
-                if 'model_prices' not in self.config:
-                    self.config['model_prices'] = {}
-                self.config['model_prices'][model] = {
+
+            if entry:
+                # 统一写回标准化后的数值
+                if entry.get('ippm') != ippm:
+                    entry['ippm'] = ippm
+                    config_changed = True
+                if entry.get('oppm') != oppm:
+                    entry['oppm'] = oppm
+                    config_changed = True
+                if entry.get('engine') != engine:
+                    entry['engine'] = engine
+                    config_changed = True
+            else:
+                model_prices[model] = {
                     'ippm': ippm,
                     'oppm': oppm,
                     'engine': engine
                 }
-            
-            tree.insert("", tk.END, values=(model, ippm, oppm))
+                config_changed = True
+
+            tree.insert("", tk.END, values=(model, str(engine), ippm, oppm))
         
-        # 如果有新增的默认价格或引擎类型更新，保存配置
-        if self.config.get('model_prices', {}) != model_prices:
+        if config_changed:
             self.save_config()
-            self.starfire_log(f"✓ 已为新模型设置默认价格 (输入: {default_ippm}, 输出: {default_oppm})", "green")
+            self.starfire_log(
+                f"✓ 已同步模型价格默认值 (输入: {default_ippm}, 输出: {default_oppm})",
+                "green"
+            )
         
         self.starfire_log(f"✓ 已加载 {len(models_dict)} 个模型的价格配置", "green")
     
@@ -1481,8 +1491,8 @@ class StarFireAPP:
         column = tree.identify_column(event.x)
         row_id = tree.identify_row(event.y)
         
-        # 不允许编辑模型名称列
-        if not row_id or column == "#1":
+        # 不允许编辑模型名称和引擎列
+        if not row_id or column in ("#1", "#2"):
             return
         
         # 获取单元格位置
@@ -1535,7 +1545,7 @@ class StarFireAPP:
         column = tree.identify_column(event.x)
         row_id = tree.identify_row(event.y)
         
-        if not row_id or column == "#1":  # 不允许编辑模型名称
+        if not row_id or column in ("#1", "#2"):  # 不允许编辑模型名称和引擎
             return
         
         # 获取当前值
@@ -1557,7 +1567,7 @@ class StarFireAPP:
         frame.pack(fill=tk.BOTH, expand=True)
         
         model_name = values[0]
-        price_type = "输入价格" if col_index == 1 else "输出价格"
+        price_type = "输入价格" if col_index == 2 else "输出价格"
         
         ttk.Label(frame, text=f"模型: {model_name}", font=("Arial", 10, "bold")).pack(pady=5)
         ttk.Label(frame, text=f"{price_type} (¥/M tokens):", font=("Arial", 9)).pack(pady=5)
@@ -1587,9 +1597,11 @@ class StarFireAPP:
         for item in tree.get_children():
             values = tree.item(item)['values']
             model_name = values[0]
-            ippm = values[1]
-            oppm = values[2]
+            engine = values[1]
+            ippm = values[2]
+            oppm = values[3]
             model_prices[model_name] = {
+                'engine': str(engine),
                 'ippm': str(ippm),
                 'oppm': str(oppm)
             }
@@ -1605,11 +1617,12 @@ class StarFireAPP:
         """通过TCP发送价格配置到starfire.exe"""
         try:
             model_prices = self.config.get('model_prices', {})
+            available_models = self.get_all_available_models()
             models_data = []
             if model_prices:
                 for model_name, prices in model_prices.items():
                     # 使用配置中存储的引擎类型，如果没有则默认为 ollama
-                    engine = prices.get('engine', 'ollama')
+                    engine = str(prices.get('engine') or available_models.get(model_name, 'ollama'))
                     models_data.append({
                         'model': model_name,
                         'engine': engine,
@@ -2200,7 +2213,8 @@ class StarFireAPP:
             mode = self.model_mode_var.get()
             if mode == 'proxy':
                 # 使用代理接口获取模型
-                models = self.get_all_available_models()
+                all_models = self.get_all_available_models()
+                models = [name for name, engine in all_models.items() if engine == 'openai']
                 if not models:
                     self.log("代理模式下未获取到模型", "orange")
                     messagebox.showinfo("提示", "代理模式未获取到模型\n请检查 Base URL 与 API Key")
