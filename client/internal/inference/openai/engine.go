@@ -70,12 +70,14 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 	publicModels := make([]*public.Model, 0)
 	for _, model := range e.modelList {
 		publicModel := &public.Model{
-			Name: model.ID,
-			Type: model.Root,
-			Size: "unknown",
-			Arch: model.Object,
-			IPPM: conf.InputTokenPricePerMillion,
-			OPPM: conf.OutputTokenPricePerMillion,
+			Name:        model.ID,
+			Type:        model.Root,
+			Size:        "unknown",
+			Arch:        model.Object,
+			Engine:      "openai",
+			IPPM:        conf.InputTokenPricePerMillion,
+			OPPM:        conf.OutputTokenPricePerMillion,
+			OpenAIModel: model,
 		}
 		publicModels = append(publicModels, publicModel)
 	}

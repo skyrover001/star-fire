@@ -54,8 +54,11 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	ippm := 9.0 // 输入tokens价格
 	oppm := 9.0 // 输出tokens价格
 	for _, m := range client.Models {
-		ippm = m.IPPM
-		oppm = m.OPPM
+		if m.Name == request.Model {
+			ippm = m.IPPM
+			oppm = m.OPPM
+			break
+		}
 	}
 
 	log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm)

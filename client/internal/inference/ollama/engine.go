@@ -116,7 +116,7 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 
 		// 4. 决定是否注册模型
 		shouldRegister := false
-		modelType := "ollama"
+		modelType := "LLM"
 
 		if isEmbedding {
 			// Embedding模型：无论是否运行都注册
@@ -135,12 +135,13 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 		// 5. 如果决定注册，添加到结果列表
 		if shouldRegister {
 			publicModel := &public.Model{
-				Name: model.Name,
-				Type: modelType,
-				Size: fmt.Sprintf("%d", model.Size),
-				Arch: model.Details.QuantizationLevel,
-				IPPM: conf.InputTokenPricePerMillion,  // 每百万输入tokens价格
-				OPPM: conf.OutputTokenPricePerMillion, // 每百万输出tokens价格
+				Name:   model.Name,
+				Type:   modelType,
+				Size:   fmt.Sprintf("%d", model.Size),
+				Engine: "ollama",
+				Arch:   model.Details.QuantizationLevel,
+				IPPM:   conf.InputTokenPricePerMillion,  // 每百万输入tokens价格
+				OPPM:   conf.OutputTokenPricePerMillion, // 每百万输出tokens价格
 			}
 			allModels = append(allModels, publicModel)
 		}

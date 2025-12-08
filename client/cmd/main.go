@@ -116,7 +116,7 @@ func runClient(cfg *configs.Config) {
 				continue
 			}
 
-			if err := client.RegisterClient(cfg, c, cfg.StarFireHost, cfg.JoinToken); err != nil {
+			if err := client.RegisterClient(c, cfg.StarFireHost, cfg.JoinToken); err != nil {
 				log.Printf("注册客户端失败: %v，5秒后重试", err)
 				if strings.Contains(err.Error(), "401 Unauthorized") {
 					fmt.Println("注册码错误，请重新获取注册码！")
@@ -141,7 +141,7 @@ func runClient(cfg *configs.Config) {
 			// 启动消息处理
 			done := make(chan bool)
 			go func() {
-				client.HandleMessages(c)
+				c.HandleMessages()
 				done <- true
 			}()
 

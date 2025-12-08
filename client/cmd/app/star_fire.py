@@ -12,6 +12,7 @@ import platform
 import webbrowser
 import threading
 import os
+import traceback
 import sys
 import re
 import json
@@ -247,6 +248,8 @@ class IncomeTCPServer:
         self.server_socket = None
         self.running = False
         self.server_thread = None
+        self.clients = []  # 存储已连接的客户端套接字
+        self.clients_lock = threading.Lock()  # 客户端列表锁
         
     def start(self):
         """启动TCP服务器"""
@@ -292,6 +295,10 @@ class IncomeTCPServer:
     
     def _handle_client(self, client_socket, client_address):
         """处理客户端连接"""
+        # 添加到客户端列表
+        with self.clients_lock:
+            self.clients.append(client_socket)
+        
         try:
             if self.callback:
                 self.callback('connect', f"客户端连接: {client_address}")
@@ -328,6 +335,11 @@ class IncomeTCPServer:
             if self.callback:
                 self.callback('error', f"处理客户端错误: {str(e)}")
         finally:
+            # 从客户端列表移除
+            with self.clients_lock:
+                if client_socket in self.clients:
+                    self.clients.remove(client_socket)
+            
             client_socket.close()
             if self.callback:
                 self.callback('disconnect', f"客户端断开: {client_address}")
@@ -335,12 +347,68 @@ class IncomeTCPServer:
     def stop(self):
         """停止TCP服务器"""
         self.running = False
+        
+        # 关闭所有客户端连接
+        with self.clients_lock:
+            for client in self.clients:
+                try:
+                    client.close()
+                except:
+                    pass
+            self.clients.clear()
+        
         if self.server_socket:
             try:
                 self.server_socket.close()
             except:
                 pass
         return True, "TCP服务器已停止"
+    
+    def send_to_all_clients(self, message):
+        """向所有已连接的客户端发送消息"""
+        if not isinstance(message, str):
+            message = json.dumps(message, ensure_ascii=False)
+        
+        try:
+            message_bytes = message.encode('utf-8')
+            message_length = len(message_bytes)
+            length_prefix = struct.pack('!I', message_length)
+            full_message = length_prefix + message_bytes
+            
+            if self.callback:
+                self.callback('error', f"📤 准备发送消息: 长度={message_length} 字节")
+            
+            failed_clients = []
+            with self.clients_lock:
+                for client in self.clients:
+                    try:
+                        client.sendall(full_message)
+                        if self.callback:
+                            self.callback('error', f"✓ 已发送到客户端: {client.getpeername()}")
+                    except Exception as e:
+                        failed_clients.append((client, e))
+                        if self.callback:
+                            self.callback('error', f"✗ 发送失败: {str(e)}")
+            
+            # 移除发送失败的客户端
+            if failed_clients:
+                with self.clients_lock:
+                    for client, error in failed_clients:
+                        if client in self.clients:
+                            self.clients.remove(client)
+                        try:
+                            client.close()
+                        except:
+                            pass
+                        if self.callback:
+                            self.callback('error', f"发送消息失败: {str(error)}")
+            
+            return len(self.clients) - len(failed_clients)  # 返回成功发送的客户端数量
+            
+        except Exception as e:
+            if self.callback:
+                self.callback('error', f"❌ send_to_all_clients 异常: {str(e)}")
+            return 0
 
 
 # ============ 添加启动画面 ============
@@ -451,6 +519,7 @@ class StarFireAPP:
         self.starfire_process = None
         self.starfire_running = False
         self.total_income = 0.0  # 累计收益
+        self.pending_price_message = None  # 待发送的价格配置消息
         
         # 创建TCP服务器并自动启动
         self.tcp_server = IncomeTCPServer(
@@ -474,6 +543,10 @@ class StarFireAPP:
         self.config_file = "starfire_config.json"
         self.load_config()
         
+        # 初始化模型价格窗口引用
+        self.model_price_window = None
+        self.model_price_tree = None
+        
         self.create_widgets()
         self.check_ollama()
         self.check_running_models()
@@ -487,7 +560,8 @@ class StarFireAPP:
             'model_mode': 'ollama',  # ollama, vllm, proxy, llamacpp
             'proxy_base_url': 'http://localhost:8000/v1',
             'proxy_api_key': '',
-            'ollama_num_parallel': ''  # Ollama并发请求数
+            'ollama_num_parallel': '',  # Ollama并发请求数
+            'model_prices': {}  # 每个模型的价格配置 {model_name: {ippm: xx, oppm: xx}}
         }
         
         try:
@@ -604,11 +678,20 @@ class StarFireAPP:
                 text="✓ 代理模式 - 请配置 Base URL 和 API Key",
                 foreground="blue"
             )
-            # 在代理模式下禁用Ollama相关按钮
-            self.refresh_btn.config(state=tk.DISABLED)
+            # 在代理模式下允许刷新以显示代理模型，但禁用运行/停止
+            self.refresh_btn.config(state=tk.NORMAL)
             self.run_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.DISABLED)
             self.log("已切换到代理模式", "blue")
+            # 清空本地运行状态，避免代理模型显示为运行中
+            self.running_models.clear()
+            self.update_model_colors()
+            self.update_running_label()
+            # 立即加载代理模型到左侧列表
+            try:
+                self.load_models()
+            except Exception as e:
+                self.log(f"加载代理模型失败: {str(e)}", "red")
         elif mode == 'ollama':
             self.proxy_config_frame.pack_forget()
             self.ollama_config_frame.pack(fill=tk.X, pady=(10, 0))
@@ -635,6 +718,20 @@ class StarFireAPP:
             self.refresh_btn.config(state=tk.DISABLED)
             self.run_btn.config(state=tk.DISABLED)
             self.stop_btn.config(state=tk.DISABLED)
+        # 切换模型接入方式时自动刷新模型价格窗口
+        if hasattr(self, 'model_price_window') and self.model_price_window:
+            try:
+                if hasattr(self, 'model_price_tree') and self.model_price_tree:
+                    self.starfire_log("🔄 模式切换，正在刷新模型价格列表...", "blue")
+                    self.refresh_model_price_list(self.model_price_tree, self.model_price_window)
+                else:
+                    self.starfire_log("⚠️ 模型价格窗口存在，但列表未初始化", "orange")
+            except Exception as e:
+                self.starfire_log(f"❌ 刷新模型价格列表失败: {str(e)}", "red")
+                if self.model_price_window.winfo_exists() and hasattr(self, 'model_price_tree') and self.model_price_tree:
+                    self.refresh_model_price_list(self.model_price_tree, self.model_price_window)
+            except Exception as e:
+                self.starfire_log(f"自动刷新模型价格窗口失败: {str(e)}", "red")
     
     def create_widgets(self):
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -941,6 +1038,24 @@ class StarFireAPP:
         self.oppm_entry.bind('<FocusOut>', lambda e: self.auto_save_config('oppm'))
         ttk.Label(oppm_frame, text="¥/M tokens").pack(side=tk.LEFT, padx=(5, 0))
         
+        # 模型价格设置按钮
+        model_price_frame = ttk.Frame(config_frame)
+        model_price_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        ttk.Button(
+            model_price_frame,
+            text="📋 模型价格设置",
+            command=self.open_model_price_window,
+            width=20
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Label(
+            model_price_frame,
+            text="为每个模型单独设置价格",
+            foreground="gray",
+            font=("Arial", 8)
+        ).pack(side=tk.LEFT, padx=5)
+        
         starfire_button_frame = ttk.Frame(config_frame)
         starfire_button_frame.pack(fill=tk.X, pady=(10, 0))
         
@@ -1044,6 +1159,22 @@ class StarFireAPP:
         
         help_text = "💡 提示: 需要 starfire.exe 与本程序在同一目录"
         ttk.Label(help_frame, text=help_text, foreground="gray", font=("Arial", 8)).pack()
+
+        # 启动时若默认为代理模式且配置完整，则立即加载代理模型列表
+        try:
+            initial_mode = self.model_mode_var.get()
+            if initial_mode == 'proxy':
+                base_url = self.proxy_base_url_entry.get().strip()
+                api_key = self.proxy_api_key_entry.get().strip()
+                if base_url and api_key:
+                    self.log("启动为代理模式，正在加载模型列表...", "blue")
+                    # 确保按钮状态正确
+                    self.refresh_btn.config(state=tk.NORMAL)
+                    self.run_btn.config(state=tk.DISABLED)
+                    self.stop_btn.config(state=tk.DISABLED)
+                    self.load_models()
+        except Exception as e:
+            self.log(f"启动时加载代理模型失败: {str(e)}", "red")
     
     def log(self, message, color=None):
         self.log_text.config(state=tk.NORMAL)
@@ -1156,6 +1287,347 @@ class StarFireAPP:
         
         # 在后台线程执行
         threading.Thread(target=_fetch_token, daemon=True).start()
+    
+    def get_available_models(self):
+        """获取可用模型列表（支持Ollama和OpenAI）"""
+        model_mode = self.model_mode_var.get()
+        models = []
+        
+        try:
+            if model_mode == 'ollama':
+                # 获取Ollama模型列表
+                result = subprocess.run(
+                    ["ollama", "list"],
+                    capture_output=True,
+                    text=True,
+                    timeout=10,
+                    creationflags=SUBPROCESS_FLAGS
+                )
+                
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    for line in lines[1:]:  # 跳过标题行
+                        parts = line.split()
+                        if parts:
+                            models.append(parts[0])
+            
+            elif model_mode == 'proxy':
+                # 获取OpenAI兼容API的模型列表
+                base_url = self.proxy_base_url_entry.get().strip()
+                api_key = self.proxy_api_key_entry.get().strip()
+                
+                if not base_url or not api_key:
+                    raise Exception("请先配置代理URL和API Key")
+                
+                # 构建models API endpoint
+                if base_url.endswith('/v1'):
+                    models_url = f"{base_url}/models"
+                else:
+                    models_url = f"{base_url}/models"
+                
+                import urllib.request
+                req = urllib.request.Request(models_url)
+                req.add_header('Authorization', f'Bearer {api_key}')
+                
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode('utf-8'))
+                    if 'data' in data:
+                        models = [m['id'] for m in data['data']]
+                    elif 'models' in data:
+                        models = data['models']
+        
+        except Exception as e:
+            self.starfire_log(f"❌ 获取模型列表失败: {str(e)}", "red")
+        
+        return models
+    
+    def open_model_price_window(self):
+        """打开模型价格设置窗口"""
+        # 创建新窗口
+        price_window = tk.Toplevel(self.root)
+        price_window.title("模型价格设置")
+        price_window.geometry("700x500")
+        price_window.transient(self.root)
+
+        # 记录窗口实例
+        self.model_price_window = price_window
+        
+        # 顶部说明
+        info_frame = ttk.Frame(price_window, padding="10")
+        info_frame.pack(fill=tk.X)
+        ttk.Label(
+            info_frame,
+            text="💡 为每个模型单独设置输入/输出价格，未设置的模型将使用默认价格。\n关闭窗口即自动保存并同步到Starfire，无需手动发送。",
+            foreground="blue",
+            font=("Arial", 9)
+        ).pack(anchor=tk.W)
+        
+        # 按钮区域
+        button_frame = ttk.Frame(price_window, padding="10")
+        button_frame.pack(fill=tk.X)
+        
+        ttk.Button(
+            button_frame,
+            text="🔄 刷新模型列表",
+            command=lambda: self.refresh_model_price_list(tree, price_window)
+        ).pack(side=tk.LEFT, padx=5)
+        
+        ttk.Button(
+            button_frame,
+            text="💾 保存所有价格",
+            command=lambda: self.save_all_model_prices(tree, price_window)
+        ).pack(side=tk.LEFT, padx=5)
+        
+        # 模型列表区域
+        list_frame = ttk.Frame(price_window, padding="10")
+        list_frame.pack(fill=tk.BOTH, expand=True)
+        
+        # 创建表格
+        columns = ("模型名称", "输入价格(¥/M)", "输出价格(¥/M)")
+        tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
+        
+        tree.heading("模型名称", text="模型名称")
+        tree.heading("输入价格(¥/M)", text="输入价格(¥/M)")
+        tree.heading("输出价格(¥/M)", text="输出价格(¥/M)")
+        
+        tree.column("模型名称", width=300)
+        tree.column("输入价格(¥/M)", width=150, anchor=tk.CENTER)
+        tree.column("输出价格(¥/M)", width=150, anchor=tk.CENTER)
+        
+        scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
+        tree.configure(yscrollcommand=scrollbar.set)
+        
+        tree.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        # 单击编辑（直接在单元格内编辑）
+        tree.bind('<Button-1>', lambda e: self.edit_model_price_inline(tree, e, price_window))
+        
+        # 记录表格引用
+        self.model_price_tree = tree
+
+        # 加载模型列表
+        self.refresh_model_price_list(tree, price_window)
+
+        # 关闭窗口时自动保存并发送
+        def on_close():
+            self.save_all_model_prices(tree, price_window, auto=True)
+            self.model_price_tree = None
+            self.model_price_window = None
+            price_window.destroy()
+        price_window.protocol("WM_DELETE_WINDOW", on_close)
+    
+    def refresh_model_price_list(self, tree, window):
+        """刷新模型价格列表"""
+        # 清空现有数据
+        for item in tree.get_children():
+            tree.delete(item)
+        
+        # 获取模型列表
+        models = self.get_available_models()
+        
+        if not models:
+            messagebox.showwarning("提示", "未找到可用模型！", parent=window)
+            return
+        
+        # 获取已保存的价格配置
+        model_prices = self.config.get('model_prices', {})
+        
+        # 填充数据
+        for model in models:
+            if model in model_prices:
+                ippm = model_prices[model].get('ippm', self.config['ippm'])
+                oppm = model_prices[model].get('oppm', self.config['oppm'])
+            else:
+                ippm = self.config['ippm']
+                oppm = self.config['oppm']
+            
+            tree.insert("", tk.END, values=(model, ippm, oppm))
+        
+        self.starfire_log(f"✓ 已加载 {len(models)} 个模型的价格配置", "green")
+    
+    def edit_model_price_inline(self, tree, event, parent_window):
+        """在单元格内直接编辑模型价格"""
+        region = tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        
+        column = tree.identify_column(event.x)
+        row_id = tree.identify_row(event.y)
+        
+        # 不允许编辑模型名称列
+        if not row_id or column == "#1":
+            return
+        
+        # 获取单元格位置
+        bbox = tree.bbox(row_id, column)
+        if not bbox:
+            return
+        
+        # 获取当前值
+        values = list(tree.item(row_id)['values'])
+        col_index = int(column[1:]) - 1
+        current_value = str(values[col_index])
+        
+        # 创建编辑输入框（直接覆盖在单元格上）
+        edit_entry = ttk.Entry(tree, width=15)
+        edit_entry.insert(0, current_value)
+        edit_entry.select_range(0, tk.END)
+        edit_entry.focus()
+        
+        # 将输入框放置在单元格位置
+        edit_entry.place(x=bbox[0], y=bbox[1], width=bbox[2], height=bbox[3])
+        
+        def save_edit(event=None):
+            new_value = edit_entry.get().strip()
+            try:
+                # 验证是有效数字
+                float(new_value)
+                values[col_index] = new_value
+                tree.item(row_id, values=values)
+            except ValueError:
+                messagebox.showerror("错误", "请输入有效的数字！", parent=parent_window)
+                edit_entry.focus()
+                return
+            
+            edit_entry.destroy()
+        
+        def cancel_edit(event=None):
+            edit_entry.destroy()
+        
+        # 绑定事件
+        edit_entry.bind('<Return>', save_edit)
+        edit_entry.bind('<FocusOut>', save_edit)
+        edit_entry.bind('<Escape>', cancel_edit)
+    
+    def edit_model_price(self, tree, event):
+        """编辑模型价格（旧方法，保留以防万一）"""
+        region = tree.identify("region", event.x, event.y)
+        if region != "cell":
+            return
+        
+        column = tree.identify_column(event.x)
+        row_id = tree.identify_row(event.y)
+        
+        if not row_id or column == "#1":  # 不允许编辑模型名称
+            return
+        
+        # 获取当前值
+        values = list(tree.item(row_id)['values'])
+        col_index = int(column[1:]) - 1
+        current_value = values[col_index]
+        
+        # 创建编辑框
+        bbox = tree.bbox(row_id, column)
+        if not bbox:
+            return
+        
+        edit_window = tk.Toplevel(self.root)
+        edit_window.title("编辑价格")
+        edit_window.geometry("300x150")
+        edit_window.transient(self.root)
+        
+        frame = ttk.Frame(edit_window, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        model_name = values[0]
+        price_type = "输入价格" if col_index == 1 else "输出价格"
+        
+        ttk.Label(frame, text=f"模型: {model_name}", font=("Arial", 10, "bold")).pack(pady=5)
+        ttk.Label(frame, text=f"{price_type} (¥/M tokens):", font=("Arial", 9)).pack(pady=5)
+        
+        price_entry = ttk.Entry(frame, width=20, font=("Arial", 10))
+        price_entry.insert(0, str(current_value))
+        price_entry.pack(pady=10)
+        price_entry.focus()
+        
+        def save_price():
+            new_value = price_entry.get().strip()
+            try:
+                float(new_value)  # 验证是数字
+                values[col_index] = new_value
+                tree.item(row_id, values=values)
+                edit_window.destroy()
+            except ValueError:
+                messagebox.showerror("错误", "请输入有效的数字！", parent=edit_window)
+        
+        ttk.Button(frame, text="保存", command=save_price).pack(pady=5)
+        
+        price_entry.bind('<Return>', lambda e: save_price())
+    
+    def save_all_model_prices(self, tree, window, auto=False):
+        """保存所有模型价格到配置"""
+        model_prices = {}
+        for item in tree.get_children():
+            values = tree.item(item)['values']
+            model_name = values[0]
+            ippm = values[1]
+            oppm = values[2]
+            model_prices[model_name] = {
+                'ippm': str(ippm),
+                'oppm': str(oppm)
+            }
+        self.config['model_prices'] = model_prices
+        self.save_config()
+        self.send_prices_to_starfire()
+        self.starfire_log(f"✓ 已保存并同步 {len(model_prices)} 个模型的价格配置", "green")
+        # 仅非自动保存时弹窗
+        if not auto:
+            messagebox.showinfo("成功", f"已保存 {len(model_prices)} 个模型的价格配置！", parent=window)
+    
+    def send_prices_to_starfire(self):
+        """通过TCP发送价格配置到starfire.exe"""
+        try:
+            model_prices = self.config.get('model_prices', {})
+            model_mode = self.model_mode_var.get()
+            engine_map = {
+                'ollama': 'ollama',
+                'proxy': 'openai',
+                'vllm': 'vllm',
+                'llamacpp': 'llama.cpp'
+            }
+            engine = engine_map.get(model_mode, 'ollama')
+            models_data = []
+            if model_prices:
+                for model_name, prices in model_prices.items():
+                    models_data.append({
+                        'model': model_name,
+                        'engine': engine,
+                        'ippm': str(prices.get('ippm', self.config.get('ippm', '0'))),
+                        'oppm': str(prices.get('oppm', self.config.get('oppm', '0')))
+                    })
+            else:
+                self.starfire_log("⚠️ 没有配置模型价格，将发送默认价格配置", "orange")
+                models_data.append({
+                    'model': '*',
+                    'engine': engine,
+                    'ippm': str(self.config.get('ippm', '0')),
+                    'oppm': str(self.config.get('oppm', '0'))
+                })
+            message = {
+                'id': 'model_price_config',
+                'type': 'model_prices',
+                'timestamp': int(datetime.now().timestamp()),
+                'data': models_data
+            }
+            message_json = json.dumps(message, ensure_ascii=False)
+            self.pending_price_message = message_json
+            self.starfire_log(f"📋 准备发送的消息: {message_json[:200]}...", "gray")
+            tcp_status = False
+            sent_count = 0
+            if self.tcp_server and hasattr(self.tcp_server, 'clients'):
+                with self.tcp_server.clients_lock:
+                    client_count = len(self.tcp_server.clients)
+                if client_count > 0:
+                    sent_count = self.tcp_server.send_to_all_clients(message_json)
+                    tcp_status = True
+            if tcp_status and sent_count > 0:
+                self.starfire_log(f"✓ 价格配置已通过TCP发送到 {sent_count} 个客户端 (engine: {engine}, 模型数: {len(models_data)})", "green")
+            else:
+                self.starfire_log(f"✓ 价格配置已缓存，等待TCP客户端连接 (engine: {engine}, 模型数: {len(models_data)})", "blue")
+        except Exception as e:
+            self.starfire_log(f"❌ 准备价格配置失败: {str(e)}", "red")
+            self.starfire_log(f"详细错误: {traceback.format_exc()}", "red")
     
     def on_closing(self):
         """窗口关闭时的清理工作"""
@@ -1406,6 +1878,20 @@ class StarFireAPP:
         """处理TCP服务器接收到的消息"""
         if msg_type == 'connect':
             self.starfire_log(f"🔗 {content}", "blue")
+            
+            # 当客户端连接时，如果有待发送的价格配置，立即发送
+            if self.pending_price_message and self.tcp_server:
+                try:
+                    sent_count = self.tcp_server.send_to_all_clients(self.pending_price_message)
+                    if sent_count > 0:
+                        self.starfire_log(f"📤 已发送价格配置到 {sent_count} 个客户端", "green")
+                        # 发送成功后清空待发送消息（可选，根据需求决定是否每次连接都发送）
+                        # self.pending_price_message = None
+                    else:
+                        self.starfire_log(f"⚠️ 没有客户端接收价格配置", "orange")
+                except Exception as e:
+                    self.starfire_log(f"❌ 发送价格配置失败: {str(e)}", "red")
+                    
         elif msg_type == 'disconnect':
             self.starfire_log(f"🔌 {content}", "gray")
         elif msg_type == 'error':
@@ -1639,24 +2125,36 @@ class StarFireAPP:
         self.root.after(5000, self.check_running_models)
     
     def update_running_label(self):
-        if self.running_models:
-            running_list = ", ".join(list(self.running_models)[:2])
-            if len(self.running_models) > 2:
-                running_list += f" +{len(self.running_models)-2}"
-            self.running_label.config(text=f"● {running_list}")
+        mode = self.model_mode_var.get()
+        if mode == 'proxy':
+            total = len(self.model_tree.get_children())
+            if total > 0:
+                self.running_label.config(text=f"● 代理模型 {total} 个")
+            else:
+                self.running_label.config(text="")
         else:
-            self.running_label.config(text="")
+            if self.running_models:
+                running_list = ", ".join(list(self.running_models)[:2])
+                if len(self.running_models) > 2:
+                    running_list += f" +{len(self.running_models)-2}"
+                self.running_label.config(text=f"● {running_list}")
+            else:
+                self.running_label.config(text="")
     
     def update_model_colors(self):
+        mode = self.model_mode_var.get()
         for item in self.model_tree.get_children():
             values = self.model_tree.item(item)['values']
             if len(values) >= 2:
                 model_name = values[1]
-                
-                if model_name in self.running_models:
+                # 代理模式下所有模型视为运行中
+                if mode == 'proxy':
                     self.model_tree.item(item, tags=('running',))
                 else:
-                    self.model_tree.item(item, tags=('idle',))
+                    if model_name in self.running_models:
+                        self.model_tree.item(item, tags=('running',))
+                    else:
+                        self.model_tree.item(item, tags=('idle',))
         
         self.model_tree.tag_configure('running', background='#90EE90', foreground='darkgreen')
         self.model_tree.tag_configure('idle', background='#D3D3D3', foreground='gray')
@@ -1668,59 +2166,94 @@ class StarFireAPP:
                 self.model_tree.delete(item)
             
             self.log("正在获取模型列表...")
-            
-            result = subprocess.run(
-                ["ollama", "list"], 
-                capture_output=True, 
-                text=True, 
-                timeout=10,
-                creationflags=SUBPROCESS_FLAGS  # ← 关键修复
-            )
-            
-            if result.returncode == 0:
-                lines = result.stdout.strip().split('\n')
-                
-                if len(lines) <= 1:
-                    self.log("未找到已安装的模型", "orange")
-                    messagebox.showinfo("提示", "未找到已安装的模型\n请先使用 'ollama pull <model>' 下载模型")
+
+            mode = self.model_mode_var.get()
+            if mode == 'proxy':
+                # 使用代理接口获取模型
+                models = self.get_available_models()
+                if not models:
+                    self.log("代理模式下未获取到模型", "orange")
+                    messagebox.showinfo("提示", "代理模式未获取到模型\n请检查 Base URL 与 API Key")
                     return
-                
+
                 category_count = {}
-                
-                for line in lines[1:]:
-                    parts = line.split()
-                    if len(parts) >= 3:
-                        name = parts[0]
-                        size = parts[1] if len(parts) > 1 else "N/A"
-                        modified = " ".join(parts[2:]) if len(parts) > 2 else "N/A"
-                        
-                        category = self.get_model_category(name)
-                        icon = self.get_category_icon(category)
-                        category_name = self.get_category_name(category)
-                        category_display = f"{icon} {category_name}"
-                        
-                        category_count[category] = category_count.get(category, 0) + 1
-                        
-                        self.model_tree.insert(
-                            "", 
-                            tk.END, 
-                            values=(category_display, name, size, modified)
-                        )
-                
+                for name in models:
+                    category = self.get_model_category(name)
+                    icon = self.get_category_icon(category)
+                    category_name = self.get_category_name(category)
+                    category_display = f"{icon} {category_name}"
+
+                    category_count[category] = category_count.get(category, 0) + 1
+
+                    # 代理模式无大小/修改时间信息
+                    self.model_tree.insert(
+                        "",
+                        tk.END,
+                        values=(category_display, name, "-", "-")
+                    )
+
                 self.update_model_colors()
                 self.update_running_label()
-                
-                total = len(lines) - 1
+                total = len(models)
                 category_info = ", ".join([f"{self.get_category_name(cat)}: {count}" for cat, count in category_count.items()])
-                self.log(f"成功加载 {total} 个模型 ({category_info})", "green")
-                
-                self.run_btn.config(state=tk.NORMAL)
-                if self.running_models:
-                    self.stop_btn.config(state=tk.NORMAL)
+                self.log(f"成功加载 {total} 个代理模型 ({category_info})", "green")
+                # 代理模式不支持本地运行/停止
+                self.run_btn.config(state=tk.DISABLED)
+                self.stop_btn.config(state=tk.DISABLED)
             else:
-                error_msg = result.stderr.strip()
-                self.log(f"获取模型列表失败: {error_msg}", "red")
-                messagebox.showerror("错误", f"获取模型列表失败:\n{error_msg}")
+                # Ollama 本地列表
+                result = subprocess.run(
+                    ["ollama", "list"], 
+                    capture_output=True, 
+                    text=True, 
+                    timeout=10,
+                    creationflags=SUBPROCESS_FLAGS  # ← 关键修复
+                )
+                
+                if result.returncode == 0:
+                    lines = result.stdout.strip().split('\n')
+                    
+                    if len(lines) <= 1:
+                        self.log("未找到已安装的模型", "orange")
+                        messagebox.showinfo("提示", "未找到已安装的模型\n请先使用 'ollama pull <model>' 下载模型")
+                        return
+                    
+                    category_count = {}
+                    
+                    for line in lines[1:]:
+                        parts = line.split()
+                        if len(parts) >= 3:
+                            name = parts[0]
+                            size = parts[1] if len(parts) > 1 else "N/A"
+                            modified = " ".join(parts[2:]) if len(parts) > 2 else "N/A"
+                            
+                            category = self.get_model_category(name)
+                            icon = self.get_category_icon(category)
+                            category_name = self.get_category_name(category)
+                            category_display = f"{icon} {category_name}"
+                            
+                            category_count[category] = category_count.get(category, 0) + 1
+                            
+                            self.model_tree.insert(
+                                "", 
+                                tk.END, 
+                                values=(category_display, name, size, modified)
+                            )
+                    
+                    self.update_model_colors()
+                    self.update_running_label()
+                    
+                    total = len(lines) - 1
+                    category_info = ", ".join([f"{self.get_category_name(cat)}: {count}" for cat, count in category_count.items()])
+                    self.log(f"成功加载 {total} 个模型 ({category_info})", "green")
+                    
+                    self.run_btn.config(state=tk.NORMAL)
+                    if self.running_models:
+                        self.stop_btn.config(state=tk.NORMAL)
+                else:
+                    error_msg = result.stderr.strip()
+                    self.log(f"获取模型列表失败: {error_msg}", "red")
+                    messagebox.showerror("错误", f"获取模型列表失败:\n{error_msg}")
         
         except Exception as e:
             self.log(f"加载模型列表时出错: {str(e)}", "red")
