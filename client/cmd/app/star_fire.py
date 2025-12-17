@@ -553,8 +553,10 @@ class StarFireAPP:
     
     def load_config(self):
         self.config = {
-            'host': '115.190.26.60',
-            'token': '',
+            'host': 'http://111.228.58.164',
+            'username': '',
+            'password': '',
+            'jwt_token': '',  # JWT token
             'ippm': '3.8',   # 默认输入价格 3.8 元 / 百万 tokens
             'oppm': '8.3',   # 默认输出价格 8.3 元 / 百万 tokens
             'model_mode': 'ollama',  # ollama, vllm, proxy, llamacpp
@@ -616,7 +618,8 @@ class StarFireAPP:
         # 获取当前输入框的值 - 移除了 ippm 和 oppm，它们现在在模型价格设置中
         current_values = {
             'host': self.host_entry.get().strip(),
-            'token': self.token_entry.get().strip(),
+            'username': self.username_entry.get().strip(),
+            'password': self.password_entry.get().strip(),
             'proxy_base_url': self.proxy_base_url_entry.get().strip(),
             'proxy_api_key': self.proxy_api_key_entry.get().strip(),
             'ollama_num_parallel': self.ollama_num_parallel_entry.get().strip()
@@ -995,24 +998,49 @@ class StarFireAPP:
         self.host_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
         self.host_entry.bind('<FocusOut>', lambda e: self.auto_save_config('host'))
         
-        token_frame = ttk.Frame(config_frame)
-        token_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(token_frame, text="Token:", width=12).pack(side=tk.LEFT)
-        self.token_entry = ttk.Entry(token_frame, show="*")
-        self.token_entry.insert(0, self.config['token'])
-        self.token_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
-        self.token_entry.bind('<FocusOut>', lambda e: self.auto_save_config('token'))
+        # 用户名
+        username_frame = ttk.Frame(config_frame)
+        username_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(username_frame, text="用户名:", width=12).pack(side=tk.LEFT)
+        self.username_entry = ttk.Entry(username_frame)
+        self.username_entry.insert(0, self.config.get('username', ''))
+        self.username_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        self.username_entry.bind('<FocusOut>', lambda e: self.auto_save_config('username'))
         
-        def toggle_token():
-            if self.token_entry['show'] == '*':
-                self.token_entry['show'] = ''
-                toggle_btn.config(text="👁️")
+        # 密码
+        password_frame = ttk.Frame(config_frame)
+        password_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(password_frame, text="密码:", width=12).pack(side=tk.LEFT)
+        self.password_entry = ttk.Entry(password_frame, show="*")
+        self.password_entry.insert(0, self.config.get('password', ''))
+        self.password_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
+        self.password_entry.bind('<FocusOut>', lambda e: self.auto_save_config('password'))
+        
+        def toggle_password():
+            if self.password_entry['show'] == '*':
+                self.password_entry['show'] = ''
+                toggle_pwd_btn.config(text="👁️")
             else:
-                self.token_entry['show'] = '*'
-                toggle_btn.config(text="🔒")
+                self.password_entry['show'] = '*'
+                toggle_pwd_btn.config(text="🔒")
         
-        toggle_btn = ttk.Button(token_frame, text="🔒", width=3, command=toggle_token)
-        toggle_btn.pack(side=tk.LEFT, padx=(5, 0))
+        toggle_pwd_btn = ttk.Button(password_frame, text="🔒", width=3, command=toggle_password)
+        toggle_pwd_btn.pack(side=tk.LEFT, padx=(5, 0))
+        
+        # 登录状态显示
+        login_status_frame = ttk.Frame(config_frame)
+        login_status_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(login_status_frame, text="登录状态:", width=12).pack(side=tk.LEFT)
+        self.login_status_label = tk.Label(
+            login_status_frame,
+            text=" ○ 未登录 ",
+            bg="#D3D3D3",
+            fg="gray",
+            relief=tk.RAISED,
+            padx=10,
+            font=("Arial", 9)
+        )
+        self.login_status_label.pack(side=tk.LEFT, padx=(5, 0))
         
         # 去掉获取Token按钮，仅保留显示与显隐切换
         # 添加收益信息展示
@@ -1059,6 +1087,14 @@ class StarFireAPP:
         starfire_button_frame = ttk.Frame(config_frame)
         starfire_button_frame.pack(fill=tk.X, pady=(10, 0))
         
+        self.login_btn = ttk.Button(
+            starfire_button_frame,
+            text="🔐 登录",
+            command=self.login_to_server,
+            width=15
+        )
+        self.login_btn.pack(side=tk.LEFT, padx=5)
+        
         self.save_config_btn = ttk.Button(
             starfire_button_frame,
             text="💾 保存配置",
@@ -1067,13 +1103,14 @@ class StarFireAPP:
         )
         self.save_config_btn.pack(side=tk.LEFT, padx=5)
         
-        self.register_btn = ttk.Button(
+        self.fetch_income_btn = ttk.Button(
             starfire_button_frame,
-            text="🚀 获取Token",
-            command=self.open_starfire,
-            width=15
+            text="💰 刷新收益",
+            command=self.fetch_income_data,
+            width=15,
+            state=tk.DISABLED
         )
-        self.register_btn.pack(side=tk.LEFT, padx=5)
+        self.fetch_income_btn.pack(side=tk.LEFT, padx=5)
         
         control_frame = ttk.LabelFrame(right_frame, text="🎮 算力控制", padding="15")
         control_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -1209,7 +1246,8 @@ class StarFireAPP:
     
     def save_config_action(self):
         self.config['host'] = self.host_entry.get().strip()
-        self.config['token'] = self.token_entry.get().strip()
+        self.config['username'] = self.username_entry.get().strip()
+        self.config['password'] = self.password_entry.get().strip()
         self.config['model_mode'] = self.model_mode_var.get()
         self.config['proxy_base_url'] = self.proxy_base_url_entry.get().strip()
         self.config['proxy_api_key'] = self.proxy_api_key_entry.get().strip()
@@ -1219,73 +1257,266 @@ class StarFireAPP:
         self.starfire_log("✓ 配置已保存", "green")
         messagebox.showinfo("成功", "配置已保存！")
     
-    def get_token_from_server(self):
-        """从服务器获取注册Token"""
+    def login_to_server(self):
+        """登录到服务器获取JWT token"""
         host = self.host_entry.get().strip()
+        username = self.username_entry.get().strip()
+        password = self.password_entry.get().strip()
         
-        if not host:
-            messagebox.showwarning("提示", "请先填写服务器地址！")
+        if not all([host, username, password]):
+            messagebox.showwarning("提示", "请填写服务器地址、用户名和密码！")
             return
         
-        # 在后台线程中获取token，避免阻塞UI
-        def _fetch_token():
+        # 创建本地验证对话框
+        captcha_window = tk.Toplevel(self.root)
+        captcha_window.title("安全验证")
+        captcha_window.geometry("380x200")
+        captcha_window.transient(self.root)
+        captcha_window.grab_set()
+        
+        frame = ttk.Frame(captcha_window, padding="20")
+        frame.pack(fill=tk.BOTH, expand=True)
+        
+        ttk.Label(frame, text="请完成安全验证", font=("Arial", 12, "bold")).pack(pady=10)
+        
+        # 生成随机算术题作为验证码（加减乘除，100以内）
+        import random
+        operations = [
+            ('+', lambda a, b: a + b),
+            ('-', lambda a, b: a - b),
+            ('×', lambda a, b: a * b),
+            ('÷', lambda a, b: a // b if b != 0 and a % b == 0 else None)
+        ]
+        
+        def generate_question():
+            while True:
+                op_symbol, op_func = random.choice(operations)
+                if op_symbol == '÷':
+                    # 除法：确保能整除
+                    divisor = random.randint(2, 10)
+                    quotient = random.randint(2, 10)
+                    num1 = divisor * quotient
+                    num2 = divisor
+                elif op_symbol == '-':
+                    # 减法：确保结果为正数
+                    num1 = random.randint(10, 99)
+                    num2 = random.randint(1, num1)
+                else:
+                    # 加法和乘法
+                    if op_symbol == '×':
+                        num1 = random.randint(2, 12)
+                        num2 = random.randint(2, 12)
+                    else:
+                        num1 = random.randint(1, 99)
+                        num2 = random.randint(1, 99)
+                
+                result = op_func(num1, num2)
+                if result is not None and 0 <= result <= 100:
+                    return num1, num2, op_symbol, result
+        
+        num1, num2, op_symbol, correct_answer = generate_question()
+        
+        question_label = tk.Label(
+            frame,
+            text=f"请计算: {num1} {op_symbol} {num2} = ?",
+            font=("Arial", 16, "bold"),
+            fg="#2c3e50"
+        )
+        question_label.pack(pady=15)
+        
+        # 答案输入框
+        answer_frame = ttk.Frame(frame)
+        answer_frame.pack(pady=10)
+        
+        ttk.Label(answer_frame, text="答案:", font=("Arial", 10)).pack(side=tk.LEFT, padx=5)
+        answer_entry = ttk.Entry(answer_frame, font=("Arial", 12), width=12)
+        answer_entry.pack(side=tk.LEFT, padx=5)
+        answer_entry.focus()
+        
+        def refresh_captcha():
+            """刷新验证码"""
+            nonlocal num1, num2, op_symbol, correct_answer
+            num1, num2, op_symbol, correct_answer = generate_question()
+            question_label.config(text=f"请计算: {num1} {op_symbol} {num2} = ?")
+            answer_entry.delete(0, tk.END)
+        
+        def do_login():
+            """执行登录"""
+            # 验证答案
+            try:
+                user_answer = int(answer_entry.get().strip())
+            except ValueError:
+                messagebox.showwarning("提示", "请输入有效的数字！", parent=captcha_window)
+                return
+            
+            # 验证算术题答案
+            if user_answer != correct_answer:
+                messagebox.showerror("错误", "验证码错误，请重试！", parent=captcha_window)
+                refresh_captcha()
+                return
+            
+            captcha_window.destroy()
+            
+            def _login():
+                try:
+                    import urllib.request
+                    import urllib.parse
+                    
+                    base_url = f"http://{host}" if not host.startswith('http') else host
+                    login_url = f"{base_url}/api/login"
+                    
+                    login_data = {
+                        'username': username,
+                        'password': password,
+                        'captcha': True
+                    }
+                    
+                    data = json.dumps(login_data).encode('utf-8')
+                    req = urllib.request.Request(login_url, data=data, method='POST')
+                    req.add_header('Content-Type', 'application/json')
+                    
+                    with urllib.request.urlopen(req, timeout=10) as response:
+                        result = json.loads(response.read().decode('utf-8'))
+                        
+                        if response.status == 200 or response.status == 201:
+                            jwt_token = result['token']
+                            self.config['jwt_token'] = jwt_token
+                            self.save_config()
+                            
+                            def _update_ui():
+                                self.login_status_label.config(
+                                    text=" ● 已登录 ",
+                                    bg="#90EE90",
+                                    fg="darkgreen"
+                                )
+                                self.fetch_income_btn.config(state=tk.NORMAL)
+                                self.starfire_log(f"✓ 登录成功！", "green")
+                                messagebox.showinfo("成功", "登录成功！")
+                                # 自动获取收益
+                                self.fetch_income_data()
+                            
+                            self.root.after(0, _update_ui)
+                        else:
+                            print("result:", result)
+                            error_msg = result.get('message', '登录失败')
+                            self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
+                            self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
+                            
+                except Exception as e:
+                    error_msg = f"登录失败: {str(e)}"
+                    self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
+                    self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
+            
+            threading.Thread(target=_login, daemon=True).start()
+        
+        btn_frame = ttk.Frame(frame)
+        btn_frame.pack(pady=10, fill=tk.X)
+        
+        ttk.Button(btn_frame, text="🔄 换一题", command=refresh_captcha, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="✓ 登录", command=do_login, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="✗ 取消", command=captcha_window.destroy, width=10).pack(side=tk.LEFT, padx=5)
+        
+        answer_entry.bind('<Return>', lambda e: do_login())
+    
+    def fetch_income_data(self):
+        """获取用户收益数据"""
+        jwt_token = self.config.get('jwt_token', '')
+        host = self.host_entry.get().strip()
+        
+        if not jwt_token:
+            messagebox.showwarning("提示", "请先登录！")
+            return
+        
+        def _fetch():
             try:
                 import urllib.request
-                import urllib.error
                 
-                # 动态拼接获取token的URL
-                # 如果host已经包含http(s)://，直接使用，否则添加http://
-                if host.startswith('http://') or host.startswith('https://'):
-                    base_url = host
-                else:
-                    base_url = f"http://{host}"
+                base_url = f"http://{host}" if not host.startswith('http') else host
+                income_url = f"{base_url}/api/user/income"
                 
-                # 拼接API端点
-                url = f"{base_url}/api/register"
-                
-                self.starfire_log(f"正在从服务器获取Token: {url}", "blue")
-                
-                # 发送GET请求获取token
-                req = urllib.request.Request(url, method='GET')
-                req.add_header('User-Agent', 'StarFire-Client/1.0')
+                req = urllib.request.Request(income_url)
+                req.add_header('Authorization', f'Bearer {jwt_token}')
                 
                 with urllib.request.urlopen(req, timeout=10) as response:
-                    if response.status == 200:
-                        data = json.loads(response.read().decode('utf-8'))
+                    result = json.loads(response.read().decode('utf-8'))
+                    
+                    if response.status == 201 or response.status == 200:
+                        data_list = result.get('data', [])
                         
-                        # 根据实际API响应格式调整
-                        if 'token' in data:
-                            token = data['token']
-                        elif 'data' in data and 'token' in data['data']:
-                            token = data['data']['token']
-                        else:
-                            raise Exception("响应中未找到token字段")
+                        # 计算总收益: sum((ippm*inputtokens + oppm*outputtokens) / 1000000)
+                        total_revenue = 0.0
+                        for item in data_list:
+                            ippm = float(item.get('IPPM', 0))
+                            oppm = float(item.get('OPPM', 0))
+                            input_tokens = int(item.get('InputTokens', 0))
+                            output_tokens = int(item.get('OutputTokens', 0))
+                            
+                            revenue = (ippm * input_tokens + oppm * output_tokens) / 1000000
+                            total_revenue += revenue
                         
-                        # 在主线程中更新UI
-                        def _update_ui():
-                            self.token_entry.delete(0, tk.END)
-                            self.token_entry.insert(0, token)
-                            self.config['token'] = token
-                            self.save_config()
-                            self.starfire_log(f"✓ 成功获取Token: {token[:20]}...", "green")
-                            messagebox.showinfo("成功", f"Token已获取并保存！\n{token[:30]}...")
+                        # 更新UI
+                        def _update():
+                            self.total_income = total_revenue
+                            self.total_income_label.config(text=f"{total_revenue:.6f} ¥")
+                            
+                            if data_list:
+                                latest = data_list[0]
+                                latest_ippm = float(latest.get('IPPM', 0))
+                                latest_oppm = float(latest.get('OPPM', 0))
+                                latest_input = int(latest.get('InputTokens', 0))
+                                latest_output = int(latest.get('OutputTokens', 0))
+                                latest_revenue = (latest_ippm * latest_input + latest_oppm * latest_output) / 1000000
+                                self.latest_income_label.config(text=f"{latest_revenue:.6f} ¥")
+                            
+                            self.starfire_log(f"✓ 已刷新收益数据，总收益: {total_revenue:.6f} ¥ ({len(data_list)} 条记录)", "green")
                         
-                        self.root.after(0, _update_ui)
+                        self.root.after(0, _update)
                     else:
-                        raise Exception(f"服务器返回错误状态码: {response.status}")
+                        print("result:", result)
+                        error_msg = result.get('message', '获取收益失败')
+                        self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
                         
-            except urllib.error.URLError as e:
-                error_msg = f"网络错误: {str(e)}"
-                self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
-                self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
             except Exception as e:
-                error_msg = f"获取Token失败: {str(e)}"
+                error_msg = f"获取收益失败: {str(e)}"
                 self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
-                self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
         
-        # 在后台线程执行
-        threading.Thread(target=_fetch_token, daemon=True).start()
+        threading.Thread(target=_fetch, daemon=True).start()
     
+    def get_register_token(self):
+        """从服务器获取注册token"""
+        jwt_token = self.config.get('jwt_token', '')
+        host = self.host_entry.get().strip()
+        
+        if not jwt_token:
+            self.starfire_log("❌ 未登录，无法获取注册token", "red")
+            return None
+        
+        try:
+            import urllib.request
+            
+            base_url = f"http://{host}" if not host.startswith('http') else host
+            token_url = f"{base_url}/api/user/register-token"
+            
+            print("Fetching register token from:", token_url," with JWT:", jwt_token)
+            req = urllib.request.Request(token_url,method="POST",data=b'')
+            req.add_header('Authorization', f'Bearer {jwt_token}')
+            
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                
+                print("Register token response:", result)
+                if response.status == 200 or response.status == 201:
+                    token = result['token']
+                    self.starfire_log(f"✓ 获取注册token成功", "green")
+                    return token
+                else:
+                    error_msg = result.get('message', '获取token失败')
+                    self.starfire_log(f"❌ {error_msg}", "red")
+                    return None
+                    
+        except Exception as e:
+            self.starfire_log(f"❌ 获取注册token失败: {str(e)}", "red")
+            return None
 
     def get_all_available_models(self):
         """返回所有可用模型及其引擎类型的字典 {model_name: engine}"""
@@ -1619,9 +1850,10 @@ class StarFireAPP:
             model_prices = self.config.get('model_prices', {})
             available_models = self.get_all_available_models()
             models_data = []
+            
             if model_prices:
                 for model_name, prices in model_prices.items():
-                    # 使用配置中存储的引擎类型，如果没有则默认为 ollama
+                    # 使用配置中存储的引擎类型，如果没有则从可用模型中获取
                     engine = str(prices.get('engine') or available_models.get(model_name, 'ollama'))
                     models_data.append({
                         'model': model_name,
@@ -1638,14 +1870,15 @@ class StarFireAPP:
                     'vllm': 'vllm',
                     'llamacpp': 'llama.cpp'
                 }
-                engine = engine_map.get(model_mode, 'ollama')
+                default_engine = engine_map.get(model_mode, 'ollama')
                 self.starfire_log("⚠️ 没有配置模型价格，将发送默认价格配置", "orange")
                 models_data.append({
                     'model': '*',
-                    'engine': engine,
+                    'engine': default_engine,
                     'ippm': str(self.config.get('ippm', '3.8')),
                     'oppm': str(self.config.get('oppm', '8.3'))
                 })
+            
             message = {
                 'id': 'model_price_config',
                 'type': 'model_prices',
@@ -1655,6 +1888,7 @@ class StarFireAPP:
             message_json = json.dumps(message, ensure_ascii=False)
             self.pending_price_message = message_json
             self.starfire_log(f"📋 准备发送的消息: {message_json[:200]}...", "gray")
+            
             tcp_status = False
             sent_count = 0
             if self.tcp_server and hasattr(self.tcp_server, 'clients'):
@@ -1663,10 +1897,19 @@ class StarFireAPP:
                 if client_count > 0:
                     sent_count = self.tcp_server.send_to_all_clients(message_json)
                     tcp_status = True
+            
+            # 统计各引擎的模型数量
+            engine_counts = {}
+            for model_data in models_data:
+                eng = model_data['engine']
+                engine_counts[eng] = engine_counts.get(eng, 0) + 1
+            
+            engine_info = ', '.join([f"{eng}:{cnt}" for eng, cnt in engine_counts.items()])
+            
             if tcp_status and sent_count > 0:
-                self.starfire_log(f"✓ 价格配置已通过TCP发送到 {sent_count} 个客户端 (engine: {engine}, 模型数: {len(models_data)})", "green")
+                self.starfire_log(f"✓ 价格配置已通过TCP发送到 {sent_count} 个客户端 (模型: {len(models_data)}, 引擎: {engine_info})", "green")
             else:
-                self.starfire_log(f"✓ 价格配置已缓存，等待TCP客户端连接 (engine: {engine}, 模型数: {len(models_data)})", "blue")
+                self.starfire_log(f"✓ 价格配置已缓存，等待TCP客户端连接 (模型: {len(models_data)}, 引擎: {engine_info})", "blue")
         except Exception as e:
             self.starfire_log(f"❌ 准备价格配置失败: {str(e)}", "red")
             self.starfire_log(f"详细错误: {traceback.format_exc()}", "red")
@@ -1690,14 +1933,20 @@ class StarFireAPP:
     
     def start_starfire(self):
         host = self.host_entry.get().strip()
-        token = self.token_entry.get().strip()
+        
+        # 获取注册token
+        token = self.get_register_token()
+        if not token:
+            messagebox.showwarning("配置不完整", "请先登录以获取注册Token！")
+            return
+        
         # 使用配置文件中的默认价格，如果没有则使用 3.8 和 8.3
         ippm = self.config.get('ippm', '3.8')
         oppm = self.config.get('oppm', '8.3')
         model_mode = self.model_mode_var.get()
         
-        if not all([host, token]):
-            messagebox.showwarning("配置不完整", "请填写服务器地址和 Token！")
+        if not host:
+            messagebox.showwarning("配置不完整", "请填写服务器地址！")
             return
         
         # 代理模式需要额外检查配置
@@ -1737,7 +1986,7 @@ class StarFireAPP:
                 proxy_url = self.proxy_base_url_entry.get().strip()
                 proxy_key = self.proxy_api_key_entry.get().strip()
                 cmd.extend([
-                    "-engine", "openai",
+                    "-engine", "all",
                     "-openai-url", proxy_url,
                     "-openai-key", proxy_key
                 ])
@@ -1967,6 +2216,12 @@ class StarFireAPP:
                     # 更新累计收益(直接使用服务端传来的total_income)
                     self.total_income = total
                     
+                    # 更新界面显示
+                    def _update_income_ui():
+                        self.total_income_label.config(text=f"{total:.6f} {currency}")
+                        self.latest_income_label.config(text=f"{amount:.6f} {currency}")
+                    self.root.after(0, _update_income_ui)
+                    
                     # 显示toast通知
                     self.show_income_toast(amount, currency, model, usage)
                     
@@ -1990,6 +2245,12 @@ class StarFireAPP:
                     # 更新累计收益
                     self.total_income += float(amount)
                     
+                    # 更新界面显示
+                    def _update_income_ui():
+                        self.total_income_label.config(text=f"{self.total_income:.6f} {currency}")
+                        self.latest_income_label.config(text=f"{float(amount):.6f} {currency}")
+                    self.root.after(0, _update_income_ui)
+                    
                     # 显示toast通知
                     self.show_income_toast(amount, currency)
                     
@@ -2006,6 +2267,13 @@ class StarFireAPP:
                 is_income, amount, currency = parse_income_message(content)
                 if is_income:
                     self.total_income += float(amount)
+                    
+                    # 更新界面显示
+                    def _update_income_ui():
+                        self.total_income_label.config(text=f"{self.total_income:.6f} {currency}")
+                        self.latest_income_label.config(text=f"{float(amount):.6f} {currency}")
+                    self.root.after(0, _update_income_ui)
+                    
                     self.show_income_toast(amount, currency)
                     self.starfire_log(f"💰 收益到账: {amount} {currency}", "green")
                 else:
