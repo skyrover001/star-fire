@@ -1,9 +1,10 @@
 {
+  "nihao": "Hello",
   "welcomeBack": "Welcome Back",
   "pageTitle": "Plug-and-play Admin system",
   "pageDesc": "Efficient, versatile frontend template",
   "loginSuccess": "Login Successful",
-  "loginSuccessDesc": "Welcome Back",
+  "loginSuccessDesc": "Hello! Welcome Back",
   "loginSubtitle": "Enter your account details to manage your projects",
   "selectAccount": "Quick Select Account",
   "username": "Username",

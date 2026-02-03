@@ -1,9 +1,10 @@
 {
+  "nihao": "你好",
   "welcomeBack": "欢迎回来",
   "pageTitle": "MaaS层个人算力分享服务平台",
   "pageDesc": "汇聚模型、分享算力、共享价值",
   "loginSuccess": "登录成功",
-  "loginSuccessDesc": "欢迎回来",
+  "loginSuccessDesc": "你好！欢迎回来",
   "loginSubtitle": "请登录你的帐户信息以开始你的算力星火计划",
   "selectAccount": "快速选择账号",
   "username": "账号",
