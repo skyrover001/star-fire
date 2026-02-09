@@ -2,7 +2,7 @@
 import type { VbenFormSchema } from '@vben/common-ui';
 import type { Recordable } from '@vben/types';
 
-import { computed, ref, reactive } from 'vue';
+import { computed, ref, reactive, h } from 'vue';
 import { message } from 'ant-design-vue';
 import { useRouter } from 'vue-router';
 
@@ -95,6 +95,37 @@ const formSchema = computed((): VbenFormSchema[] => {
           fieldName: 'emailCode',
           label: '',
           rules: z.string().min(6, { message: '请输入6位验证码' }).max(6, { message: '验证码为6位数字' }),
+        },
+        {
+          component: 'VbenCheckbox',
+          componentProps: {
+            class: 'mt-4',
+          },
+          fieldName: 'agreeTerms',
+          label: '',
+          renderComponentContent() {
+            return {
+              default: () => {
+                return [
+                  '我同意 ',
+                  h('a', { 
+                    href: 'https://openai.com/policies/terms-of-use', 
+                    target: '_blank',
+                    class: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline',
+                  }, '隐私政策'),
+                  ' 和 ',
+                  h('a', { 
+                    href: 'https://openai.com/policies/terms-of-use', 
+                    target: '_blank',
+                    class: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline',
+                  }, '条款'),
+                ];
+              },
+            };
+          },
+          rules: z.boolean().refine((val) => val === true, {
+            message: '请同意隐私政策和条款',
+          }),
         },
       ];
     default:
