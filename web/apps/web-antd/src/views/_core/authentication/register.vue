@@ -2,18 +2,50 @@
 import type { VbenFormSchema } from '@vben/common-ui';
 import type { Recordable } from '@vben/types';
 
-import { computed, ref, reactive } from 'vue';
+import { computed, ref, reactive, h } from 'vue';
 import { message } from 'ant-design-vue';
 import { useRouter } from 'vue-router';
 
 import { AuthenticationRegister, z } from '@vben/common-ui';
 import { sendEmailCodeApi, registerApi } from '#/api/core/auth';
+import { $t } from '@vben/locales';
 
 defineOptions({ name: 'Register' });
 
 const router = useRouter();
 const loading = ref(false);
 const sendingCode = ref(false);
+
+// Link style classes
+const linkClass = 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline';
+
+// Terms checkbox content
+const termsCheckboxContent = computed(() => {
+  const agreeText = $t('authentication.agree');
+  const andText = $t('authentication.and');
+  const privacyText = $t('authentication.privacyPolicy');
+  const termsText = $t('authentication.terms');
+  
+  return [
+    agreeText,
+    ' ',
+    h('a', { 
+      href: '/privacy-policy', 
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      class: linkClass,
+    }, privacyText),
+    ' ',
+    andText,
+    ' ',
+    h('a', { 
+      href: '/terms-of-service', 
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      class: linkClass,
+    }, termsText),
+  ];
+});
 
 // 注册步骤状态：1-邮箱 2-密码和验证码
 const currentStep = ref(1);
@@ -95,6 +127,22 @@ const formSchema = computed((): VbenFormSchema[] => {
           fieldName: 'emailCode',
           label: '',
           rules: z.string().min(6, { message: '请输入6位验证码' }).max(6, { message: '验证码为6位数字' }),
+        },
+        {
+          component: 'VbenCheckbox',
+          componentProps: {
+            class: 'mt-4',
+          },
+          fieldName: 'agreeTerms',
+          label: '',
+          renderComponentContent() {
+            return {
+              default: () => termsCheckboxContent.value,
+            };
+          },
+          rules: z.literal(true, {
+            errorMap: () => ({ message: $t('authentication.agreeTip') }),
+          }),
         },
       ];
     default:
