@@ -10,6 +10,7 @@ import (
 	"net"
 	"star-fire/client/internal/config"
 	"star-fire/client/internal/inference"
+	"star-fire/client/internal/inference/claude"
 	"star-fire/client/internal/inference/ollama"
 	"star-fire/client/internal/inference/openai"
 	"star-fire/pkg/public"
@@ -121,6 +122,30 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 			log.Println("OpenAI-only mode enabled, skipping local engines")
 		}
 
+	case "claude":
+		if cfg.ClaudeKey == "" {
+			return fmt.Errorf("not set ClaudeKey")
+		}
+		claudeEngine, err := claude.NewEngine(c.ctx, cfg.ClaudeKey, cfg.ClaudeBaseURL, cfg)
+		if err != nil {
+			return fmt.Errorf("init claude engine error: %w", err)
+		}
+		c.engines = append(c.engines, claudeEngine)
+
+		// 如果不是 OpenAIOnly 模式，也尝试初始化本地 Ollama 引擎
+		if !cfg.OpenAIOnly {
+			log.Println("Claude mode with local engines enabled, attempting to init Ollama...")
+			ollamaEngine, err := ollama.NewEngine(c.ctx, cfg.OllamaHost, cfg)
+			if err != nil {
+				log.Printf("⚠️ Init Ollama engine error (optional): %v", err)
+			} else {
+				c.engines = append(c.engines, ollamaEngine)
+				log.Println("✓ Ollama engine added alongside Claude")
+			}
+		} else {
+			log.Println("Claude-only mode enabled, skipping local engines")
+		}
+
 	case "all":
 		// 先初始化 OpenAI（如果配置了）
 		if cfg.OpenAIKey != "" {
@@ -129,6 +154,16 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 				log.Printf("init openai engine error: %v", err)
 			} else {
 				c.engines = append(c.engines, openaiEngine)
+			}
+		}
+
+		// 初始化 Claude（如果配置了）
+		if cfg.ClaudeKey != "" {
+			claudeEngine, err := claude.NewEngine(c.ctx, cfg.ClaudeKey, cfg.ClaudeBaseURL, cfg)
+			if err != nil {
+				log.Printf("init claude engine error: %v", err)
+			} else {
+				c.engines = append(c.engines, claudeEngine)
 			}
 		}
 
