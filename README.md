@@ -51,8 +51,9 @@ Star-fire提供了丰富的功能:
 目前支持的推理引擎有：
 1. ollama
 2. proxy(代理模式)
-3. llama.cpp(开发中)
-4. vllm(开发中)
+3. claude (Anthropic Claude API)
+4. llama.cpp(开发中)
+5. vllm(开发中)
 
 ## 使用方法
 
@@ -92,8 +93,10 @@ make install 进行编译安装，完成后，可在build目录下找到server�
        （windows）starfire.exe -host (host) -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0}
 
        （macos）： starfire -host {host} -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0} 
+       
+       使用Claude API: starfire -host {host} -token {register token} -engine claude -claude-key {your-claude-api-key}
 
-   (4) 本地使用ollama 运行模型，客户端会自动将模型信息推送到server端，准备提供服务 
+   (4) 本地使用ollama 运行模型，客户端会自动将模型信息推送到server端，准备提供服务。使用Claude API时，会自动注册Claude支持的模型。 
 
    (5) 可以在我的收益页面查看自己所有提供模型的收益情况
 

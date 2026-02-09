@@ -17,6 +17,12 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+const (
+	// DefaultAnthropicVersion is the stable API version for Claude
+	// As of 2024-2025, 2023-06-01 is the recommended stable version
+	DefaultAnthropicVersion = "2023-06-01"
+)
+
 type Engine struct {
 	apiKey  string
 	baseURL string
@@ -172,17 +178,24 @@ func (e *Engine) convertToClaudeRequest(request *openai.ChatCompletionRequest) (
 		} else {
 			// Convert message content to Claude format
 			var contentBytes []byte
+			var err error
 			
 			// Check if MultiContent is used (for complex messages)
 			if len(msg.MultiContent) > 0 {
 				// Use MultiContent if available
-				contentBytes, _ = json.Marshal(msg.MultiContent)
+				contentBytes, err = json.Marshal(msg.MultiContent)
+				if err != nil {
+					return nil, fmt.Errorf("marshal multi-content error: %w", err)
+				}
 			} else {
 				// Simple string content, wrap in Claude format
 				claudeContent := []map[string]string{
 					{"type": "text", "text": msg.Content},
 				}
-				contentBytes, _ = json.Marshal(claudeContent)
+				contentBytes, err = json.Marshal(claudeContent)
+				if err != nil {
+					return nil, fmt.Errorf("marshal content error: %w", err)
+				}
 			}
 
 			claudeMessages = append(claudeMessages, ClaudeMessage{
@@ -264,7 +277,7 @@ func (e *Engine) handleNonStreamRequest(ctx context.Context, fingerprint string,
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", e.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("anthropic-version", DefaultAnthropicVersion)
 
 	client := &http.Client{}
 	resp, err := client.Do(httpReq)
@@ -330,7 +343,7 @@ func (e *Engine) handleStreamRequest(ctx context.Context, fingerprint string,
 
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", e.apiKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("anthropic-version", DefaultAnthropicVersion)
 	httpReq.Header.Set("Accept", "text/event-stream")
 
 	client := &http.Client{}
@@ -363,6 +376,7 @@ func (e *Engine) handleStreamRequest(ctx context.Context, fingerprint string,
 	var totalInputTokens, totalOutputTokens int
 	var stopReason string
 
+StreamLoop:
 	for {
 		line, err := reader.ReadBytes('\n')
 		if err != nil {
@@ -466,7 +480,7 @@ func (e *Engine) handleStreamRequest(ctx context.Context, fingerprint string,
 			}); err != nil {
 				log.Printf("[%s] send final response error: %v", fingerprint, err)
 			}
-			break
+			break StreamLoop
 		}
 	}
 
