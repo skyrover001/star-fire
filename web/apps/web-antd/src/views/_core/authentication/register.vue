@@ -15,6 +15,9 @@ const router = useRouter();
 const loading = ref(false);
 const sendingCode = ref(false);
 
+// 链接样式类
+const linkClass = 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline';
+
 // 注册步骤状态：1-邮箱 2-密码和验证码
 const currentStep = ref(1);
 const registrationData = reactive({
@@ -112,21 +115,21 @@ const formSchema = computed((): VbenFormSchema[] => {
                     href: '/privacy-policy', 
                     target: '_blank',
                     rel: 'noopener noreferrer',
-                    class: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline',
+                    class: linkClass,
                   }, '隐私政策'),
                   ' 和 ',
                   h('a', { 
                     href: '/terms-of-service', 
                     target: '_blank',
                     rel: 'noopener noreferrer',
-                    class: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline',
+                    class: linkClass,
                   }, '条款'),
                 ];
               },
             };
           },
-          rules: z.boolean().refine((val) => val === true, {
-            message: '请同意隐私政策和条款',
+          rules: z.literal(true, {
+            errorMap: () => ({ message: '请同意隐私政策和条款' }),
           }),
         },
       ];
