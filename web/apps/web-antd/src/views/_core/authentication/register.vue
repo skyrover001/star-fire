@@ -109,14 +109,14 @@ const formSchema = computed((): VbenFormSchema[] => {
                 return [
                   '我同意 ',
                   h('a', { 
-                    href: 'https://openai.com/policies/privacy-policy', 
+                    href: '/privacy-policy', 
                     target: '_blank',
                     rel: 'noopener noreferrer',
                     class: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline',
                   }, '隐私政策'),
                   ' 和 ',
                   h('a', { 
-                    href: 'https://openai.com/policies/terms-of-use', 
+                    href: '/terms-of-service', 
                     target: '_blank',
                     rel: 'noopener noreferrer',
                     class: 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline',
