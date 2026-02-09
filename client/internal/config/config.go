@@ -17,6 +17,8 @@ type Config struct {
 	OllamaHost                 string
 	OpenAIKey                  string
 	OpenAIBaseURL              string
+	ClaudeKey                  string
+	ClaudeBaseURL              string
 	InputTokenPricePerMillion  float64 // 每输入百万tokens定价
 	OutputTokenPricePerMillion float64
 	Deamon                     bool // 是否以守护进程方式运行
@@ -38,10 +40,12 @@ func LoadConfig() *Config {
 	flag.BoolVar(&showHelp, "help", false, "显示帮助信息")
 	flag.StringVar(&cfg.StarFireHost, "host", "", "StarFire 服务器地址 (必填)")
 	flag.StringVar(&cfg.JoinToken, "token", "", "StarFire 连接令牌 (必填)")
-	flag.StringVar(&cfg.LocalInferenceType, "engine", "ollama", "本地推理引擎类型 (ollama, openai, all)")
+	flag.StringVar(&cfg.LocalInferenceType, "engine", "ollama", "本地推理引擎类型 (ollama, openai, claude, all)")
 	flag.StringVar(&cfg.OllamaHost, "ollama-host", cfg.OllamaHost, "Ollama API 服务器地址")
 	flag.StringVar(&cfg.OpenAIKey, "openai-key", "", "OpenAI API 密钥")
 	flag.StringVar(&cfg.OpenAIBaseURL, "openai-url", cfg.OpenAIBaseURL, "OpenAI API 基础URL")
+	flag.StringVar(&cfg.ClaudeKey, "claude-key", "", "Claude API 密钥")
+	flag.StringVar(&cfg.ClaudeBaseURL, "claude-url", cfg.ClaudeBaseURL, "Claude API 基础URL")
 	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", IPPM_MAX, "每输入百万tokens定价最大值 (默认: 3.99)")
 	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", OPPM_MAX, "每输出百万tokens定价最大值 (默认: 7.99)")
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
@@ -61,6 +65,8 @@ func LoadConfig() *Config {
 		_, _ = fmt.Fprintf(os.Stderr, "  OLLAMA_HOST           Ollama API 服务器地址\n")
 		_, _ = fmt.Fprintf(os.Stderr, "  OPENAI_API_KEY        OpenAI API 密钥\n")
 		_, _ = fmt.Fprintf(os.Stderr, "  OPENAI_API_BASE       OpenAI API 基础URL\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  CLAUDE_API_KEY        Claude API 密钥\n")
+		_, _ = fmt.Fprintf(os.Stderr, "  CLAUDE_API_BASE       Claude API 基础URL\n")
 		_, _ = fmt.Fprintf(os.Stderr, "  STARFIRE_PRICE_PER_M  每百万tokens定价\n")
 		_, _ = fmt.Fprintf(os.Stderr, "\n示例:\n")
 		_, _ = fmt.Fprintf(os.Stderr, "  %s -host=http://localhost:8080 -token=your-token\n", os.Args[0])
@@ -94,6 +100,12 @@ func LoadConfig() *Config {
 	if openaiURL := os.Getenv("OPENAI_API_BASE"); openaiURL != "" {
 		cfg.OpenAIBaseURL = openaiURL
 	}
+	if claudeKey := os.Getenv("CLAUDE_API_KEY"); claudeKey != "" {
+		cfg.ClaudeKey = claudeKey
+	}
+	if claudeURL := os.Getenv("CLAUDE_API_BASE"); claudeURL != "" {
+		cfg.ClaudeBaseURL = claudeURL
+	}
 	if priceStr := os.Getenv("STAR_FIRE_INPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 			cfg.InputTokenPricePerMillion = price
@@ -126,15 +138,21 @@ func ValidateConfig(cfg *Config) error {
 	validEngines := map[string]bool{
 		"ollama": true,
 		"openai": true,
+		"claude": true,
 		"all":    true,
 	}
 	if !validEngines[cfg.LocalInferenceType] {
-		return fmt.Errorf("无效的引擎类型: %s，支持的类型: ollama, openai, all", cfg.LocalInferenceType)
+		return fmt.Errorf("无效的引擎类型: %s，支持的类型: ollama, openai, claude, all", cfg.LocalInferenceType)
 	}
 
 	// 如果使用 OpenAI 引擎，检查是否提供了 API 密钥
 	if (cfg.LocalInferenceType == "openai" || cfg.LocalInferenceType == "all") && cfg.OpenAIKey == "" {
 		return fmt.Errorf("使用 OpenAI 引擎时必须提供 API 密钥，请使用 -openai-key 参数或设置 OPENAI_API_KEY 环境变量")
+	}
+
+	// 如果使用 Claude 引擎，检查是否提供了 API 密钥
+	if (cfg.LocalInferenceType == "claude" || cfg.LocalInferenceType == "all") && cfg.ClaudeKey == "" {
+		return fmt.Errorf("使用 Claude 引擎时必须提供 API 密钥，请使用 -claude-key 参数或设置 CLAUDE_API_KEY 环境变量")
 	}
 
 	// 验证价格参数
