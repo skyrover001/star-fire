@@ -19,13 +19,6 @@ const sendingCode = ref(false);
 // Link style classes
 const linkClass = 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline';
 
-// Terms checkbox validation rule
-const termsValidationRule = computed(() => 
-  z.literal(true, {
-    errorMap: () => ({ message: $t('authentication.agreeTip') }),
-  })
-);
-
 // Terms checkbox content
 const termsCheckboxContent = computed(() => {
   const agreeText = $t('authentication.agree');
@@ -147,7 +140,9 @@ const formSchema = computed((): VbenFormSchema[] => {
               default: () => termsCheckboxContent.value,
             };
           },
-          rules: termsValidationRule.value,
+          rules: z.literal(true, {
+            errorMap: () => ({ message: $t('authentication.agreeTip') }),
+          }),
         },
       ];
     default:
