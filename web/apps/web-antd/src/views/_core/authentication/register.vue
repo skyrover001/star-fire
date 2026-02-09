@@ -19,6 +19,13 @@ const sendingCode = ref(false);
 // Link style classes
 const linkClass = 'text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline';
 
+// Terms checkbox validation rule
+const termsValidationRule = computed(() => 
+  z.literal(true, {
+    errorMap: () => ({ message: $t('authentication.agreeTip') }),
+  })
+);
+
 // 注册步骤状态：1-邮箱 2-密码和验证码
 const currentStep = ref(1);
 const registrationData = reactive({
@@ -110,30 +117,34 @@ const formSchema = computed((): VbenFormSchema[] => {
           renderComponentContent() {
             return {
               default: () => {
+                const agreeText = $t('authentication.agree');
+                const andText = $t('authentication.and');
+                const privacyText = $t('authentication.privacyPolicy');
+                const termsText = $t('authentication.terms');
+                
                 return [
-                  $t('authentication.agree') + ' ',
+                  agreeText,
+                  ' ',
                   h('a', { 
                     href: '/privacy-policy', 
                     target: '_blank',
                     rel: 'noopener noreferrer',
                     class: linkClass,
-                  }, $t('authentication.privacyPolicy')),
+                  }, privacyText),
                   ' ',
-                  $t('authentication.and'),
+                  andText,
                   ' ',
                   h('a', { 
                     href: '/terms-of-service', 
                     target: '_blank',
                     rel: 'noopener noreferrer',
                     class: linkClass,
-                  }, $t('authentication.terms')),
+                  }, termsText),
                 ];
               },
             };
           },
-          rules: computed(() => z.literal(true, {
-            errorMap: () => ({ message: $t('authentication.agreeTip') }),
-          })),
+          rules: termsValidationRule,
         },
       ];
     default:
