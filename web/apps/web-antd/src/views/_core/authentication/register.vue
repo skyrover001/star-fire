@@ -26,6 +26,34 @@ const termsValidationRule = computed(() =>
   })
 );
 
+// Terms checkbox content
+const termsCheckboxContent = computed(() => {
+  const agreeText = $t('authentication.agree');
+  const andText = $t('authentication.and');
+  const privacyText = $t('authentication.privacyPolicy');
+  const termsText = $t('authentication.terms');
+  
+  return [
+    agreeText,
+    ' ',
+    h('a', { 
+      href: '/privacy-policy', 
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      class: linkClass,
+    }, privacyText),
+    ' ',
+    andText,
+    ' ',
+    h('a', { 
+      href: '/terms-of-service', 
+      target: '_blank',
+      rel: 'noopener noreferrer',
+      class: linkClass,
+    }, termsText),
+  ];
+});
+
 // 注册步骤状态：1-邮箱 2-密码和验证码
 const currentStep = ref(1);
 const registrationData = reactive({
@@ -116,32 +144,7 @@ const formSchema = computed((): VbenFormSchema[] => {
           label: '',
           renderComponentContent() {
             return {
-              default: () => {
-                const agreeText = $t('authentication.agree');
-                const andText = $t('authentication.and');
-                const privacyText = $t('authentication.privacyPolicy');
-                const termsText = $t('authentication.terms');
-                
-                return [
-                  agreeText,
-                  ' ',
-                  h('a', { 
-                    href: '/privacy-policy', 
-                    target: '_blank',
-                    rel: 'noopener noreferrer',
-                    class: linkClass,
-                  }, privacyText),
-                  ' ',
-                  andText,
-                  ' ',
-                  h('a', { 
-                    href: '/terms-of-service', 
-                    target: '_blank',
-                    rel: 'noopener noreferrer',
-                    class: linkClass,
-                  }, termsText),
-                ];
-              },
+              default: () => termsCheckboxContent.value,
             };
           },
           rules: termsValidationRule,
