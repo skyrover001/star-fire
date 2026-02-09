@@ -119,7 +119,7 @@ const formSchema = computed((): VbenFormSchema[] => {
                     class: linkClass,
                   }, $t('authentication.privacyPolicy')),
                   ' ',
-                  $t('authentication.terms').toLowerCase() === 'terms' ? 'and' : '和',
+                  $t('authentication.and'),
                   ' ',
                   h('a', { 
                     href: '/terms-of-service', 
@@ -131,9 +131,9 @@ const formSchema = computed((): VbenFormSchema[] => {
               },
             };
           },
-          rules: z.literal(true, {
+          rules: computed(() => z.literal(true, {
             errorMap: () => ({ message: $t('authentication.agreeTip') }),
-          }),
+          })),
         },
       ];
     default:
