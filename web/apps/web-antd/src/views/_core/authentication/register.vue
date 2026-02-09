@@ -147,7 +147,7 @@ const formSchema = computed((): VbenFormSchema[] => {
               default: () => termsCheckboxContent.value,
             };
           },
-          rules: termsValidationRule,
+          rules: termsValidationRule.value,
         },
       ];
     default:
