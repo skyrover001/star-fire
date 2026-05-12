@@ -361,9 +361,14 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		Stream:   &request.Stream,
 		Messages: convertToOllamaMessages(request.Messages),
 		Options: map[string]interface{}{
-			"temperature":      request.Temperature,
-			"top_p":            request.TopP,
-			"max_tokens":       request.MaxTokens,
+			"temperature": request.Temperature,
+			"top_p":       request.TopP,
+			"max_tokens": func() int {
+				if request.MaxCompletionTokens > 0 {
+					return request.MaxCompletionTokens
+				}
+				return request.MaxTokens
+			}(),
 			"reasoning_effort": request.ReasoningEffort,
 			"stream_options":   map[string]interface{}{},
 			//"num_predict":      -1,
@@ -478,7 +483,27 @@ func convertToOllamaMessages(messages []openai.ChatCompletionMessage) []api.Mess
 
 		//fmt.Println("function call:", msg.FunctionCall)
 		//fmt.Println("tool calls:", msg.ToolCalls)
-		if msg.FunctionCall != nil {
+
+		// 处理 msg.ToolCalls（新版 OpenAI API 格式，智能体客户端如 hermes/opencode 使用）
+		if len(msg.ToolCalls) > 0 {
+			ollamaMessage.ToolCalls = make([]api.ToolCall, 0, len(msg.ToolCalls))
+			for _, tc := range msg.ToolCalls {
+				var args api.ToolCallFunctionArguments
+				if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err != nil {
+					log.Printf("failed to unmarshal tool call arguments: %v", err)
+					args = make(api.ToolCallFunctionArguments)
+				}
+				ollamaMessage.ToolCalls = append(ollamaMessage.ToolCalls, api.ToolCall{
+					Function: api.ToolCallFunction{
+						Index:     index,
+						Name:      tc.Function.Name,
+						Arguments: args,
+					},
+				})
+				index++
+			}
+		} else if msg.FunctionCall != nil {
+			// 处理已弃用的 FunctionCall 格式（向后兼容）
 			ollamaMessage.ToolCalls = make([]api.ToolCall, 0, 1)
 			var args api.ToolCallFunctionArguments
 			if err := json.Unmarshal([]byte(msg.FunctionCall.Arguments), &args); err != nil {
