@@ -10,12 +10,13 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/gorilla/websocket"
-	"github.com/sashabaranov/go-openai"
 	"log"
 	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
 	"time"
+
+	"github.com/gorilla/websocket"
+	"github.com/sashabaranov/go-openai"
 )
 
 type Engine struct {
@@ -156,6 +157,14 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 				request.ReasoningEffort = "low"
 			}
 		}
+
+		// 确保 stream_options.include_usage 为 true，这样提供者会在流结束时发送 usage 块
+		if request.StreamOptions == nil {
+			request.StreamOptions = &openai.StreamOptions{IncludeUsage: true}
+		} else {
+			request.StreamOptions.IncludeUsage = true
+		}
+
 		stream, err := e.client.CreateChatCompletionStream(ctx, *request)
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat complation error: %v", err)

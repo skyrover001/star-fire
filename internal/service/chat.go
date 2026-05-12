@@ -33,9 +33,12 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	request := extendedRequest.ChatCompletionRequest
 	fingerPrint := uuid.NewString()
 
+	// 只在前端明确传了 enable_thinking 时才覆盖 reasoning_effort
+	// 否则保留请求中原有的 reasoning_effort 值（智能体客户端如 hermes/opencode 会自己设置）
 	if extendedRequest.EnableThink {
 		request.ReasoningEffort = "medium"
-	} else {
+	} else if request.ReasoningEffort == "" {
+		// 仅当原始请求中没有 reasoning_effort 时，才设为 none
 		request.ReasoningEffort = "none"
 	}
 
@@ -123,8 +126,14 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 
 		case public.CLOSE:
 			log.Println("Client closed connection")
+			// 向前端发送 [DONE] 标记，确保 SSE 流正常终止
+			if c.Writer.Header().Get("Content-Type") == "text/event-stream" {
+				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+				c.Writer.Flush()
+			}
 			_ = server.RespClients[fingerPrint].Close()
 			server.RemoveRespClient(fingerPrint)
+			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return
 
 		case public.MODEL_ERROR:
@@ -238,9 +247,9 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			return true
 		}
 
-		// 检查是否完成（finish_reason 为 stop）
-		if len(chatResponse.Choices) > 0 && chatResponse.Choices[0].FinishReason == "stop" {
-			log.Printf("Received finish_reason: stop")
+		// 检查是否完成（finish_reason 为 stop、tool_calls 或 length）
+		if len(chatResponse.Choices) > 0 && chatResponse.Choices[0].FinishReason != "" {
+			log.Printf("Received finish_reason: %s", chatResponse.Choices[0].FinishReason)
 			// 如果这个数据块中已经有 usage，直接处理
 			if usage, hasUsage := content["usage"].(map[string]interface{}); hasUsage {
 				promptTokens := int(usage["prompt_tokens"].(float64))
