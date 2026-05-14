@@ -35,11 +35,10 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 
 	// 只在前端明确传了 enable_thinking 时才覆盖 reasoning_effort
 	// 否则保留请求中原有的 reasoning_effort 值（智能体客户端如 hermes/opencode 会自己设置）
+	// 注意：不要对空值强制设 "none"，因为某些后端（如 vLLM/GLM-5.1）不支持该参数，
+	// 强制设置可能导致模型输出混乱（think块和tool_call混杂）导致截断
 	if extendedRequest.EnableThink {
 		request.ReasoningEffort = "medium"
-	} else if request.ReasoningEffort == "" {
-		// 仅当原始请求中没有 reasoning_effort 时，才设为 none
-		request.ReasoningEffort = "none"
 	}
 
 	// qwen 系列模型兼容reasoning effort

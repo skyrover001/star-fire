@@ -3,12 +3,13 @@ package client
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/gorilla/websocket"
-	"github.com/sashabaranov/go-openai"
 	"log"
 	"net/http"
 	"net/url"
 	"star-fire/pkg/public"
+
+	"github.com/gorilla/websocket"
+	"github.com/sashabaranov/go-openai"
 )
 
 func RegisterClient(c *Client, host, token string) error {

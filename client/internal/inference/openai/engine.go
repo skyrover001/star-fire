@@ -95,9 +95,21 @@ func (e *Engine) SupportsModel(modelName string, conf *config.Config) bool {
 }
 
 func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
-	request *openai.ChatCompletionRequest, responseConn *websocket.Conn) error {
+	request *openai.ChatCompletionRequest,
+	responseConn *websocket.Conn) error {
 	log.Printf("handle chat request [%s]: modle=%s, strem=%v, API BASE URL=%s",
 		fingerprint, request.Model, request.Stream, e.baseURL)
+
+	// 修复 tool 消息中 content 为空的情况：
+	// 原始请求中 tool message 的 content 可能为 null，经 Go 反序列化后变为 ""，
+	// 而 go-openai 库的 MarshalJSON 使用 omitempty 会将 "" 从 JSON 中完全移除，
+	// 导致某些后端（如 vLLM）因缺少必需的 content 字段而返回 400 错误。
+	// 这里仅对 role=tool 且 content 为空的消息补一个空格，其他消息不做任何修改。
+	for i := range request.Messages {
+		if request.Messages[i].Role == openai.ChatMessageRoleTool && request.Messages[i].Content == "" {
+			request.Messages[i].Content = " "
+		}
+	}
 
 	// 判断模型是否为kimi模型，kimi模型的request 和openai的request不同，stream response也不同
 	if strings.Contains(request.Model, "kimi") || strings.Contains(request.Model, "moonshot") {
