@@ -47,7 +47,9 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	}
 
 	// fmt.Println("request is ..............................", request.Metadata, request.ChatCompletionRequestExtensions, request.ReasoningEffort)
-	client := server.LoadBalance(request.Model)
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+	client := server.LoadBalance(request.Model, userIDStr)
 	if client == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No available client"})
 		return

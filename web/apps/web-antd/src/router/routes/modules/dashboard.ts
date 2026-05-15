@@ -82,6 +82,14 @@ const routes: RouteRecordRaw[] = [
         path: '/usage-analytics/my-usage',
         component: () => import('#/views/analytics/my-usage/index.vue'),
       },
+      {
+        meta: {
+          title: '消费限额',
+        },
+        name: 'PriceCaps',
+        path: '/usage-analytics/price-caps',
+        component: () => import('#/views/analytics/price-caps/index.vue'),
+      },
     ],
   },
   // 保留工作台作为一级菜单 - 暂时隐藏

@@ -89,6 +89,74 @@
       </div>
     </div>
 
+    <!-- 我的价格上限卡片 -->
+    <div class="mb-6 rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-5">
+      <div class="flex items-center justify-between mb-4">
+        <div class="flex items-center space-x-2">
+          <div class="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center">
+            <svg class="w-4 h-4 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+            </svg>
+          </div>
+          <h3 class="text-base font-semibold text-[var(--text-primary)]">我的价格上限</h3>
+        </div>
+        <span v-if="priceCap" class="text-xs text-[var(--text-secondary)]">已设置</span>
+        <span v-else class="text-xs text-[var(--text-secondary)]">未设置（不限价）</span>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <!-- 输入上限 -->
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
+            输入上限 (IPPM) <span class="text-[var(--text-tertiary)]">¥ / 百万 tokens</span>
+          </label>
+          <input
+            v-model.number="priceCapForm.maxIPPM"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="留空则不限价"
+            class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-color)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+        <!-- 输出上限 -->
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
+            输出上限 (OPPM) <span class="text-[var(--text-tertiary)]">¥ / 百万 tokens</span>
+          </label>
+          <input
+            v-model.number="priceCapForm.maxOPPM"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="留空则不限价"
+            class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-color)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
+      </div>
+
+      <div class="mt-4 flex items-center space-x-3">
+        <button
+          class="px-4 py-2 rounded-lg text-sm font-medium text-white bg-amber-500 hover:bg-amber-600 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+          :disabled="priceCapSaving"
+          @click="savePriceCap"
+        >
+          {{ priceCapSaving ? '保存中...' : '保存限额' }}
+        </button>
+        <button
+          v-if="priceCap"
+          class="px-4 py-2 rounded-lg text-sm font-medium text-red-500 bg-red-500/10 border border-red-500/20 hover:bg-red-500/20 transition-colors"
+          :disabled="priceCapSaving"
+          @click="clearPriceCap"
+        >
+          清除限额
+        </button>
+        <span v-if="priceCap" class="text-xs text-[var(--text-secondary)]">
+          当前：输入 ¥{{ priceCap.max_ippm.toFixed(2) }} · 输出 ¥{{ priceCap.max_oppm.toFixed(2) }}（/百万）
+        </span>
+      </div>
+    </div>
+
     <!-- 客户端状态统计 -->
     <div class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
       <div class="rounded-xl bg-gradient-to-br from-green-500/10 to-green-600/5 p-4 text-center border border-green-500/20">
@@ -410,7 +478,14 @@
 <script lang="ts" setup>
 import { computed, ref, onMounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { message } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
+import {
+  type PriceCap,
+  getPriceCapsApi,
+  upsertPriceCapApi,
+  deletePriceCapApi,
+} from '#/api/core/price-cap';
 
 const router = useRouter();
 const route = useRoute();
@@ -557,6 +632,7 @@ const fetchModelDetails = async () => {
 // 刷新数据
 const refreshData = () => {
   fetchModelDetails();
+  fetchPriceCap();
 };
 
 // 返回上一页
@@ -564,10 +640,68 @@ const goBack = () => {
   router.push('/model-marketplace');
 };
 
+// ── 价格上限 ──────────────────────────────────────────────
+const priceCap = ref<PriceCap | null>(null);
+const priceCapSaving = ref(false);
+const priceCapForm = ref({ maxIPPM: 0, maxOPPM: 0 });
+
+const fetchPriceCap = async () => {
+  if (!modelName.value) return;
+  try {
+    const caps = await getPriceCapsApi();
+    const found = caps.find(c => c.model === modelName.value) ?? null;
+    priceCap.value = found;
+    priceCapForm.value = {
+      maxIPPM: found?.max_ippm ?? 0,
+      maxOPPM: found?.max_oppm ?? 0,
+    };
+  } catch {
+    // 获取失败时静默处理，不影响主页面
+  }
+};
+
+const savePriceCap = async () => {
+  if (priceCapForm.value.maxIPPM < 0 || priceCapForm.value.maxOPPM < 0) {
+    message.warning('价格上限不能为负数');
+    return;
+  }
+  try {
+    priceCapSaving.value = true;
+    const saved = await upsertPriceCapApi(
+      modelName.value,
+      priceCapForm.value.maxIPPM,
+      priceCapForm.value.maxOPPM,
+    );
+    priceCap.value = saved;
+    message.success('价格上限已保存');
+  } catch (e: any) {
+    message.error('保存失败：' + (e?.message ?? '未知错误'));
+  } finally {
+    priceCapSaving.value = false;
+  }
+};
+
+const clearPriceCap = async () => {
+  if (!priceCap.value) return;
+  try {
+    priceCapSaving.value = true;
+    await deletePriceCapApi(modelName.value);
+    priceCap.value = null;
+    priceCapForm.value = { maxIPPM: 0, maxOPPM: 0 };
+    message.success('已清除价格上限，恢复不限价');
+  } catch (e: any) {
+    message.error('清除失败：' + (e?.message ?? '未知错误'));
+  } finally {
+    priceCapSaving.value = false;
+  }
+};
+// ─────────────────────────────────────────────────────────
+
 // 监听模型名称变化
 watch(() => modelName.value, () => {
   if (modelName.value) {
     fetchModelDetails();
+    fetchPriceCap();
   }
 }, { immediate: true });
 
@@ -575,6 +709,7 @@ watch(() => modelName.value, () => {
 onMounted(() => {
   if (modelName.value) {
     fetchModelDetails();
+    fetchPriceCap();
   }
 });
 </script>

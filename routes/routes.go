@@ -17,6 +17,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 
 	authHandler := user_handlers.NewAuthHandler(authService)
 	apiKeyHandler := user_handlers.NewAPIKeyHandler(apiKeyService)
+	priceCapHandler := user_handlers.NewPriceCapHandler(server.UserPriceCapDB)
 
 	clientHandler := client_handlers.NewClientHandler(server, registerTokenService)
 	tokenUsageHandler := user_handlers.NewTokenUsageHandler(server)
@@ -58,6 +59,11 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 
 		userAPI.GET("/token-usage", tokenUsageHandler.GetUserTokenUsage)
 		userAPI.GET("/income", tokenUsageHandler.GetUserIncome)
+
+		// Price cap configuration: userID is taken from JWT, not from the request body.
+		userAPI.GET("/price-caps", priceCapHandler.ListPriceCaps)
+		userAPI.PUT("/price-caps/:model", priceCapHandler.UpsertPriceCap)
+		userAPI.DELETE("/price-caps/:model", priceCapHandler.DeletePriceCap)
 	}
 
 	api := r.Group("/v1")
