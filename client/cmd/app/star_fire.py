@@ -28,6 +28,56 @@ try:
 except ImportError:
     SOUND_AVAILABLE = False
 
+def validate_url(url, require_path=False):
+    """验证URL格式
+    必须以 http:// 或 https:// 开头
+    支持带路径的URL，如 http://example.com/v1, http://example.com:8080/chat/v1/
+    返回: (is_valid, error_message)
+    """
+    if not url:
+        return False, "URL不能为空"
+    
+    url = url.strip()
+    
+    if not url.startswith('http://') and not url.startswith('https://'):
+        return False, "URL必须以 http:// 或 https:// 开头"
+    
+    # 提取 host 部分用于验证
+    if url.startswith('https://'):
+        host_part = url[8:]
+    else:
+        host_part = url[7:]
+    
+    # 去掉路径部分，获取 host:port
+    if '/' in host_part:
+        host_part = host_part.split('/')[0]
+    
+    # 检查 host 部分是否为空
+    if not host_part:
+        return False, "URL格式错误，缺少主机名"
+    
+    # 检查是否包含端口
+    if ':' in host_part:
+        try:
+            port = int(host_part.split(':')[1])
+            if port < 1 or port > 65535:
+                return False, "端口号必须在 1-65535 之间"
+        except ValueError:
+            return False, "端口号格式错误"
+    
+    # 如果需要路径但没有路径
+    if require_path and '/' not in url[url.find('://') + 3:]:
+        return False, "URL需要包含路径，如 /v1"
+    
+    return True, ""
+
+def validate_host(host):
+    """验证服务器地址格式（简化版，用于服务器地址）
+    必须以 http:// 或 https:// 开头
+    返回: (is_valid, error_message)
+    """
+    return validate_url(host, require_path=False)
+
 def get_resource_path(relative_path):
     """获取资源文件的绝对路径（支持打包后）"""
     try:
@@ -797,10 +847,18 @@ class StarFireAPP:
         proxy_url_frame = ttk.Frame(self.proxy_config_frame)
         proxy_url_frame.pack(fill=tk.X, pady=5)
         ttk.Label(proxy_url_frame, text="Base URL:", width=10).pack(side=tk.LEFT)
+        def validate_proxy_url_on_blur():
+            """Base URL失焦验证"""
+            url = self.proxy_base_url_entry.get().strip()
+            if url:
+                is_valid, err_msg = validate_url(url)
+                if not is_valid:
+                    self.starfire_log(f"⚠️ Base URL格式警告: {err_msg}", "orange")
+        
         self.proxy_base_url_entry = ttk.Entry(proxy_url_frame)
         self.proxy_base_url_entry.insert(0, self.config.get('proxy_base_url', 'http://localhost:8000/v1'))
         self.proxy_base_url_entry.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(5, 0))
-        self.proxy_base_url_entry.bind('<FocusOut>', lambda e: self.auto_save_config('proxy_base_url'))
+        self.proxy_base_url_entry.bind('<FocusOut>', lambda e: (self.auto_save_config('proxy_base_url'), validate_proxy_url_on_blur()))
         
         proxy_key_frame = ttk.Frame(self.proxy_config_frame)
         proxy_key_frame.pack(fill=tk.X, pady=5)
@@ -1263,6 +1321,11 @@ class StarFireAPP:
         username = self.username_entry.get().strip()
         password = self.password_entry.get().strip()
         
+        is_valid, err_msg = validate_host(host)
+        if not is_valid:
+            messagebox.showwarning("提示", f"服务器地址格式错误: {err_msg}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080")
+            return
+        
         if not all([host, username, password]):
             messagebox.showwarning("提示", "请填写服务器地址、用户名和密码！")
             return
@@ -1427,6 +1490,11 @@ class StarFireAPP:
             messagebox.showwarning("提示", "请先登录！")
             return
         
+        is_valid, err_msg = validate_host(host)
+        if not is_valid:
+            messagebox.showwarning("提示", f"服务器地址格式错误: {err_msg}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080")
+            return
+        
         def _fetch():
             try:
                 import urllib.request
@@ -1545,9 +1613,9 @@ class StarFireAPP:
             base_url = self.proxy_base_url_entry.get().strip()
             api_key = self.proxy_api_key_entry.get().strip()
             if base_url and api_key:
-                if base_url.endswith('/v1'):
-                    models_url = f"{base_url}/models"
-                else:
+                base_url = self.proxy_base_url_entry.get().strip().rstrip('/')
+                api_key = self.proxy_api_key_entry.get().strip()
+                if base_url:
                     models_url = f"{base_url}/models"
                 import urllib.request
                 req = urllib.request.Request(models_url)
@@ -1934,6 +2002,11 @@ class StarFireAPP:
     def start_starfire(self):
         host = self.host_entry.get().strip()
         
+        is_valid, err_msg = validate_host(host)
+        if not is_valid:
+            messagebox.showwarning("提示", f"服务器地址格式错误: {err_msg}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080")
+            return
+        
         # 获取注册token
         token = self.get_register_token()
         if not token:
@@ -1955,6 +2028,11 @@ class StarFireAPP:
             proxy_key = self.proxy_api_key_entry.get().strip()
             if not all([proxy_url, proxy_key]):
                 messagebox.showwarning("配置不完整", "代理模式需要配置 Base URL 和 API Key！")
+                return
+            print("123 proxy_url:", proxy_url)
+            is_valid, err_msg = validate_url(proxy_url)
+            if not is_valid:
+                messagebox.showwarning("提示", f"Base URL格式错误: {err_msg}\n\n正确格式示例:\n• https://chat.example.com/v1\n• http://123.12.1.123:8080/v1\n• https://chat.example.com/v1/\n• http://123.12.1.123:8080/chat/v1/")
                 return
         
         #starfire_exe = "starfire.exe" if platform.system() == "Windows" else "./starfire"
