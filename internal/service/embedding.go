@@ -27,7 +27,9 @@ func HandleEmbeddingRequest(c *gin.Context, server *models.Server) {
 	}
 
 	// 使用专门的embedding负载均衡器
-	client := server.LoadBalanceEmbedding(string(request.Model))
+	userID, _ := c.Get("user_id")
+	userIDStr, _ := userID.(string)
+	client := server.LoadBalanceEmbedding(string(request.Model), userIDStr)
 	if client == nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "No available client for embedding model"})
 		return

@@ -1,19 +1,22 @@
 package models
 
 import (
-	"github.com/glebarez/sqlite"
-	"github.com/gorilla/websocket"
-	"github.com/sashabaranov/go-openai"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 	"log"
+	"math"
 	"math/rand"
 	"os"
+	"sort"
 	configs "star-fire/config"
 	"star-fire/pkg/public"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/glebarez/sqlite"
+	"github.com/gorilla/websocket"
+	"github.com/sashabaranov/go-openai"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 type MailService struct {
@@ -44,6 +47,7 @@ type Server struct {
 	ClientDB            *ClientDB
 	ClientFingerprintDB *ClientFingerprintDB
 	TrendDB             *TrendDB
+	UserPriceCapDB      *UserPriceCapDB
 
 	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
 
@@ -77,6 +81,7 @@ func NewServer() *Server {
 	clientDB := NewClientDB(gormDB)
 	clientFingerprintDB := NewClientFingerprintDB(gormDB)
 	trendDB := NewTrendDB(gormDB)
+	userPriceCapDB := NewUserPriceCapDB(gormDB)
 
 	// 初始化默认用户
 	err = userDB.InitDefaultUsers()
@@ -98,6 +103,7 @@ func NewServer() *Server {
 		ClientDB:             clientDB,
 		ClientFingerprintDB:  clientFingerprintDB,
 		TrendDB:              trendDB,
+		UserPriceCapDB:       userPriceCapDB,
 		LoadBalanceAlgorithm: configs.Config.LBA, // default load balancing algorithm
 		MailService: &MailService{
 			SMTPServer:   configs.Config.EmailHost,
@@ -120,118 +126,141 @@ func NewServer() *Server {
 	return server
 }
 
-func (s *Server) LoadBalance(model string) *Client {
-	s.clientsMu.RLock()
-	clientsCopy := make(map[string]map[string]*Client)
-	for modelName, clients := range s.Clients {
-		clientsCopy[modelName] = make(map[string]*Client)
-		for clientID, client := range clients {
-			clientsCopy[modelName][clientID] = client
+// Predicate is a filter function used in the routing Predicate phase.
+// It returns true if the client should be included in the eligible set for the given model.
+type Predicate func(c *Client, model string) bool
+
+// clientHealthy returns true when the client is online, connected, and has acceptable latency.
+// Used both as a Predicate and to identify dead clients for cleanup.
+func clientHealthy(c *Client, model string) bool {
+	for _, m := range c.Models {
+		if m.Name == model {
+			return c.Status == "online" && c.ControlConn != nil && c.Latency < public.MAXLATENCE
 		}
 	}
-	s.clientsMu.RUnlock()
-	var toRemove []struct{ model, client string }
-	for modelName, clients := range clientsCopy {
-		if modelName == model {
-			log.Println("found model:", modelName, "clients:", len(clients))
-			for clientID, client := range clients {
-				if client.Models == nil {
-					log.Println("client models is nil, skip client:", client.ID)
-					continue
-				}
-				existModel := false
-				for _, m := range client.Models {
-					if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
-						log.Println("found online client for model:", modelName, "client:", client.ID)
-						existModel = true
-					}
-				}
-				if !existModel {
-					toRemove = append(toRemove, struct{ model, client string }{modelName, clientID})
-				}
+	return false
+}
+
+// priceEligible returns a Predicate that passes only clients whose model price is within
+// the user-configured caps. math.MaxFloat64 caps mean "no restriction".
+func priceEligible(maxIPPM, maxOPPM float64) Predicate {
+	return func(c *Client, model string) bool {
+		for _, m := range c.Models {
+			if m.Name == model {
+				return m.IPPM <= maxIPPM && m.OPPM <= maxOPPM
 			}
 		}
+		return false
+	}
+}
+
+// LoadBalance selects a client for model+user using a Predicate → (Score) → Pick pipeline.
+// userID is used to look up per-user price caps; pass an empty string to skip price filtering.
+func (s *Server) LoadBalance(model, userID string) *Client {
+	// Resolve price cap (math.MaxFloat64 = no cap configured, i.e. unlimited).
+	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
+	if s.UserPriceCapDB != nil && userID != "" {
+		maxIPPM, maxOPPM = s.UserPriceCapDB.GetPriceCap(userID, model)
 	}
 
-	for _, item := range toRemove {
-		s.RemoveClient(item.model, item.client)
+	// Snapshot the candidate set under a short read lock.
+	s.clientsMu.RLock()
+	snapshot := make(map[string]*Client, len(s.Clients[model]))
+	for id, c := range s.Clients[model] {
+		snapshot[id] = c
+	}
+	s.clientsMu.RUnlock()
+
+	// Predicate phase.
+	// Health is checked first and also identifies dead clients for background cleanup.
+	// Additional predicates (price, capacity, geo …) are applied to the survivors.
+	extraPredicates := []Predicate{priceEligible(maxIPPM, maxOPPM)}
+
+	var eligible []*Client
+	var dead []string
+	for id, c := range snapshot {
+		if !clientHealthy(c, model) {
+			dead = append(dead, id)
+			continue
+		}
+		pass := true
+		for _, pred := range extraPredicates {
+			if !pred(c, model) {
+				pass = false
+				break
+			}
+		}
+		if pass {
+			eligible = append(eligible, c)
+		}
 	}
 
+	for _, id := range dead {
+		s.RemoveClient(model, id)
+	}
+
+	if len(eligible) == 0 {
+		log.Println("no eligible client for model:", model)
+		return nil
+	}
+
+	// Score phase: currently implicit in the pick algorithm (future: weighted scoring).
+	// Pick phase.
+	return s.pick(model, eligible)
+}
+
+// pick selects one client from eligible using the configured load-balance algorithm.
+func (s *Server) pick(model string, eligible []*Client) *Client {
 	switch s.LoadBalanceAlgorithm {
 	case "round-robin":
-		// round-robin load balancing
+		// Sort by ID for a stable, deterministic order across goroutines.
+		sort.Slice(eligible, func(i, j int) bool { return eligible[i].ID < eligible[j].ID })
 		s.clientRBMu.Lock()
 		defer s.clientRBMu.Unlock()
-		if len(s.Clients[model]) == 0 {
-			return nil
-		}
 		if _, exists := s.clientRoundRobinIndex[model]; !exists {
 			s.clientRoundRobinIndex[model] = 0
 		}
-		index := s.clientRoundRobinIndex[model]
-		clients := make([]*Client, 0, len(s.Clients[model]))
-		for _, client := range s.Clients[model] {
-			clients = append(clients, client)
-		}
-		if index >= len(clients) {
-			index = 0
-		}
+		index := s.clientRoundRobinIndex[model] % len(eligible)
 		s.clientRoundRobinIndex[model] = index + 1
-		return clients[index]
+		return eligible[index]
+
 	case "random":
-		// randomly select a client for the model
-		if len(s.Clients[model]) == 0 {
-			return nil
-		}
-		keys := make([]string, 0, len(s.Clients[model]))
-		for k := range s.Clients[model] {
-			keys = append(keys, k)
-		}
 		rand.Seed(time.Now().UnixNano())
-		randomIndex := rand.Intn(len(keys))
-		randomKey := keys[randomIndex]
-		client := s.Clients[model][randomKey]
-		return client
+		return eligible[rand.Intn(len(eligible))]
+
 	case "min-conn":
-		// the client which have max idle connections
-		// step 1: get all client ids for the model
-		clientIDs := make([]string, 0, len(s.Clients[model]))
-		for k := range s.Clients[model] {
-			clientIDs = append(clientIDs, k)
+		clientIDs := make([]string, 0, len(eligible))
+		eligibleMap := make(map[string]*Client, len(eligible))
+		for _, c := range eligible {
+			clientIDs = append(clientIDs, c.ID)
+			eligibleMap[c.ID] = c
 		}
-		// step 2: get all client chat connections count
 		chatConnections, err := s.ClientFingerprintDB.GetClientChatConnections(clientIDs)
 		if err != nil {
 			log.Println("get client chat connections error:", err)
 			return nil
 		}
-		maxIdleConnectionsCounts := make(map[string]int)
-		clientID := ""
-		MaxIdleConnectionsCount := 65535 // default max idle connections count
+		selectedID := ""
+		minIdleCount := 65535
 		for _, result := range chatConnections {
-			if s.Clients[model][result.ClientID].Status == "online" && s.Clients[model][result.ClientID].ControlConn != nil {
-				if s.Clients[model][result.ClientID].InferenceEngine.Name == "ollama" && s.Clients[model][result.ClientID].InferenceEngine.NumParallel > 0 {
-					maxIdleConnectionsCounts[result.ClientID] = s.Clients[model][result.ClientID].InferenceEngine.NumParallel - result.Count
-				} else {
-					maxIdleConnectionsCounts[result.ClientID] = 1 - result.Count
-				}
-			} else {
-				maxIdleConnectionsCounts[result.ClientID] = 0
+			c, ok := eligibleMap[result.ClientID]
+			if !ok {
+				continue
 			}
-			if maxIdleConnectionsCounts[result.ClientID] < MaxIdleConnectionsCount {
-				MaxIdleConnectionsCount = maxIdleConnectionsCounts[result.ClientID]
-				clientID = result.ClientID
+			var idle int
+			if c.InferenceEngine.Name == "ollama" && c.InferenceEngine.NumParallel > 0 {
+				idle = c.InferenceEngine.NumParallel - result.Count
+			} else {
+				idle = 1 - result.Count
+			}
+			if idle < minIdleCount {
+				minIdleCount = idle
+				selectedID = result.ClientID
 			}
 		}
-
-		if clientID != "" {
-			if c, exists := s.Clients[model][clientID]; exists {
-				log.Println("found client:", c.ID, "for model:", model)
-				return c
-			} else {
-				log.Println("client:", clientID, "not found for model:", model)
-				return nil
-			}
+		if selectedID != "" {
+			log.Println("found client:", selectedID, "for model:", model)
+			return eligibleMap[selectedID]
 		}
 		return nil
 	}
@@ -461,7 +490,13 @@ func (s *Server) GetTrendsWithPagination(startDate, endDate string, page, size i
 }
 
 // LoadBalanceEmbedding 专门为embedding模型进行负载均衡
-func (s *Server) LoadBalanceEmbedding(model string) *Client {
+func (s *Server) LoadBalanceEmbedding(model, userID string) *Client {
+	// Resolve price cap for this user+model.
+	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
+	if s.UserPriceCapDB != nil && userID != "" {
+		maxIPPM, maxOPPM = s.UserPriceCapDB.GetPriceCap(userID, model)
+	}
+
 	s.clientsMu.RLock()
 	clientsCopy := make(map[string]map[string]*Client)
 	for modelName, clients := range s.Clients {
@@ -480,20 +515,15 @@ func (s *Server) LoadBalanceEmbedding(model string) *Client {
 			log.Printf("Found embedding model: %s, checking clients: %d", modelName, len(clients))
 
 			for _, client := range clients {
-				if client.Models == nil {
-					log.Printf("Client %s models is nil, skip", client.ID)
+				if !clientHealthy(client, model) {
 					continue
 				}
-
-				// 检查客户端是否在线且支持embedding
-				if client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
-					// 检查是否支持该embedding模型
-					for _, m := range client.Models {
-						if m.Name == modelName && isEmbeddingModelName(modelName) {
-							log.Printf("Found online client for embedding model: %s, client: %s", modelName, client.ID)
-							availableClients = append(availableClients, client)
-							break
-						}
+				for _, m := range client.Models {
+					if m.Name == modelName && isEmbeddingModelName(modelName) &&
+						m.IPPM <= maxIPPM && m.OPPM <= maxOPPM {
+						log.Printf("Found online client for embedding model: %s, client: %s", modelName, client.ID)
+						availableClients = append(availableClients, client)
+						break
 					}
 				}
 			}
