@@ -12,8 +12,24 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+func parseHost(host string) (scheme, hostPart string, err error) {
+	parsed, err := url.Parse(host)
+	if err != nil {
+		return "", "", fmt.Errorf("parse host error: %w", err)
+	}
+	wsScheme := "ws"
+	if parsed.Scheme == "https" {
+		wsScheme = "wss"
+	}
+	return wsScheme, parsed.Host, nil
+}
+
 func RegisterClient(c *Client, host, token string) error {
-	u := url.URL{Scheme: "ws", Host: host, Path: fmt.Sprintf("/register/%s", c.ID)}
+	wsScheme, wsHost, err := parseHost(host)
+	if err != nil {
+		return err
+	}
+	u := url.URL{Scheme: wsScheme, Host: wsHost, Path: fmt.Sprintf("/register/%s", c.ID)}
 	log.Printf("link %s", u.String())
 
 	requestHeader := http.Header{}
@@ -185,7 +201,11 @@ func (c *Client) handleEmbeddingMessage(message public.WSMessage) {
 }
 
 func openResponseConn(host, fingerprint string) (*websocket.Conn, error) {
-	u := url.URL{Scheme: "ws", Host: host, Path: fmt.Sprintf("/response/%s", fingerprint)}
+	wsScheme, wsHost, err := parseHost(host)
+	if err != nil {
+		return nil, fmt.Errorf("parse host error: %w", err)
+	}
+	u := url.URL{Scheme: wsScheme, Host: wsHost, Path: fmt.Sprintf("/response/%s", fingerprint)}
 	log.Printf("open response connection: %s", u.String())
 
 	conn, _, err := websocket.DefaultDialer.Dial(u.String(), nil)

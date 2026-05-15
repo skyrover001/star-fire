@@ -3,8 +3,10 @@ package config
 import (
 	"flag"
 	"fmt"
+	"net/url"
 	"os"
 	"strconv"
+	"strings"
 )
 
 const IPPM_MAX = 3.99
@@ -105,6 +107,10 @@ func LoadConfig() *Config {
 		}
 	}
 
+	if cfg.OpenAIBaseURL != "" {
+		cfg.OpenAIBaseURL = normalizeOpenAIURL(cfg.OpenAIBaseURL)
+	}
+
 	// for openai api test
 	// cfg.OpenAIKey = "sk-USmmhjs0kiEh9IeXMOSW566ksu64srnqghDDx2YMGdiymArt"
 	// cfg.OpenAIKey = "sk-7970b09e7b1b4448843a874faedee1e5"
@@ -117,6 +123,10 @@ func LoadConfig() *Config {
 func ValidateConfig(cfg *Config) error {
 	if cfg.StarFireHost == "" {
 		return fmt.Errorf("StarFire 服务器地址不能为空，请使用 -host 参数或设置 STARFIRE_HOST 环境变量")
+	}
+
+	if err := validateHost(cfg.StarFireHost); err != nil {
+		return err
 	}
 	if cfg.JoinToken == "" {
 		return fmt.Errorf("StarFire 连接令牌不能为空，请使用 -token 参数或设置 STARFIRE_TOKEN 环境变量")
@@ -143,6 +153,36 @@ func ValidateConfig(cfg *Config) error {
 	}
 	if cfg.OutputTokenPricePerMillion < 0 {
 		return fmt.Errorf("每百万输出tokens定价不能为负数: %f", cfg.OutputTokenPricePerMillion)
+	}
+
+	return nil
+}
+
+func normalizeOpenAIURL(rawURL string) string {
+	rawURL = strings.TrimRight(rawURL, "/")
+	if !strings.HasSuffix(rawURL, "/v1") {
+		rawURL += "/v1"
+	}
+	return rawURL
+}
+
+func validateHost(host string) error {
+	parsed, err := url.Parse(host)
+	if err != nil {
+		return fmt.Errorf("无效的服务器地址格式: %s", host)
+	}
+
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return fmt.Errorf("服务器地址必须以 http:// 或 https:// 开头: %s", host)
+	}
+
+	if parsed.Host == "" {
+		return fmt.Errorf("服务器地址缺少主机名或端口: %s", host)
+	}
+
+	hostWithoutPort := parsed.Hostname()
+	if hostWithoutPort == "" {
+		return fmt.Errorf("服务器地址格式无效: %s", host)
 	}
 
 	return nil
