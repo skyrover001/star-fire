@@ -27,8 +27,9 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <div class="text-sm text-muted-foreground space-y-1">
-            <p><span class="font-medium text-foreground">IPPM</span>：输入 Token 每百万价格上限（¥/百万 tokens）</p>
+            <p><span class="font-medium text-foreground">IPPM</span>：输入 Token 每百万价格上限（¥/百万 tokens），用于未命中缓存的输入 Token</p>
             <p><span class="font-medium text-foreground">OPPM</span>：输出 Token 每百万价格上限（¥/百万 tokens）</p>
+            <p><span class="font-medium text-foreground">CIPPM</span>：缓存命中输入 Token 每百万价格上限（¥/百万 tokens）</p>
             <p>未配置的模型默认不限价，路由行为与原先一致。</p>
           </div>
         </div>
@@ -70,6 +71,7 @@
               <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">模型</th>
               <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输入上限 (IPPM)</th>
               <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输出上限 (OPPM)</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">缓存输入上限 (CIPPM)</th>
               <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">更新时间</th>
               <th class="px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">操作</th>
             </tr>
@@ -93,6 +95,11 @@
               <td class="px-6 py-4">
                 <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
                   ¥{{ cap.max_oppm.toFixed(2) }} / 百万
+                </span>
+              </td>
+              <td class="px-6 py-4">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                  ¥{{ (cap.max_cippm || 0).toFixed(2) }} / 百万
                 </span>
               </td>
               <td class="px-6 py-4 text-sm text-muted-foreground">
@@ -240,6 +247,22 @@
             />
           </div>
 
+          <!-- CIPPM -->
+          <div>
+            <label class="block text-sm font-medium text-muted-foreground mb-1.5">
+              缓存输入价格上限 (CIPPM)
+              <span class="text-muted-foreground/60 font-normal ml-1">¥ / 百万 tokens</span>
+            </label>
+            <input
+              v-model.number="form.maxCIPPM"
+              type="number"
+              min="0"
+              step="0.01"
+              placeholder="例如：1.00"
+              class="w-full rounded-lg border border-border bg-accent px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+
           <!-- 错误提示 -->
           <p v-if="formError" class="text-sm text-red-500">{{ formError }}</p>
         </div>
@@ -319,7 +342,7 @@ const selectModel = (name: string) => { form.value.model = name; modelDropdownOp
 const showModal = ref(false);
 const editingCap = ref<PriceCap | null>(null);
 const formError = ref('');
-const form = ref({ model: '', maxIPPM: 0, maxOPPM: 0 });
+const form = ref({ model: '', maxIPPM: 0, maxOPPM: 0, maxCIPPM: 0 });
 
 const fetchCaps = async () => {
   try {
@@ -334,7 +357,7 @@ const fetchCaps = async () => {
 
 const openAddModal = () => {
   editingCap.value = null;
-  form.value = { model: '', maxIPPM: 0, maxOPPM: 0 };
+  form.value = { model: '', maxIPPM: 0, maxOPPM: 0, maxCIPPM: 0 };
   formError.value = '';
   modelDropdownOpen.value = false;
   showModal.value = true;
@@ -343,7 +366,7 @@ const openAddModal = () => {
 
 const openEditModal = (cap: PriceCap) => {
   editingCap.value = cap;
-  form.value = { model: cap.model, maxIPPM: cap.max_ippm, maxOPPM: cap.max_oppm };
+  form.value = { model: cap.model, maxIPPM: cap.max_ippm, maxOPPM: cap.max_oppm, maxCIPPM: cap.max_cippm || 0 };
   formError.value = '';
   showModal.value = true;
 };
@@ -357,14 +380,14 @@ const save = async () => {
     formError.value = editingCap.value ? '模型名称不能为空' : '请选择模型';
     return;
   }
-  if (form.value.maxIPPM < 0 || form.value.maxOPPM < 0) {
+  if (form.value.maxIPPM < 0 || form.value.maxOPPM < 0 || form.value.maxCIPPM < 0) {
     formError.value = '价格上限不能为负数';
     return;
   }
   formError.value = '';
   try {
     saving.value = true;
-    await upsertPriceCapApi(form.value.model.trim(), form.value.maxIPPM, form.value.maxOPPM);
+    await upsertPriceCapApi(form.value.model.trim(), form.value.maxIPPM, form.value.maxOPPM, form.value.maxCIPPM);
     message.success('保存成功');
     closeModal();
     await fetchCaps();

@@ -213,6 +213,9 @@
                   输入Token
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                  缓存命中
+                </th>
+                <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                   输出Token
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
@@ -225,7 +228,19 @@
                   OPPM
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  收益
+                  CIPPM
+                </th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                  未命中输入收益
+                </th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                  缓存命中收益
+                </th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                  输出收益
+                </th>
+                <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
+                  总收益
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                   调用者
@@ -252,6 +267,11 @@
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
+                  <div class="text-sm" :class="(record.CachedTokens || 0) > 0 ? 'text-orange-500 font-medium' : 'text-[var(--text-secondary)]'">
+                    {{ (record.CachedTokens || 0).toLocaleString() }}
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap">
                   <div class="text-sm text-green-600 font-medium">
                     {{ record.OutputTokens.toLocaleString() }}
                   </div>
@@ -272,8 +292,28 @@
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
-                  <div class="text-sm font-bold text-green-600">
-                    ¥{{ calculateSingleCallIncome(record).toFixed(4) }}
+                  <div class="text-sm font-medium" :class="(record.CIPPM || 0) > 0 ? 'text-orange-500' : 'text-[var(--text-secondary)]'">
+                    {{ (record.CIPPM || 0).toFixed(2) }}
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right">
+                  <div class="text-sm text-blue-500">
+                    ¥{{ calcUncachedInputIncome(record).toFixed(6) }}
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right">
+                  <div class="text-sm" :class="calcCachedInputIncome(record) > 0 ? 'text-orange-500' : 'text-[var(--text-secondary)]'">
+                    ¥{{ calcCachedInputIncome(record).toFixed(6) }}
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right">
+                  <div class="text-sm text-green-500">
+                    ¥{{ calcOutputIncome(record).toFixed(6) }}
+                  </div>
+                </td>
+                <td class="px-6 py-4 whitespace-nowrap text-right">
+                  <div class="text-sm font-bold text-emerald-600" :title="`(输入${record.InputTokens}-缓存${record.CachedTokens || 0})×IPPM${record.IPPM} + 缓存${record.CachedTokens || 0}×CIPPM${record.CIPPM || 0} + 输出${record.OutputTokens}×OPPM${record.OPPM}) / 1000000`">
+                    ¥{{ calculateSingleCallIncome(record).toFixed(6) }}
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap">
@@ -295,7 +335,7 @@
                 共 {{ sortedIncomeData.length }} 条记录（按时间倒序）
               </div>
               <div class="text-sm text-[var(--text-secondary)]">
-                收益计算: (输入tokens × IPPM + 输出tokens × OPPM) / 1,000,000
+                收益计算: ((输入tokens - 缓存命中) × IPPM + 缓存命中 × CIPPM + 输出tokens × OPPM) / 1,000,000
               </div>
             </div>
             <!-- 分页控件 -->
@@ -492,10 +532,12 @@ interface IncomeRecord {
   ClientID: string
   ClientIP: string
   Model: string
-  IPPM: number // 输入Token价格
-  OPPM: number // 输出Token价格
+  IPPM: number
+  OPPM: number
+  CIPPM: number
   InputTokens: number
   OutputTokens: number
+  CachedTokens: number
   TotalTokens: number
   Timestamp: string
 }
@@ -512,9 +554,24 @@ const trendChartRef = ref()
 const { renderEcharts: renderIncomeChart } = useEcharts(incomeChartRef)
 const { renderEcharts: renderTrendChart } = useEcharts(trendChartRef)
 
-// 计算单次调用收益：输入tokens数 * IPPM + 输出tokens数 * OPPM
+// 计算单次调用收益（支持缓存命中分离计费）
 const calculateSingleCallIncome = (record: IncomeRecord): number => {
-  return (record.InputTokens * record.IPPM + record.OutputTokens * record.OPPM) / 1000000
+  const cachedTokens = record.CachedTokens || 0
+  const cippm = record.CIPPM || 0
+  const nonCachedInputTokens = record.InputTokens - cachedTokens
+  return (nonCachedInputTokens * record.IPPM + cachedTokens * cippm + record.OutputTokens * record.OPPM) / 1000000
+}
+
+// 收益分项计算
+const calcUncachedInputIncome = (record: IncomeRecord): number => {
+  const cached = record.CachedTokens || 0
+  return ((record.InputTokens - cached) * record.IPPM) / 1000000
+}
+const calcCachedInputIncome = (record: IncomeRecord): number => {
+  return ((record.CachedTokens || 0) * (record.CIPPM || 0)) / 1000000
+}
+const calcOutputIncome = (record: IncomeRecord): number => {
+  return (record.OutputTokens * record.OPPM) / 1000000
 }
 
 // 格式化时间戳
@@ -651,6 +708,7 @@ const modelStats = computed(() => {
         name: record.Model,
         inputTokens: 0,
         outputTokens: 0,
+        cachedTokens: 0,
         totalTokens: 0,
         income: 0,
         calls: 0,
@@ -662,10 +720,11 @@ const modelStats = computed(() => {
     const stat = stats[record.Model]
     stat.inputTokens += record.InputTokens
     stat.outputTokens += record.OutputTokens
+    stat.cachedTokens += record.CachedTokens || 0
     stat.totalTokens += record.TotalTokens
     stat.income += calculateSingleCallIncome(record)
     stat.calls += 1
-    stat.successCalls += 1 // 假设所有记录都成功
+    stat.successCalls += 1
     stat.clients.add(record.ClientID)
   })
   

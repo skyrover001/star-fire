@@ -49,15 +49,16 @@ func (h *PriceCapHandler) UpsertPriceCap(c *gin.Context) {
 	}
 
 	var req struct {
-		MaxIPPM float64 `json:"max_ippm" binding:"required,min=0"`
-		MaxOPPM float64 `json:"max_oppm" binding:"required,min=0"`
+		MaxIPPM  float64 `json:"max_ippm" binding:"required,min=0"`
+		MaxOPPM  float64 `json:"max_oppm" binding:"required,min=0"`
+		MaxCIPPM float64 `json:"max_cippm" binding:"min=0"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
 		return
 	}
 
-	cap, err := h.db.Upsert(userID.(string), model, req.MaxIPPM, req.MaxOPPM)
+	cap, err := h.db.Upsert(userID.(string), model, req.MaxIPPM, req.MaxOPPM, req.MaxCIPPM)
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to save price cap: " + err.Error()})
 		return

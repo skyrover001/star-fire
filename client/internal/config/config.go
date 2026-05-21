@@ -11,28 +11,32 @@ import (
 
 const IPPM_MAX = 3.99
 const OPPM_MAX = 7.99
+const CIPPM_MAX = 1.99
 
 type Config struct {
-	StarFireHost               string
-	JoinToken                  string
-	LocalInferenceType         string
-	OllamaHost                 string
-	OpenAIKey                  string
-	OpenAIBaseURL              string
-	InputTokenPricePerMillion  float64 // 每输入百万tokens定价
-	OutputTokenPricePerMillion float64
-	Deamon                     bool // 是否以守护进程方式运行
-	APPPort                    int
-	IPPMMax                    float64
-	OPPMMax                    float64
-	OpenAIOnly                 bool // 仅使用 OpenAI 引擎，不包含本地引擎模型
+	StarFireHost                    string
+	JoinToken                       string
+	LocalInferenceType              string
+	OllamaHost                      string
+	OpenAIKey                       string
+	OpenAIBaseURL                   string
+	InputTokenPricePerMillion       float64 // 每输入百万tokens定价
+	OutputTokenPricePerMillion      float64
+	CachedInputTokenPricePerMillion float64 // 缓存命中输入tokens每百万定价
+	Deamon                          bool    // 是否以守护进程方式运行
+	APPPort                         int
+	IPPMMax                         float64
+	OPPMMax                         float64
+	CIPPMMax                        float64
+	OpenAIOnly                      bool // 仅使用 OpenAI 引擎，不包含本地引擎模型
 }
 
 func LoadConfig() *Config {
 	cfg := &Config{
-		OllamaHost:                 "http://localhost:11434",
-		InputTokenPricePerMillion:  4.0, // 默认值为4
-		OutputTokenPricePerMillion: 8.0, // 默认值为8
+		OllamaHost:                      "http://localhost:11434",
+		InputTokenPricePerMillion:       4.0, // 默认值为4
+		OutputTokenPricePerMillion:      8.0, // 默认值为8
+		CachedInputTokenPricePerMillion: 1.0, // 默认值为1
 	}
 
 	var showHelp bool
@@ -46,6 +50,7 @@ func LoadConfig() *Config {
 	flag.StringVar(&cfg.OpenAIBaseURL, "openai-url", cfg.OpenAIBaseURL, "OpenAI API 基础URL")
 	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", IPPM_MAX, "每输入百万tokens定价最大值 (默认: 3.99)")
 	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", OPPM_MAX, "每输出百万tokens定价最大值 (默认: 7.99)")
+	flag.Float64Var(&cfg.CachedInputTokenPricePerMillion, "cippm", CIPPM_MAX, "缓存命中输入百万tokens定价最大值 (默认: 1.99)")
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 	flag.IntVar(&cfg.APPPort, "port", 19527, "服务端口 (默认:19527)")
 	flag.BoolVar(&cfg.OpenAIOnly, "openai-only", false, "仅使用 OpenAI 引擎，不注册本地引擎模型到服务器")
@@ -104,6 +109,11 @@ func LoadConfig() *Config {
 	if priceStr := os.Getenv("STAR_FIRE_OUTPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 			cfg.OutputTokenPricePerMillion = price
+		}
+	}
+	if priceStr := os.Getenv("STAR_FIRE_CACHED_INPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
+		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
+			cfg.CachedInputTokenPricePerMillion = price
 		}
 	}
 

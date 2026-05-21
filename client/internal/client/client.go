@@ -31,8 +31,9 @@ type Client struct {
 	cancel          context.CancelFunc
 	cfg             *config.Config
 	ModelPriceScope map[string]struct {
-		inputPriceMax  float64
-		outputPriceMax float64
+		inputPriceMax       float64
+		outputPriceMax      float64
+		cachedInputPriceMax float64
 	}
 	AppClient net.Conn
 }
@@ -48,8 +49,9 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		Models:       []*public.Model{},
 		cfg:          cfg,
 		ModelPriceScope: make(map[string]struct {
-			inputPriceMax  float64
-			outputPriceMax float64
+			inputPriceMax       float64
+			outputPriceMax      float64
+			cachedInputPriceMax float64
 		}),
 	}
 	if err := client.generateID(); err != nil {
@@ -189,16 +191,17 @@ func (c *Client) refreshModels() error {
 			// 检查是否已存在该模型
 			if existingModel, exists := existingModels[key]; exists {
 				// 模型已存在，保留价格信息，更新其他信息
-				log.Printf("🔄 Updating existing model: %s/%s (preserving prices: ippm=%.6f, oppm=%.6f)",
-					model.Engine, model.Name, existingModel.IPPM, existingModel.OPPM)
+				log.Printf("🔄 Updating existing model: %s/%s (preserving prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
+					model.Engine, model.Name, existingModel.IPPM, existingModel.OPPM, existingModel.CIPPM)
 
 				// 保留价格信息
 				model.IPPM = existingModel.IPPM
 				model.OPPM = existingModel.OPPM
+				model.CIPPM = existingModel.CIPPM
 			} else {
 				// 新模型，使用默认价格
-				log.Printf("➕ New model discovered: %s/%s (default prices: ippm=%.6f, oppm=%.6f)",
-					model.Engine, model.Name, model.IPPM, model.OPPM)
+				log.Printf("➕ New model discovered: %s/%s (default prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
+					model.Engine, model.Name, model.IPPM, model.OPPM, model.CIPPM)
 			}
 
 			newModels = append(newModels, model)
@@ -359,24 +362,26 @@ func (c *Client) findEngineForModel(modelName string) (inference.Engine, error) 
 }
 
 // SetModelPrice 设置模型价格信息，支持按模型定价
-func (c *Client) SetModelPrice(engine string, inputTokenPrice float64, outputTokenPrice float64, modelName string) interface{} {
+func (c *Client) SetModelPrice(engine string, inputTokenPrice float64, outputTokenPrice float64, cachedInputTokenPrice float64, modelName string) interface{} {
 	type TIP struct {
-		InputPrice  float64 `json:"inputPriceMax"`
-		OutputPrice float64 `json:"outputPriceMax"`
-		ModelName   string  `json:"modelName"`
-		Engine      string  `json:"engine"`
-		Msg         string  `json:"tip"`
+		InputPrice       float64 `json:"inputPriceMax"`
+		OutputPrice      float64 `json:"outputPriceMax"`
+		CachedInputPrice float64 `json:"cachedInputPriceMax"`
+		ModelName        string  `json:"modelName"`
+		Engine           string  `json:"engine"`
+		Msg              string  `json:"tip"`
 	}
 	tip := TIP{
-		InputPrice:  0,
-		OutputPrice: 0,
-		ModelName:   modelName,
-		Engine:      engine,
-		Msg:         "",
+		InputPrice:       0,
+		OutputPrice:      0,
+		CachedInputPrice: 0,
+		ModelName:        modelName,
+		Engine:           engine,
+		Msg:              "",
 	}
 
 	// 获取价格上限
-	ippmM, oppmM := c.getModelPriceScope(modelName)
+	ippmM, oppmM, cippmM := c.getModelPriceScope(modelName)
 
 	// 确保价格非负
 	if inputTokenPrice < 0 {
@@ -385,14 +390,17 @@ func (c *Client) SetModelPrice(engine string, inputTokenPrice float64, outputTok
 	if outputTokenPrice < 0 {
 		outputTokenPrice = 0
 	}
+	if cachedInputTokenPrice < 0 {
+		cachedInputTokenPrice = 0
+	}
 
 	// 查找并更新对应的模型
 	modelFound := false
 	for i := range c.Models {
 		if c.Models[i].Name == modelName && c.Models[i].Engine == engine {
 			modelFound = true
-			log.Printf("🎯 Found model to update: %s/%s (current: ippm=%.6f, oppm=%.6f)",
-				engine, modelName, c.Models[i].IPPM, c.Models[i].OPPM)
+			log.Printf("🎯 Found model to update: %s/%s (current: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
+				engine, modelName, c.Models[i].IPPM, c.Models[i].OPPM, c.Models[i].CIPPM)
 
 			// 检查价格是否超过上限
 			if inputTokenPrice > ippmM && ippmM > 0 {
@@ -414,12 +422,23 @@ func (c *Client) SetModelPrice(engine string, inputTokenPrice float64, outputTok
 				c.Models[i].OPPM = outputTokenPrice
 			}
 
+			if cachedInputTokenPrice > cippmM && cippmM > 0 {
+				if tip.Msg != "" {
+					tip.Msg += "; "
+				}
+				tip.CachedInputPrice = cippmM
+				tip.Msg += fmt.Sprintf("缓存输入token价格过高，最大允许值为%.6f", cippmM)
+				c.Models[i].CIPPM = cippmM
+			} else {
+				c.Models[i].CIPPM = cachedInputTokenPrice
+			}
+
 			if tip.Msg == "" {
 				tip.Msg = "设置成功"
 			}
 
-			log.Printf("✅ Model price updated: %s/%s (new: ippm=%.6f, oppm=%.6f)",
-				engine, modelName, c.Models[i].IPPM, c.Models[i].OPPM)
+			log.Printf("✅ Model price updated: %s/%s (new: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
+				engine, modelName, c.Models[i].IPPM, c.Models[i].OPPM, c.Models[i].CIPPM)
 			break
 		}
 	}
@@ -432,14 +451,14 @@ func (c *Client) SetModelPrice(engine string, inputTokenPrice float64, outputTok
 	return &tip
 }
 
-func (c *Client) getModelPriceScope(modelName string) (float64, float64) {
+func (c *Client) getModelPriceScope(modelName string) (float64, float64, float64) {
 	for m, scope := range c.ModelPriceScope {
 		if m == modelName {
-			return scope.inputPriceMax, scope.outputPriceMax
+			return scope.inputPriceMax, scope.outputPriceMax, scope.cachedInputPriceMax
 		}
 	}
 	fmt.Println("server model price scope not found, use client default value")
-	return c.cfg.InputTokenPricePerMillion, c.cfg.OutputTokenPricePerMillion
+	return c.cfg.InputTokenPricePerMillion, c.cfg.OutputTokenPricePerMillion, c.cfg.CachedInputTokenPricePerMillion
 }
 
 // initTCPConnection 初始化到应用服务器的 TCP 连接
@@ -527,20 +546,22 @@ func (c *Client) Close() error {
 
 // ModelPriceMessage TCP服务器发送的模型价格设置消息
 type ModelPriceMessage struct {
-	Engine      string  `json:"engine"`
-	Model       string  `json:"model"`
-	InputPrice  float64 `json:"ippm"`
-	OutputPrice float64 `json:"oppm"`
+	Engine           string  `json:"engine"`
+	Model            string  `json:"model"`
+	InputPrice       float64 `json:"ippm"`
+	OutputPrice      float64 `json:"oppm"`
+	CachedInputPrice float64 `json:"cippm"`
 }
 
 // UnmarshalJSON 自定义 JSON 反序列化，支持字符串格式的价格
 func (m *ModelPriceMessage) UnmarshalJSON(data []byte) error {
 	// 定义一个临时结构体，将价格字段定义为 interface{} 类型
 	type Alias struct {
-		Engine      string      `json:"engine"`
-		Model       string      `json:"model"`
-		InputPrice  interface{} `json:"ippm"`
-		OutputPrice interface{} `json:"oppm"`
+		Engine           string      `json:"engine"`
+		Model            string      `json:"model"`
+		InputPrice       interface{} `json:"ippm"`
+		OutputPrice      interface{} `json:"oppm"`
+		CachedInputPrice interface{} `json:"cippm"`
 	}
 
 	var alias Alias
@@ -556,6 +577,9 @@ func (m *ModelPriceMessage) UnmarshalJSON(data []byte) error {
 
 	// 处理 OutputPrice - 可能是字符串或数字
 	m.OutputPrice = parseFloat(alias.OutputPrice)
+
+	// 处理 CachedInputPrice - 可能是字符串或数字
+	m.CachedInputPrice = parseFloat(alias.CachedInputPrice)
 
 	return nil
 }
@@ -681,11 +705,11 @@ func (c *Client) handleTCPMessage(data []byte) {
 			continue
 		}
 
-		log.Printf("📊 Updating price: engine=%s, model=%s, ippm=%.6f, oppm=%.6f",
-			priceMsg.Engine, priceMsg.Model, priceMsg.InputPrice, priceMsg.OutputPrice)
+		log.Printf("📊 Updating price: engine=%s, model=%s, ippm=%.6f, oppm=%.6f, cippm=%.6f",
+			priceMsg.Engine, priceMsg.Model, priceMsg.InputPrice, priceMsg.OutputPrice, priceMsg.CachedInputPrice)
 
 		// 调用 SetModelPrice 方法更新价格
-		result := c.SetModelPrice(priceMsg.Engine, priceMsg.InputPrice, priceMsg.OutputPrice, priceMsg.Model)
+		result := c.SetModelPrice(priceMsg.Engine, priceMsg.InputPrice, priceMsg.OutputPrice, priceMsg.CachedInputPrice, priceMsg.Model)
 		if result != nil {
 			log.Printf("✓ Model price updated: %s/%s - %v", priceMsg.Engine, priceMsg.Model, result)
 		} else {

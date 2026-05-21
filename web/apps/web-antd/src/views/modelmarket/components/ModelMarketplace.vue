@@ -699,6 +699,7 @@ interface ClientModel {
   arch?: string; // 量化方式
   ippm?: number; // 输入定价 (每百万Token)
   oppm?: number; // 输出定价 (每百万Token)
+  cippm?: number; // 缓存命中输入定价 (每百万Token)
   openai_model: {
     created: number;
     id: string;

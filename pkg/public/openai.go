@@ -46,7 +46,8 @@ type Model struct {
 	Size        string       `json:"size"`
 	Arch        string       `json:"arch"`
 	Engine      string       `json:"engine"`
-	IPPM        float64      `json:"ippm"` // 输入tokens价格
-	OPPM        float64      `json:"oppm"` // 输出tokens价格
+	IPPM        float64      `json:"ippm"`  // 输入tokens价格（未命中缓存部分）
+	OPPM        float64      `json:"oppm"`  // 输出tokens价格
+	CIPPM       float64      `json:"cippm"` // 缓存命中输入tokens价格 (cached input price per million)
 	OpenAIModel openai.Model `json:"openai_model"`
 }

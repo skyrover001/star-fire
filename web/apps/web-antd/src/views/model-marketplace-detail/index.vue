@@ -104,7 +104,7 @@
         <span v-else class="text-xs text-[var(--text-secondary)]">未设置（不限价）</span>
       </div>
 
-      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
         <!-- 输入上限 -->
         <div>
           <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
@@ -133,6 +133,20 @@
             class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-color)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-amber-500"
           />
         </div>
+        <!-- 缓存输入上限 -->
+        <div>
+          <label class="block text-xs font-medium text-[var(--text-secondary)] mb-1.5">
+            缓存输入上限 (CIPPM) <span class="text-[var(--text-tertiary)]">¥ / 百万 tokens</span>
+          </label>
+          <input
+            v-model.number="priceCapForm.maxCIPPM"
+            type="number"
+            min="0"
+            step="0.01"
+            placeholder="留空则不限价"
+            class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-color)] px-3 py-2 text-sm text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:outline-none focus:ring-2 focus:ring-amber-500"
+          />
+        </div>
       </div>
 
       <div class="mt-4 flex items-center space-x-3">
@@ -152,7 +166,7 @@
           清除限额
         </button>
         <span v-if="priceCap" class="text-xs text-[var(--text-secondary)]">
-          当前：输入 ¥{{ priceCap.max_ippm.toFixed(2) }} · 输出 ¥{{ priceCap.max_oppm.toFixed(2) }}（/百万）
+          当前：输入 ¥{{ priceCap.max_ippm.toFixed(2) }} · 输出 ¥{{ priceCap.max_oppm.toFixed(2) }} · 缓存输入 ¥{{ (priceCap.max_cippm || 0).toFixed(2) }}（/百万）
         </span>
       </div>
     </div>
@@ -226,6 +240,9 @@
                     </span>
                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
                       输出￥{{ clientModel.model.oppm || 20 }}/百万
+                    </span>
+                    <span v-if="(clientModel.model.cippm || 0) > 0" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
+                      缓存￥{{ clientModel.model.cippm }}/百万
                     </span>
                   </div>
                   <span
@@ -643,7 +660,7 @@ const goBack = () => {
 // ── 价格上限 ──────────────────────────────────────────────
 const priceCap = ref<PriceCap | null>(null);
 const priceCapSaving = ref(false);
-const priceCapForm = ref({ maxIPPM: 0, maxOPPM: 0 });
+const priceCapForm = ref({ maxIPPM: 0, maxOPPM: 0, maxCIPPM: 0 });
 
 const fetchPriceCap = async () => {
   if (!modelName.value) return;
@@ -654,6 +671,7 @@ const fetchPriceCap = async () => {
     priceCapForm.value = {
       maxIPPM: found?.max_ippm ?? 0,
       maxOPPM: found?.max_oppm ?? 0,
+      maxCIPPM: found?.max_cippm ?? 0,
     };
   } catch {
     // 获取失败时静默处理，不影响主页面
@@ -661,7 +679,7 @@ const fetchPriceCap = async () => {
 };
 
 const savePriceCap = async () => {
-  if (priceCapForm.value.maxIPPM < 0 || priceCapForm.value.maxOPPM < 0) {
+  if (priceCapForm.value.maxIPPM < 0 || priceCapForm.value.maxOPPM < 0 || priceCapForm.value.maxCIPPM < 0) {
     message.warning('价格上限不能为负数');
     return;
   }
@@ -671,6 +689,7 @@ const savePriceCap = async () => {
       modelName.value,
       priceCapForm.value.maxIPPM,
       priceCapForm.value.maxOPPM,
+      priceCapForm.value.maxCIPPM,
     );
     priceCap.value = saved;
     message.success('价格上限已保存');
@@ -687,7 +706,7 @@ const clearPriceCap = async () => {
     priceCapSaving.value = true;
     await deletePriceCapApi(modelName.value);
     priceCap.value = null;
-    priceCapForm.value = { maxIPPM: 0, maxOPPM: 0 };
+    priceCapForm.value = { maxIPPM: 0, maxOPPM: 0, maxCIPPM: 0 };
     message.success('已清除价格上限，恢复不限价');
   } catch (e: any) {
     message.error('清除失败：' + (e?.message ?? '未知错误'));

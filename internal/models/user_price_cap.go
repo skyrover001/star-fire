@@ -17,8 +17,9 @@ type UserModelPriceCap struct {
 	ID        string    `gorm:"primaryKey" json:"id"`
 	UserID    string    `gorm:"uniqueIndex:idx_user_model;not null" json:"user_id"`
 	Model     string    `gorm:"uniqueIndex:idx_user_model;not null" json:"model"`
-	MaxIPPM   float64   `gorm:"not null" json:"max_ippm"` // max input price per million tokens
-	MaxOPPM   float64   `gorm:"not null" json:"max_oppm"` // max output price per million tokens
+	MaxIPPM   float64   `gorm:"not null" json:"max_ippm"`            // max input price per million tokens
+	MaxOPPM   float64   `gorm:"not null" json:"max_oppm"`            // max output price per million tokens
+	MaxCIPPM  float64   `gorm:"not null;default:0" json:"max_cippm"` // max cached input price per million tokens
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -27,6 +28,7 @@ type UserModelPriceCap struct {
 type priceCapCacheEntry struct {
 	maxIPPM   float64
 	maxOPPM   float64
+	maxCIPPM  float64
 	expiresAt time.Time
 }
 
@@ -50,14 +52,14 @@ func priceCapCacheKey(userID, model string) string {
 }
 
 // GetPriceCap returns the configured price caps for a user+model pair.
-// Returns math.MaxFloat64 for both if no cap is configured (= unlimited).
-func (p *UserPriceCapDB) GetPriceCap(userID, model string) (maxIPPM, maxOPPM float64) {
+// Returns math.MaxFloat64 for all if no cap is configured (= unlimited).
+func (p *UserPriceCapDB) GetPriceCap(userID, model string) (maxIPPM, maxOPPM, maxCIPPM float64) {
 	key := priceCapCacheKey(userID, model)
 
 	if v, ok := p.cache.Load(key); ok {
 		entry := v.(*priceCapCacheEntry)
 		if time.Now().Before(entry.expiresAt) {
-			return entry.maxIPPM, entry.maxOPPM
+			return entry.maxIPPM, entry.maxOPPM, entry.maxCIPPM
 		}
 		p.cache.Delete(key)
 	}
@@ -66,27 +68,28 @@ func (p *UserPriceCapDB) GetPriceCap(userID, model string) (maxIPPM, maxOPPM flo
 	err := p.db.Where("user_id = ? AND model = ?", userID, model).First(&cap).Error
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			p.setCache(key, math.MaxFloat64, math.MaxFloat64)
-			return math.MaxFloat64, math.MaxFloat64
+			p.setCache(key, math.MaxFloat64, math.MaxFloat64, math.MaxFloat64)
+			return math.MaxFloat64, math.MaxFloat64, math.MaxFloat64
 		}
 		log.Printf("GetPriceCap query error: %v", err)
-		return math.MaxFloat64, math.MaxFloat64
+		return math.MaxFloat64, math.MaxFloat64, math.MaxFloat64
 	}
 
-	p.setCache(key, cap.MaxIPPM, cap.MaxOPPM)
-	return cap.MaxIPPM, cap.MaxOPPM
+	p.setCache(key, cap.MaxIPPM, cap.MaxOPPM, cap.MaxCIPPM)
+	return cap.MaxIPPM, cap.MaxOPPM, cap.MaxCIPPM
 }
 
-func (p *UserPriceCapDB) setCache(key string, maxIPPM, maxOPPM float64) {
+func (p *UserPriceCapDB) setCache(key string, maxIPPM, maxOPPM, maxCIPPM float64) {
 	p.cache.Store(key, &priceCapCacheEntry{
 		maxIPPM:   maxIPPM,
 		maxOPPM:   maxOPPM,
+		maxCIPPM:  maxCIPPM,
 		expiresAt: time.Now().Add(priceCapCacheTTL),
 	})
 }
 
 // Upsert creates or updates the price cap for a user+model pair.
-func (p *UserPriceCapDB) Upsert(userID, model string, maxIPPM, maxOPPM float64) (*UserModelPriceCap, error) {
+func (p *UserPriceCapDB) Upsert(userID, model string, maxIPPM, maxOPPM, maxCIPPM float64) (*UserModelPriceCap, error) {
 	var cap UserModelPriceCap
 	err := p.db.Where("user_id = ? AND model = ?", userID, model).First(&cap).Error
 	now := time.Now()
@@ -97,6 +100,7 @@ func (p *UserPriceCapDB) Upsert(userID, model string, maxIPPM, maxOPPM float64) 
 			Model:     model,
 			MaxIPPM:   maxIPPM,
 			MaxOPPM:   maxOPPM,
+			MaxCIPPM:  maxCIPPM,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -108,6 +112,7 @@ func (p *UserPriceCapDB) Upsert(userID, model string, maxIPPM, maxOPPM float64) 
 	} else {
 		cap.MaxIPPM = maxIPPM
 		cap.MaxOPPM = maxOPPM
+		cap.MaxCIPPM = maxCIPPM
 		cap.UpdatedAt = now
 		if err := p.db.Save(&cap).Error; err != nil {
 			return nil, err

@@ -1,6 +1,7 @@
 package models
 
 import (
+	"fmt"
 	"log"
 	"math"
 	"math/rand"
@@ -160,7 +161,7 @@ func (s *Server) LoadBalance(model, userID string) *Client {
 	// Resolve price cap (math.MaxFloat64 = no cap configured, i.e. unlimited).
 	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
 	if s.UserPriceCapDB != nil && userID != "" {
-		maxIPPM, maxOPPM = s.UserPriceCapDB.GetPriceCap(userID, model)
+		maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
 	}
 
 	// Snapshot the candidate set under a short read lock.
@@ -436,6 +437,94 @@ func (s *Server) RemoveClient(modelName string, clientID string) {
 	}
 }
 
+// UserModelInfo represents a model provided by the current user with its price info.
+type UserModelInfo struct {
+	ModelName string  `json:"model_name"`
+	Engine    string  `json:"engine"`
+	IPPM      float64 `json:"ippm"`
+	OPPM      float64 `json:"oppm"`
+	CIPPM     float64 `json:"cippm"`
+	ClientID  string  `json:"client_id"`
+	ClientIP  string  `json:"client_ip"`
+	Online    bool    `json:"online"`
+}
+
+// GetUserModels returns all models provided by a specific user's connected clients.
+func (s *Server) GetUserModels(userID string) []*UserModelInfo {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+
+	seen := make(map[string]bool) // clientID+modelName dedup
+	var result []*UserModelInfo
+	for modelName, clients := range s.Clients {
+		for _, client := range clients {
+			if client.UserID != userID {
+				continue
+			}
+			for _, m := range client.Models {
+				if m.Name != modelName {
+					continue
+				}
+				key := client.ID + "|" + modelName
+				if seen[key] {
+					continue
+				}
+				seen[key] = true
+				result = append(result, &UserModelInfo{
+					ModelName: modelName,
+					Engine:    m.Engine,
+					IPPM:      m.IPPM,
+					OPPM:      m.OPPM,
+					CIPPM:     m.CIPPM,
+					ClientID:  client.ID,
+					ClientIP:  client.IP,
+					Online:    client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE,
+				})
+			}
+		}
+	}
+	return result
+}
+
+// UpdateModelPrice updates IPPM/OPPM/CIPPM for a model across all of a user's clients.
+func (s *Server) UpdateModelPrice(userID, modelName string, ippm, oppm, cippm float64) (int, error) {
+	s.clientsMu.Lock()
+	clients, exists := s.Clients[modelName]
+	if !exists {
+		s.clientsMu.Unlock()
+		return 0, fmt.Errorf("model %s not found", modelName)
+	}
+
+	var updated []*Client
+	for _, client := range clients {
+		if client.UserID != userID {
+			continue
+		}
+		for _, m := range client.Models {
+			if m.Name == modelName {
+				m.IPPM = ippm
+				m.OPPM = oppm
+				m.CIPPM = cippm
+			}
+		}
+		updated = append(updated, client)
+	}
+	s.clientsMu.Unlock()
+
+	if len(updated) == 0 {
+		return 0, fmt.Errorf("no client found for model %s", modelName)
+	}
+
+	// Persist to DB
+	for _, client := range updated {
+		if err := s.ClientDB.SaveClient(client); err != nil {
+			log.Printf("save client %s price to db failed: %v", client.ID, err)
+		}
+	}
+
+	return len(updated), nil
+}
+
 func (s *Server) GetTrends(startDate, endDate string) []*Trend {
 	if startDate == "" || endDate == "" {
 		// use today 00:00:00 as start date today 23:59:59 as end date
@@ -494,7 +583,7 @@ func (s *Server) LoadBalanceEmbedding(model, userID string) *Client {
 	// Resolve price cap for this user+model.
 	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
 	if s.UserPriceCapDB != nil && userID != "" {
-		maxIPPM, maxOPPM = s.UserPriceCapDB.GetPriceCap(userID, model)
+		maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
 	}
 
 	s.clientsMu.RLock()

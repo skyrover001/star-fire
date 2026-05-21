@@ -6,6 +6,7 @@ export interface PriceCap {
   model: string;
   max_ippm: number;
   max_oppm: number;
+  max_cippm: number;
   created_at: string;
   updated_at: string;
 }
@@ -21,10 +22,12 @@ export async function upsertPriceCapApi(
   model: string,
   maxIPPM: number,
   maxOPPM: number,
+  maxCIPPM: number = 0,
 ): Promise<PriceCap> {
   return requestClient.put<PriceCap>(`/user/price-caps/${encodeURIComponent(model)}`, {
     max_ippm: maxIPPM,
     max_oppm: maxOPPM,
+    max_cippm: maxCIPPM,
   });
 }
 

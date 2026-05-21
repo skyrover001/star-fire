@@ -78,6 +78,7 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 			Engine:      "openai",
 			IPPM:        conf.InputTokenPricePerMillion,
 			OPPM:        conf.OutputTokenPricePerMillion,
+			CIPPM:       conf.CachedInputTokenPricePerMillion,
 			OpenAIModel: model,
 		}
 		publicModels = append(publicModels, publicModel)
