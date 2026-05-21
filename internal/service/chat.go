@@ -55,17 +55,19 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
-	ippm := 9.0 // 输入tokens价格
-	oppm := 9.0 // 输出tokens价格
+	ippm := 9.0  // 输入tokens价格（未命中缓存部分）
+	oppm := 9.0  // 输出tokens价格
+	cippm := 0.0 // 缓存命中输入tokens价格
 	for _, m := range client.Models {
 		if m.Name == request.Model {
 			ippm = m.IPPM
 			oppm = m.OPPM
+			cippm = m.CIPPM
 			break
 		}
 	}
 
-	log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm)
+	log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
 
 	if err := server.ClientFingerprintDB.SaveFingerprint(fingerPrint, client.ID, "preparing"); err != nil {
 		log.Printf("save fingerprint and client relation failed: %v", err)
@@ -88,11 +90,11 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	}
 
 	waitStart := time.Now()
-	handleChatResponse(c, server, fingerPrint, waitStart, client.ID, ippm, oppm, request.Model)
+	handleChatResponse(c, server, fingerPrint, waitStart, client.ID, ippm, oppm, cippm, request.Model)
 }
 
 // handle chat response
-func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm float64, reqModel string) {
+func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string) {
 	for {
 		if server.RespClients[fingerPrint] == nil {
 			time.Sleep(1 * time.Millisecond)
@@ -116,11 +118,11 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 
 		switch response.Type {
 		case public.MESSAGE:
-			handleStandardChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, reqModel)
+			handleStandardChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel)
 			return
 
 		case public.MESSAGE_STREAM:
-			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, reqModel)
+			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel)
 			if finished {
 				return
 			}
@@ -163,7 +165,7 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 }
 
 // handle standard chat response
-func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm float64, reqModel string) {
+func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm, cippm float64, reqModel string) {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
@@ -185,9 +187,15 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 
 		c.JSON(http.StatusOK, content)
 
+		// 提取缓存命中tokens
+		cachedTokens := 0
+		if chatResponse.Usage.PromptTokensDetails != nil && chatResponse.Usage.PromptTokensDetails.CachedTokens > 0 {
+			cachedTokens = chatResponse.Usage.PromptTokensDetails.CachedTokens
+		}
+
 		recordTokenUsage(c, server, fingerPrint, reqModel,
 			chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
-			chatResponse.Usage.TotalTokens, clientID, ippm, oppm)
+			chatResponse.Usage.TotalTokens, cachedTokens, clientID, ippm, oppm, cippm)
 	} else {
 		log.Println("Invalid message content format")
 		server.RespClients[fingerPrint].Close()
@@ -196,7 +204,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 }
 
 // handle stream chat response
-func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm float64, reqModel string) bool {
+func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm, cippm float64, reqModel string) bool {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
@@ -235,9 +243,15 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			log.Printf("Recording usage: prompt=%d, completion=%d, total=%d",
 				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
 
+			// 提取缓存命中tokens
+			cachedTokens := 0
+			if chatResponse.Usage.PromptTokensDetails != nil && chatResponse.Usage.PromptTokensDetails.CachedTokens > 0 {
+				cachedTokens = chatResponse.Usage.PromptTokensDetails.CachedTokens
+			}
+
 			recordTokenUsage(c, server, fingerPrint, reqModel,
 				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
-				chatResponse.Usage.TotalTokens, clientID, ippm, oppm)
+				chatResponse.Usage.TotalTokens, cachedTokens, clientID, ippm, oppm, cippm)
 
 			// 收到 usage 后发送 [DONE] 并结束
 			_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
@@ -257,11 +271,19 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 				completionTokens := int(usage["completion_tokens"].(float64))
 				totalTokens := int(usage["total_tokens"].(float64))
 
-				log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d",
-					promptTokens, completionTokens, totalTokens)
+				// 从 prompt_tokens_details 中提取 cached_tokens
+				cachedTokens := 0
+				if ptd, ok := usage["prompt_tokens_details"].(map[string]interface{}); ok {
+					if ct, ok := ptd["cached_tokens"].(float64); ok && ct > 0 {
+						cachedTokens = int(ct)
+					}
+				}
+
+				log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d, cached=%d",
+					promptTokens, completionTokens, totalTokens, cachedTokens)
 
 				recordTokenUsage(c, server, fingerPrint, reqModel,
-					promptTokens, completionTokens, totalTokens, clientID, ippm, oppm)
+					promptTokens, completionTokens, totalTokens, cachedTokens, clientID, ippm, oppm, cippm)
 
 				_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
@@ -283,7 +305,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 	}
 }
 
-func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, model string, inputTokens, outputTokens, totalTokens int, clientID string, ippm, oppm float64) {
+func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, model string, inputTokens, outputTokens, totalTokens, cachedTokens int, clientID string, ippm, oppm, cippm float64) {
 	if server.TokenUsageDB == nil {
 		log.Println("Token usage database not initialized")
 		return
@@ -310,9 +332,11 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		Model:        model,
 		InputTokens:  inputTokens,
 		OutputTokens: outputTokens,
+		CachedTokens: cachedTokens,
 		TotalTokens:  totalTokens,
 		IPPM:         ippm,
 		OPPM:         oppm,
+		CIPPM:        cippm,
 		Timestamp:    time.Now(),
 	}
 
@@ -321,7 +345,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		log.Printf("保存token使用记录失败: %v", err)
 	} else {
 		log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
-		go func(server *models.Server, model string, clientID string, inputTokens, outputTokens, totalTokens int, ippm, oppm float64) {
+		go func(server *models.Server, model string, clientID string, inputTokens, outputTokens, totalTokens, cachedTokens int, ippm, oppm, cippm float64) {
 			// 检查 clients 是否存在
 			if server.Clients == nil {
 				log.Printf("server.Clients is nil, cannot send income message")
@@ -362,12 +386,13 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 						"prompt_tokens":     inputTokens,
 						"completion_tokens": outputTokens,
 						"total_tokens":      totalTokens,
+						"cached_tokens":     cachedTokens,
 					},
-					"income":       (ippm*float64(inputTokens) + oppm*float64(outputTokens)) / 1000000,
+					"income":       (ippm*float64(inputTokens-cachedTokens) + cippm*float64(cachedTokens) + oppm*float64(outputTokens)) / 1000000,
 					"total_income": totalIncome,
 					"timestamp":    strconv.Itoa(int(time.Now().Unix())),
 				},
 			})
-		}(server, model, clientID, inputTokens, outputTokens, totalTokens, ippm, oppm)
+		}(server, model, clientID, inputTokens, outputTokens, totalTokens, cachedTokens, ippm, oppm, cippm)
 	}
 }

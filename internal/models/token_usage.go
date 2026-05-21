@@ -1,8 +1,9 @@
 package models
 
 import (
-	"gorm.io/gorm"
 	"time"
+
+	"gorm.io/gorm"
 )
 
 // TokenUsage
@@ -14,10 +15,12 @@ type TokenUsage struct {
 	ClientID     string `gorm:"index"`
 	ClientIP     string
 	Model        string    `gorm:"not null"`
-	IPPM         float64   `gorm:"column:ip_pm;not null"` // 输入tokens价格 - 数据库列名是 ip_pm
-	OPPM         float64   `gorm:"column:oppm;not null"`  // 输出tokens价格 - 数据库列名是 oppm
+	IPPM         float64   `gorm:"column:ip_pm;not null"`           // 输入tokens价格 - 数据库列名是 ip_pm
+	OPPM         float64   `gorm:"column:oppm;not null"`            // 输出tokens价格 - 数据库列名是 oppm
+	CIPPM        float64   `gorm:"column:cippm;not null;default:0"` // 缓存命中输入tokens价格
 	InputTokens  int       `gorm:"not null"`
 	OutputTokens int       `gorm:"not null"`
+	CachedTokens int       `gorm:"not null;default:0"` // 缓存命中的输入tokens数
 	TotalTokens  int       `gorm:"not null"`
 	RequestType  string    `gorm:"not null;default:'chat'"` // 请求类型: chat, embedding
 	Revenue      float64   `gorm:"not null;default:0"`      // 收益
@@ -210,14 +213,17 @@ func (tdb *TokenUsageDB) GetTotalIncomeByUserID(id string, clientDB *ClientDB) (
 		clientIDs = append(clientIDs, client.ID)
 	}
 
-	// 查询这些客户端的总收益
+	// 查询这些客户端的总收益（支持缓存命中分离计费）
+	// non_cached_income = (input_tokens - cached_tokens) * ippm
+	// cached_income = cached_tokens * cippm
+	// output_income = output_tokens * oppm
 	type Result struct {
 		TotalIncome float64
 	}
 
 	var result Result
 	err = tdb.db.Model(&TokenUsage{}).
-		Select("SUM((ip_pm * input_tokens + oppm * output_tokens) / 1000000.0) as total_income").
+		Select("SUM(((input_tokens - cached_tokens) * ip_pm + cached_tokens * cippm + output_tokens * oppm) / 1000000.0) as total_income").
 		Where("client_id IN ?", clientIDs).
 		Scan(&result).Error
 

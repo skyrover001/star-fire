@@ -613,7 +613,7 @@ class StarFireAPP:
             'proxy_base_url': 'http://localhost:8000/v1',
             'proxy_api_key': '',
             'ollama_num_parallel': '',  # Ollama并发请求数
-            'model_prices': {}  # 每个模型的价格配置 {model_name: {ippm: xx, oppm: xx}}
+            'model_prices': {}  # 每个模型的价格配置 {model_name: {ippm: xx, oppm: xx, cippm: xx}}
         }
         
         try:
@@ -1333,14 +1333,23 @@ class StarFireAPP:
         # 创建本地验证对话框
         captcha_window = tk.Toplevel(self.root)
         captcha_window.title("安全验证")
-        captcha_window.geometry("380x200")
         captcha_window.transient(self.root)
         captcha_window.grab_set()
+        captcha_window.resizable(False, False)
         
-        frame = ttk.Frame(captcha_window, padding="20")
+        # 居中显示
+        win_w, win_h = 360, 180
+        captcha_window.withdraw()
+        captcha_window.update_idletasks()
+        sx = (captcha_window.winfo_screenwidth() - win_w) // 2
+        sy = (captcha_window.winfo_screenheight() - win_h) // 2
+        captcha_window.geometry(f"{win_w}x{win_h}+{sx}+{sy}")
+        captcha_window.deiconify()
+        
+        frame = ttk.Frame(captcha_window, padding="15 12")
         frame.pack(fill=tk.BOTH, expand=True)
         
-        ttk.Label(frame, text="请完成安全验证", font=("Arial", 12, "bold")).pack(pady=10)
+        ttk.Label(frame, text="🔐 安全验证", font=("Arial", 11, "bold")).pack(pady=(0, 8))
         
         # 生成随机算术题作为验证码（加减乘除，100以内）
         import random
@@ -1379,29 +1388,31 @@ class StarFireAPP:
         
         num1, num2, op_symbol, correct_answer = generate_question()
         
+        # 算式 + 输入框 + 换一题 在同一行
+        qa_frame = ttk.Frame(frame)
+        qa_frame.pack(pady=8)
+        
         question_label = tk.Label(
-            frame,
-            text=f"请计算: {num1} {op_symbol} {num2} = ?",
-            font=("Arial", 16, "bold"),
+            qa_frame,
+            text=f"{num1} {op_symbol} {num2} = ",
+            font=("Arial", 15, "bold"),
             fg="#2c3e50"
         )
-        question_label.pack(pady=15)
+        question_label.pack(side=tk.LEFT)
         
-        # 答案输入框
-        answer_frame = ttk.Frame(frame)
-        answer_frame.pack(pady=10)
-        
-        ttk.Label(answer_frame, text="答案:", font=("Arial", 10)).pack(side=tk.LEFT, padx=5)
-        answer_entry = ttk.Entry(answer_frame, font=("Arial", 12), width=12)
-        answer_entry.pack(side=tk.LEFT, padx=5)
+        answer_entry = ttk.Entry(qa_frame, font=("Arial", 13), width=6, justify=tk.CENTER)
+        answer_entry.pack(side=tk.LEFT, padx=(2, 6))
         answer_entry.focus()
         
         def refresh_captcha():
             """刷新验证码"""
             nonlocal num1, num2, op_symbol, correct_answer
             num1, num2, op_symbol, correct_answer = generate_question()
-            question_label.config(text=f"请计算: {num1} {op_symbol} {num2} = ?")
+            question_label.config(text=f"{num1} {op_symbol} {num2} = ")
             answer_entry.delete(0, tk.END)
+            answer_entry.focus()
+        
+        ttk.Button(qa_frame, text="换一题", command=refresh_captcha, width=6).pack(side=tk.LEFT)
         
         def do_login():
             """执行登录"""
@@ -1473,11 +1484,10 @@ class StarFireAPP:
             threading.Thread(target=_login, daemon=True).start()
         
         btn_frame = ttk.Frame(frame)
-        btn_frame.pack(pady=10, fill=tk.X)
+        btn_frame.pack(pady=(10, 0))
         
-        ttk.Button(btn_frame, text="🔄 换一题", command=refresh_captcha, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="✓ 登录", command=do_login, width=10).pack(side=tk.LEFT, padx=5)
-        ttk.Button(btn_frame, text="✗ 取消", command=captcha_window.destroy, width=10).pack(side=tk.LEFT, padx=5)
+        ttk.Button(btn_frame, text="✓ 登录", command=do_login, width=10).pack(side=tk.LEFT, padx=8)
+        ttk.Button(btn_frame, text="✗ 取消", command=captcha_window.destroy, width=10).pack(side=tk.LEFT, padx=8)
         
         answer_entry.bind('<Return>', lambda e: do_login())
     
@@ -1511,15 +1521,18 @@ class StarFireAPP:
                     if response.status == 201 or response.status == 200:
                         data_list = result.get('data', [])
                         
-                        # 计算总收益: sum((ippm*inputtokens + oppm*outputtokens) / 1000000)
+                        # 计算总收益: sum(((input - cached) * ippm + cached * cippm + oppm * output) / 1000000)
                         total_revenue = 0.0
                         for item in data_list:
                             ippm = float(item.get('IPPM', 0))
                             oppm = float(item.get('OPPM', 0))
+                            cippm = float(item.get('CIPPM', 0))
                             input_tokens = int(item.get('InputTokens', 0))
                             output_tokens = int(item.get('OutputTokens', 0))
+                            cached_tokens = int(item.get('CachedTokens', 0))
                             
-                            revenue = (ippm * input_tokens + oppm * output_tokens) / 1000000
+                            non_cached = input_tokens - cached_tokens
+                            revenue = (non_cached * ippm + cached_tokens * cippm + oppm * output_tokens) / 1000000
                             total_revenue += revenue
                         
                         # 更新UI
@@ -1531,9 +1544,12 @@ class StarFireAPP:
                                 latest = data_list[0]
                                 latest_ippm = float(latest.get('IPPM', 0))
                                 latest_oppm = float(latest.get('OPPM', 0))
+                                latest_cippm = float(latest.get('CIPPM', 0))
                                 latest_input = int(latest.get('InputTokens', 0))
                                 latest_output = int(latest.get('OutputTokens', 0))
-                                latest_revenue = (latest_ippm * latest_input + latest_oppm * latest_output) / 1000000
+                                latest_cached = int(latest.get('CachedTokens', 0))
+                                latest_non_cached = latest_input - latest_cached
+                                latest_revenue = (latest_non_cached * latest_ippm + latest_cached * latest_cippm + latest_oppm * latest_output) / 1000000
                                 self.latest_income_label.config(text=f"{latest_revenue:.6f} ¥")
                             
                             self.starfire_log(f"✓ 已刷新收益数据，总收益: {total_revenue:.6f} ¥ ({len(data_list)} 条记录)", "green")
@@ -1638,8 +1654,16 @@ class StarFireAPP:
         # 创建新窗口
         price_window = tk.Toplevel(self.root)
         price_window.title("模型价格设置")
-        price_window.geometry("700x500")
         price_window.transient(self.root)
+        
+        # 居中显示
+        pw_w, pw_h = 720, 500
+        price_window.withdraw()
+        price_window.update_idletasks()
+        px = (price_window.winfo_screenwidth() - pw_w) // 2
+        py = (price_window.winfo_screenheight() - pw_h) // 2
+        price_window.geometry(f"{pw_w}x{pw_h}+{px}+{py}")
+        price_window.deiconify()
 
         # 记录窗口实例
         self.model_price_window = price_window
@@ -1680,18 +1704,20 @@ class StarFireAPP:
         list_frame.pack(fill=tk.BOTH, expand=True)
         
         # 创建表格
-        columns = ("模型名称", "引擎", "输入价格(¥/M)", "输出价格(¥/M)")
+        columns = ("模型名称", "引擎", "输入价格(¥/M)", "输出价格(¥/M)", "缓存输入价格(¥/M)")
         tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
         
         tree.heading("模型名称", text="模型名称")
         tree.heading("引擎", text="引擎")
         tree.heading("输入价格(¥/M)", text="输入价格(¥/M)")
         tree.heading("输出价格(¥/M)", text="输出价格(¥/M)")
+        tree.heading("缓存输入价格(¥/M)", text="缓存输入价格(¥/M)")
         
-        tree.column("模型名称", width=280)
-        tree.column("引擎", width=100, anchor=tk.CENTER)
-        tree.column("输入价格(¥/M)", width=140, anchor=tk.CENTER)
-        tree.column("输出价格(¥/M)", width=140, anchor=tk.CENTER)
+        tree.column("模型名称", width=250)
+        tree.column("引擎", width=80, anchor=tk.CENTER)
+        tree.column("输入价格(¥/M)", width=120, anchor=tk.CENTER)
+        tree.column("输出价格(¥/M)", width=120, anchor=tk.CENTER)
+        tree.column("缓存输入价格(¥/M)", width=140, anchor=tk.CENTER)
         
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -1736,6 +1762,7 @@ class StarFireAPP:
         # 强制使用 3.8 和 8.3 作为默认值，忽略配置文件中的旧全局设置
         default_ippm = '3.8'
         default_oppm = '8.3'
+        default_cippm = '1.0'
 
         config_changed = False
         
@@ -1745,11 +1772,14 @@ class StarFireAPP:
 
             ippm = str(entry.get('ippm', default_ippm)) if entry else default_ippm
             oppm = str(entry.get('oppm', default_oppm)) if entry else default_oppm
+            cippm = str(entry.get('cippm', default_cippm)) if entry else default_cippm
 
             if not ippm:
                 ippm = default_ippm
             if not oppm:
                 oppm = default_oppm
+            if not cippm:
+                cippm = default_cippm
 
             if entry:
                 # 统一写回标准化后的数值
@@ -1759,6 +1789,9 @@ class StarFireAPP:
                 if entry.get('oppm') != oppm:
                     entry['oppm'] = oppm
                     config_changed = True
+                if entry.get('cippm') != cippm:
+                    entry['cippm'] = cippm
+                    config_changed = True
                 if entry.get('engine') != engine:
                     entry['engine'] = engine
                     config_changed = True
@@ -1766,16 +1799,17 @@ class StarFireAPP:
                 model_prices[model] = {
                     'ippm': ippm,
                     'oppm': oppm,
+                    'cippm': cippm,
                     'engine': engine
                 }
                 config_changed = True
 
-            tree.insert("", tk.END, values=(model, str(engine), ippm, oppm))
+            tree.insert("", tk.END, values=(model, str(engine), ippm, oppm, cippm))
         
         if config_changed:
             self.save_config()
             self.starfire_log(
-                f"✓ 已同步模型价格默认值 (输入: {default_ippm}, 输出: {default_oppm})",
+                f"✓ 已同步模型价格默认值 (输入: {default_ippm}, 输出: {default_oppm}, 缓存输入: {default_cippm})",
                 "green"
             )
         
@@ -1810,8 +1844,19 @@ class StarFireAPP:
         edit_entry.select_range(0, tk.END)
         edit_entry.focus()
         
-        # 将输入框放置在单元格位置
-        edit_entry.place(x=bbox[0], y=bbox[1], width=bbox[2], height=bbox[3])
+        # 将输入框放置在单元格位置，缩短宽度为确认按钮留空间
+        btn_w = 24
+        entry_w = bbox[2] - btn_w - 2
+        edit_entry.place(x=bbox[0], y=bbox[1], width=max(entry_w, 40), height=bbox[3])
+        
+        # 确认按钮
+        confirm_btn = tk.Button(
+            tree, text="✓", font=("Arial", 9, "bold"),
+            bg="#4CAF50", fg="white", relief=tk.FLAT,
+            activebackground="#45a049", cursor="hand2",
+            bd=0, padx=2, pady=0
+        )
+        confirm_btn.place(x=bbox[0] + max(entry_w, 40) + 2, y=bbox[1], width=btn_w, height=bbox[3])
         
         def save_edit(event=None):
             new_value = edit_entry.get().strip()
@@ -1825,14 +1870,17 @@ class StarFireAPP:
                 edit_entry.focus()
                 return
             
+            confirm_btn.destroy()
             edit_entry.destroy()
         
         def cancel_edit(event=None):
+            confirm_btn.destroy()
             edit_entry.destroy()
+        
+        confirm_btn.config(command=save_edit)
         
         # 绑定事件
         edit_entry.bind('<Return>', save_edit)
-        edit_entry.bind('<FocusOut>', save_edit)
         edit_entry.bind('<Escape>', cancel_edit)
     
     def edit_model_price(self, tree, event):
@@ -1899,10 +1947,12 @@ class StarFireAPP:
             engine = values[1]
             ippm = values[2]
             oppm = values[3]
+            cippm = values[4] if len(values) > 4 else '1.0'
             model_prices[model_name] = {
                 'engine': str(engine),
                 'ippm': str(ippm),
-                'oppm': str(oppm)
+                'oppm': str(oppm),
+                'cippm': str(cippm)
             }
         self.config['model_prices'] = model_prices
         self.save_config()
@@ -1927,7 +1977,8 @@ class StarFireAPP:
                         'model': model_name,
                         'engine': engine,
                         'ippm': str(prices.get('ippm', self.config.get('ippm', '3.8'))),
-                        'oppm': str(prices.get('oppm', self.config.get('oppm', '8.3')))
+                        'oppm': str(prices.get('oppm', self.config.get('oppm', '8.3'))),
+                        'cippm': str(prices.get('cippm', '1.0'))
                     })
             else:
                 # 如果没有配置任何模型价格，使用当前模式的引擎作为默认
@@ -1944,7 +1995,8 @@ class StarFireAPP:
                     'model': '*',
                     'engine': default_engine,
                     'ippm': str(self.config.get('ippm', '3.8')),
-                    'oppm': str(self.config.get('oppm', '8.3'))
+                    'oppm': str(self.config.get('oppm', '8.3')),
+                    'cippm': '1.0'
                 })
             
             message = {

@@ -140,8 +140,9 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 				Size:   fmt.Sprintf("%d", model.Size),
 				Engine: "ollama",
 				Arch:   model.Details.QuantizationLevel,
-				IPPM:   conf.InputTokenPricePerMillion,  // 每百万输入tokens价格
-				OPPM:   conf.OutputTokenPricePerMillion, // 每百万输出tokens价格
+				IPPM:   conf.InputTokenPricePerMillion,       // 每百万输入tokens价格
+				OPPM:   conf.OutputTokenPricePerMillion,      // 每百万输出tokens价格
+				CIPPM:  conf.CachedInputTokenPricePerMillion, // 每百万缓存命中输入tokens价格
 			}
 			allModels = append(allModels, publicModel)
 		}

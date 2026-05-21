@@ -246,7 +246,7 @@ const copyToken = async () => {
 const copyCommand = async () => {
   if (!currentToken.value) return;
 
-  const command = `starfire.exe -host ${serverHost} -token ${currentToken.value} -ippm 3.8 -oppm 8.3`;
+  const command = `starfire.exe -host ${serverHost} -token ${currentToken.value} -ippm 3.8 -oppm 8.3 -cippm 1.0`;
 
   try {
     // 优先使用现代 Clipboard API
@@ -704,7 +704,7 @@ const usageGuideHtml = computed(() => {
                 <div class="relative">
                   <code
                     class="block w-full rounded-lg bg-gray-100 dark:bg-gray-800 p-3 text-sm font-mono text-gray-900 dark:text-gray-100 pr-12 break-all">
-                  starfire.exe -host {{ serverHost }} -token {{ currentToken }} -ippm 3.8 -oppm 8.3
+                  starfire.exe -host {{ serverHost }} -token {{ currentToken }} -ippm 3.8 -oppm 8.3 -cippm 1.0
                 </code>
                   <button @click="copyCommand"
                     class="absolute top-2 right-2 rounded p-1.5 text-gray-400 hover:bg-gray-200 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"

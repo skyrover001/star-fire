@@ -44,42 +44,52 @@ const routes: RouteRecordRaw[] = [
   //   path: '/my-models',
   //   component: () => import('#/views/mymodels/index.vue'),
   // },
-  // API Key 管理
+  // 模型收益 - 一级菜单
   {
     meta: {
-      icon: 'lucide:key',
+      icon: 'lucide:trending-up',
       order: 1,
-      title: 'API Key 管理',
+      title: '模型收益',
     },
-    name: 'MyKeys',
-    path: '/my-keys',
-    component: () => import('#/views/apikey/index.vue'),
-  },
-  // 使用分析 - 改为父菜单
-  {
-    meta: {
-      icon: 'lucide:area-chart',
-      order: 2,
-      title: '使用分析',
-    },
-    name: 'UsageAnalytics',
-    path: '/usage-analytics',
-    redirect: '/usage-analytics/my-contribution',
+    name: 'ModelIncome',
+    path: '/model-income',
+    redirect: '/model-income/overview',
     children: [
       {
         meta: {
-          title: '我的收益',
+          title: '收益总览',
         },
-        name: 'MyContribution',
-        path: '/usage-analytics/my-contribution',
+        name: 'IncomeOverview',
+        path: '/model-income/overview',
         component: () => import('#/views/analytics/my-contribution/index.vue'),
       },
       {
         meta: {
-          title: '我的使用',
+          title: '价格配置',
         },
-        name: 'MyUsage',
-        path: '/usage-analytics/my-usage',
+        name: 'ModelPrices',
+        path: '/model-income/model-prices',
+        component: () => import('#/views/analytics/model-prices/index.vue'),
+      },
+    ],
+  },
+  // 模型使用 - 一级菜单
+  {
+    meta: {
+      icon: 'lucide:area-chart',
+      order: 2,
+      title: '模型使用',
+    },
+    name: 'ModelUsage',
+    path: '/model-usage',
+    redirect: '/model-usage/overview',
+    children: [
+      {
+        meta: {
+          title: '使用总览',
+        },
+        name: 'UsageOverview',
+        path: '/model-usage/overview',
         component: () => import('#/views/analytics/my-usage/index.vue'),
       },
       {
@@ -87,8 +97,16 @@ const routes: RouteRecordRaw[] = [
           title: '消费限额',
         },
         name: 'PriceCaps',
-        path: '/usage-analytics/price-caps',
+        path: '/model-usage/price-caps',
         component: () => import('#/views/analytics/price-caps/index.vue'),
+      },
+      {
+        meta: {
+          title: 'API Key 管理',
+        },
+        name: 'MyKeys',
+        path: '/model-usage/api-keys',
+        component: () => import('#/views/apikey/index.vue'),
       },
     ],
   },

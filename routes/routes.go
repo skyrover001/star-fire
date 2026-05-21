@@ -18,6 +18,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	authHandler := user_handlers.NewAuthHandler(authService)
 	apiKeyHandler := user_handlers.NewAPIKeyHandler(apiKeyService)
 	priceCapHandler := user_handlers.NewPriceCapHandler(server.UserPriceCapDB)
+	modelPriceHandler := user_handlers.NewModelPriceHandler(server)
 
 	clientHandler := client_handlers.NewClientHandler(server, registerTokenService)
 	tokenUsageHandler := user_handlers.NewTokenUsageHandler(server)
@@ -64,6 +65,10 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		userAPI.GET("/price-caps", priceCapHandler.ListPriceCaps)
 		userAPI.PUT("/price-caps/:model", priceCapHandler.UpsertPriceCap)
 		userAPI.DELETE("/price-caps/:model", priceCapHandler.DeletePriceCap)
+
+		// Model price management: set prices for your own provided models.
+		userAPI.GET("/my-models", modelPriceHandler.ListMyModels)
+		userAPI.PUT("/model-price/:model", modelPriceHandler.UpdateModelPrice)
 	}
 
 	api := r.Group("/v1")
