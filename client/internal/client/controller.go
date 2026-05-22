@@ -52,7 +52,10 @@ func RegisterClient(c *Client, host, token string) error {
 		Type:    public.REGISTER,
 		Content: c,
 	}
-	if err := conn.WriteJSON(registerInfo); err != nil {
+	c.wsMu.Lock()
+	err = conn.WriteJSON(registerInfo)
+	c.wsMu.Unlock()
+	if err != nil {
 		_ = conn.Close()
 		return fmt.Errorf("send register info error: %w", err)
 	}
@@ -130,7 +133,10 @@ func (c *Client) handleKeepAlive(message public.WSMessage) {
 		Content: pong,
 	}
 
-	if err := c.controlConn.WriteJSON(response); err != nil {
+	c.wsMu.Lock()
+	err := c.controlConn.WriteJSON(response)
+	c.wsMu.Unlock()
+	if err != nil {
 		log.Printf("send pong error: %v", err)
 	}
 	fmt.Println("pong message is:", response)

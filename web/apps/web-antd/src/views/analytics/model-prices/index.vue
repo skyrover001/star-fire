@@ -5,7 +5,7 @@
       <div class="flex items-center justify-between">
         <div>
           <h1 class="text-3xl font-bold text-foreground">价格配置</h1>
-          <p class="mt-2 text-muted-foreground">设置和管理您提供的模型价格（每百万 tokens 价格）</p>
+          <p class="mt-2 text-muted-foreground">查看您提供的模型价格（每百万 tokens 价格），价格通过客户端配置设置</p>
         </div>
         <button
           class="inline-flex items-center rounded-lg bg-[var(--bg-color-secondary)] border border-[var(--border-color)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-color-tertiary)]"
@@ -53,7 +53,7 @@
           </svg>
           <div class="text-sm text-muted-foreground space-y-1">
             <p><span class="font-medium text-foreground">IPPM</span> 输入价格 · <span class="font-medium text-foreground">OPPM</span> 输出价格 · <span class="font-medium text-foreground">CIPPM</span> 缓存命中输入价格（均为 ¥/百万tokens）</p>
-            <p>在此页面可以直接设置您提供的模型的价格。修改后将立即生效，影响后续请求的计费。</p>
+            <p>模型价格由客户端配置文件管理，此页面仅供查看。如需修改价格请在客户端设置。</p>
           </div>
         </div>
       </div>
@@ -89,7 +89,6 @@
               <th class="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">OPPM (¥)</th>
               <th class="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">CIPPM (¥)</th>
               <th class="px-5 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">状态</th>
-              <th class="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">操作</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-border">
@@ -133,14 +132,6 @@
                   离线
                 </span>
               </td>
-              <td class="px-5 py-3 text-right">
-                <button
-                  class="text-xs text-blue-500 hover:text-blue-400 px-2 py-1 rounded hover:bg-blue-500/10 transition-colors"
-                  @click="openEditModal(item)"
-                >
-                  设置价格
-                </button>
-              </td>
             </tr>
           </tbody>
         </table>
@@ -155,91 +146,12 @@
       </div>
     </div>
 
-    <!-- 编辑价格弹窗 -->
-    <div v-if="showEditModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/50" @click.self="showEditModal = false">
-      <div class="bg-card rounded-xl border border-border shadow-2xl w-full max-w-md p-6 space-y-5">
-        <div>
-          <h3 class="text-lg font-semibold text-foreground">设置模型价格</h3>
-          <p class="text-sm text-muted-foreground mt-1">
-            为 <span class="font-mono font-medium text-foreground">{{ editingModel }}</span> 设置价格
-          </p>
-        </div>
-
-        <div class="space-y-4">
-          <div>
-            <label class="block text-sm font-medium text-foreground mb-1">输入价格 (IPPM)</label>
-            <div class="relative">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-              <input
-                v-model.number="editForm.ippm"
-                type="number"
-                step="0.01"
-                min="0"
-                class="w-full rounded-lg border border-border bg-background pl-7 pr-20 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">/ 百万tokens</span>
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-foreground mb-1">输出价格 (OPPM)</label>
-            <div class="relative">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-              <input
-                v-model.number="editForm.oppm"
-                type="number"
-                step="0.01"
-                min="0"
-                class="w-full rounded-lg border border-border bg-background pl-7 pr-20 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">/ 百万tokens</span>
-            </div>
-          </div>
-
-          <div>
-            <label class="block text-sm font-medium text-foreground mb-1">缓存输入价格 (CIPPM)</label>
-            <div class="relative">
-              <span class="absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">¥</span>
-              <input
-                v-model.number="editForm.cippm"
-                type="number"
-                step="0.01"
-                min="0"
-                class="w-full rounded-lg border border-border bg-background pl-7 pr-20 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-              />
-              <span class="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">/ 百万tokens</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="rounded-lg bg-accent p-3 text-xs text-muted-foreground">
-          修改价格后将立即生效，影响后续所有使用该模型的请求计费。
-        </div>
-
-        <div class="flex justify-end gap-3 pt-2">
-          <button
-            class="px-4 py-2 text-sm rounded-lg border border-border text-foreground hover:bg-accent transition-colors"
-            @click="showEditModal = false"
-          >
-            取消
-          </button>
-          <button
-            class="px-4 py-2 text-sm rounded-lg bg-blue-600 text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
-            :disabled="saving"
-            @click="savePrice"
-          >
-            {{ saving ? '保存中...' : '保存' }}
-          </button>
-        </div>
-      </div>
-    </div>
   </div>
 </template>
 
 <script lang="ts" setup>
-import { ref, computed, onMounted, reactive } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { requestClient } from '#/api/request';
-import { message } from 'ant-design-vue';
 
 interface UserModel {
   model_name: string;
@@ -253,13 +165,9 @@ interface UserModel {
 }
 
 const loading = ref(false);
-const saving = ref(false);
 const models = ref<UserModel[]>([]);
 const searchKeyword = ref('');
 const engineFilter = ref('');
-const showEditModal = ref(false);
-const editingModel = ref('');
-const editForm = reactive({ ippm: 0, oppm: 0, cippm: 0 });
 
 // Available engines for filter
 const availableEngines = computed(() => {
@@ -295,39 +203,6 @@ const getEngineClass = (engine: string) => {
       return 'bg-blue-500/10 text-blue-500 border border-blue-500/20';
     default:
       return 'bg-accent text-muted-foreground border border-border';
-  }
-};
-
-// Open edit modal
-const openEditModal = (item: UserModel) => {
-  editingModel.value = item.model_name;
-  editForm.ippm = item.ippm;
-  editForm.oppm = item.oppm;
-  editForm.cippm = item.cippm;
-  showEditModal.value = true;
-};
-
-// Save price
-const savePrice = async () => {
-  if (editForm.ippm < 0 || editForm.oppm < 0 || editForm.cippm < 0) {
-    message.error('价格不能为负数');
-    return;
-  }
-  saving.value = true;
-  try {
-    await requestClient.put(`/user/model-price/${encodeURIComponent(editingModel.value)}`, {
-      ippm: editForm.ippm,
-      oppm: editForm.oppm,
-      cippm: editForm.cippm,
-    });
-    message.success('价格设置成功');
-    showEditModal.value = false;
-    await fetchModels();
-  } catch (error) {
-    console.error('保存价格失败:', error);
-    message.error('保存失败');
-  } finally {
-    saving.value = false;
   }
 };
 

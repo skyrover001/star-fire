@@ -34,9 +34,12 @@ type Config struct {
 func LoadConfig() *Config {
 	cfg := &Config{
 		OllamaHost:                      "http://localhost:11434",
-		InputTokenPricePerMillion:       4.0, // 默认值为4
-		OutputTokenPricePerMillion:      8.0, // 默认值为8
-		CachedInputTokenPricePerMillion: 1.0, // 默认值为1
+		InputTokenPricePerMillion:       4.0,  // 默认初始价格
+		OutputTokenPricePerMillion:      8.0,  // 默认初始价格
+		CachedInputTokenPricePerMillion: 1.0,  // 默认初始价格
+		IPPMMax:                         10.0, // 平台输入价格上限
+		OPPMMax:                         20.0, // 平台输出价格上限
+		CIPPMMax:                        2.0,  // 平台缓存输入价格上限
 	}
 
 	var showHelp bool
@@ -48,9 +51,9 @@ func LoadConfig() *Config {
 	flag.StringVar(&cfg.OllamaHost, "ollama-host", cfg.OllamaHost, "Ollama API 服务器地址")
 	flag.StringVar(&cfg.OpenAIKey, "openai-key", "", "OpenAI API 密钥")
 	flag.StringVar(&cfg.OpenAIBaseURL, "openai-url", cfg.OpenAIBaseURL, "OpenAI API 基础URL")
-	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", IPPM_MAX, "每输入百万tokens定价最大值 (默认: 3.99)")
-	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", OPPM_MAX, "每输出百万tokens定价最大值 (默认: 7.99)")
-	flag.Float64Var(&cfg.CachedInputTokenPricePerMillion, "cippm", CIPPM_MAX, "缓存命中输入百万tokens定价最大值 (默认: 1.99)")
+	flag.Float64Var(&cfg.InputTokenPricePerMillion, "ippm", IPPM_MAX, "每输入百万tokens初始定价 (默认: 3.99)")
+	flag.Float64Var(&cfg.OutputTokenPricePerMillion, "oppm", OPPM_MAX, "每输出百万tokens初始定价 (默认: 7.99)")
+	flag.Float64Var(&cfg.CachedInputTokenPricePerMillion, "cippm", CIPPM_MAX, "缓存命中输入百万tokens初始定价 (默认: 1.99)")
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 	flag.IntVar(&cfg.APPPort, "port", 19527, "服务端口 (默认:19527)")
 	flag.BoolVar(&cfg.OpenAIOnly, "openai-only", false, "仅使用 OpenAI 引擎，不注册本地引擎模型到服务器")

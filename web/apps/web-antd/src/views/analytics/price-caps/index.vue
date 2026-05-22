@@ -27,9 +27,9 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <div class="text-sm text-muted-foreground space-y-1">
-            <p><span class="font-medium text-foreground">IPPM</span>：输入 Token 每百万价格上限（¥/百万 tokens），用于未命中缓存的输入 Token</p>
-            <p><span class="font-medium text-foreground">OPPM</span>：输出 Token 每百万价格上限（¥/百万 tokens）</p>
-            <p><span class="font-medium text-foreground">CIPPM</span>：缓存命中输入 Token 每百万价格上限（¥/百万 tokens）</p>
+            <p><span class="font-medium text-foreground">IPPM_Ceiling</span>：输入 Token 每百万价格上限（¥/百万 tokens），用于未命中缓存的输入 Token</p>
+            <p><span class="font-medium text-foreground">OPPM_Ceiling</span>：输出 Token 每百万价格上限（¥/百万 tokens）</p>
+            <p><span class="font-medium text-foreground">CIPPM_Ceiling</span>：缓存命中输入 Token 每百万价格上限（¥/百万 tokens）</p>
             <p>未配置的模型默认不限价，路由行为与原先一致。</p>
           </div>
         </div>
@@ -69,9 +69,9 @@
           <thead>
             <tr class="border-b border-border bg-accent">
               <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">模型</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输入上限 (IPPM)</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输出上限 (OPPM)</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">缓存输入上限 (CIPPM)</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输入上限 (IPPM_Ceiling)</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输出上限 (OPPM_Ceiling)</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">缓存输入上限 (CIPPM_Ceiling)</th>
               <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">更新时间</th>
               <th class="px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">操作</th>
             </tr>

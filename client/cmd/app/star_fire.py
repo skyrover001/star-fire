@@ -779,10 +779,11 @@ class StarFireAPP:
                     self.starfire_log("⚠️ 模型价格窗口存在，但列表未初始化", "orange")
             except Exception as e:
                 self.starfire_log(f"❌ 刷新模型价格列表失败: {str(e)}", "red")
-                if self.model_price_window.winfo_exists() and hasattr(self, 'model_price_tree') and self.model_price_tree:
-                    self.refresh_model_price_list(self.model_price_tree, self.model_price_window)
-            except Exception as e:
-                self.starfire_log(f"自动刷新模型价格窗口失败: {str(e)}", "red")
+                try:
+                    if self.model_price_window.winfo_exists() and hasattr(self, 'model_price_tree') and self.model_price_tree:
+                        self.refresh_model_price_list(self.model_price_tree, self.model_price_window)
+                except Exception as e2:
+                    self.starfire_log(f"自动刷新模型价格窗口失败: {str(e2)}", "red")
     
     def create_widgets(self):
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -1606,7 +1607,7 @@ class StarFireAPP:
         """返回所有可用模型及其引擎类型的字典 {model_name: engine}"""
         models = {}
         
-        # 获取ollama正在运行的模型
+        # 获取ollama当前在线运行的模型（使用 ollama ps）
         try:
             result = subprocess.run(
                 ["ollama", "ps"],
@@ -1622,7 +1623,7 @@ class StarFireAPP:
                     if parts:
                         models[parts[0]] = 'ollama'
         except Exception as e:
-            self.starfire_log(f"❌ 获取Ollama运行中模型失败: {str(e)}", "red")
+            self.starfire_log(f"❌ 获取Ollama模型列表失败: {str(e)}", "red")
 
         # 获取代理模型
         try:
@@ -2065,9 +2066,6 @@ class StarFireAPP:
             messagebox.showwarning("配置不完整", "请先登录以获取注册Token！")
             return
         
-        # 使用配置文件中的默认价格，如果没有则使用 3.8 和 8.3
-        ippm = self.config.get('ippm', '3.8')
-        oppm = self.config.get('oppm', '8.3')
         model_mode = self.model_mode_var.get()
         
         if not host:
@@ -2102,13 +2100,11 @@ class StarFireAPP:
             return
         
         try:
-            # 基础命令参数
+            # 基础命令参数（不传递ippm/oppm，价格由配置文件通过TCP发送）
             cmd = [
                 starfire_exe,
                 "-host", host,
-                "-token", token,
-                "-ippm", ippm,
-                "-oppm", oppm
+                "-token", token
             ]
             
             # 根据模型模式添加额外参数
@@ -2127,8 +2123,7 @@ class StarFireAPP:
             self.starfire_log(f"服务器: {host}", "blue")
             if model_mode == 'proxy':
                 self.starfire_log(f"代理地址: {proxy_url}", "blue")
-            self.starfire_log(f"输入价格: {ippm} ¥/M tokens", "blue")
-            self.starfire_log(f"输出价格: {oppm} ¥/M tokens", "blue")
+            self.starfire_log(f"价格将通过TCP从配置文件同步", "blue")
             
             # 设置环境变量
             env = os.environ.copy()
@@ -2171,6 +2166,10 @@ class StarFireAPP:
             
             self.starfire_log(f"✓ Starfire 进程已启动", "green")
             self.starfire_log("开始接收日志输出...\n", "gray")
+            
+            # 自动准备价格配置，starfire.exe通过TCP连接后会自动发送
+            self.send_prices_to_starfire()
+            self.starfire_log("✓ 价格配置已准备，等待starfire.exe连接后自动同步", "blue")
             
             threading.Thread(target=self._read_starfire_output, daemon=True).start()
             
