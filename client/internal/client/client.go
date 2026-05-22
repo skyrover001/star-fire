@@ -13,7 +13,9 @@ import (
 	"star-fire/client/internal/inference/ollama"
 	"star-fire/client/internal/inference/openai"
 	"star-fire/pkg/public"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/google/uuid"
@@ -36,6 +38,7 @@ type Client struct {
 		cachedInputPriceMax float64
 	}
 	AppClient net.Conn
+	wsMu      sync.Mutex // 保护 WebSocket 并发写入
 }
 
 func NewClient(cfg *config.Config) (*Client, error) {
@@ -457,8 +460,43 @@ func (c *Client) getModelPriceScope(modelName string) (float64, float64, float64
 			return scope.inputPriceMax, scope.outputPriceMax, scope.cachedInputPriceMax
 		}
 	}
-	fmt.Println("server model price scope not found, use client default value")
-	return c.cfg.InputTokenPricePerMillion, c.cfg.OutputTokenPricePerMillion, c.cfg.CachedInputTokenPricePerMillion
+	fmt.Println("server model price scope not found, use platform max value")
+	return c.cfg.IPPMMax, c.cfg.OPPMMax, c.cfg.CIPPMMax
+}
+
+// pushModelUpdate 主动推送模型价格更新到 server（不等心跳）
+func (c *Client) pushModelUpdate() {
+	if c.controlConn == nil {
+		log.Println("⚠️ WebSocket not connected, skip pushing model update")
+		return
+	}
+
+	pong := public.PPMessage{
+		Type:            public.PONG,
+		Timestamp:       strconv.Itoa(int(time.Now().Unix())),
+		AvailableModels: c.Models,
+	}
+	response := public.WSMessage{
+		Type:    public.KEEPALIVE,
+		Content: pong,
+	}
+
+	c.wsMu.Lock()
+	err := c.controlConn.WriteJSON(response)
+	c.wsMu.Unlock()
+
+	if err != nil {
+		log.Printf("❌ Push model update error: %v", err)
+	} else {
+		log.Printf("✅ Pushed model price update to server (%d models)", len(c.Models))
+	}
+}
+
+// WriteWSMessage 线程安全的 WebSocket 写入方法
+func (c *Client) WriteWSMessage(msg public.WSMessage) error {
+	c.wsMu.Lock()
+	defer c.wsMu.Unlock()
+	return c.controlConn.WriteJSON(msg)
 }
 
 // initTCPConnection 初始化到应用服务器的 TCP 连接
@@ -718,4 +756,7 @@ func (c *Client) handleTCPMessage(data []byte) {
 	}
 
 	log.Printf("✅ Price configuration applied successfully for %d models", len(messages.Data))
+
+	// TCP 价格更新后，立即通过 WebSocket 推送最新模型信息到 server
+	c.pushModelUpdate()
 }

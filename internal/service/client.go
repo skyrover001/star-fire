@@ -3,13 +3,14 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/ollama/ollama/api"
 	"log"
 	"star-fire/internal/models"
 	"star-fire/pkg/public"
 	"star-fire/pkg/utils"
 	"strconv"
 	"time"
+
+	"github.com/ollama/ollama/api"
 )
 
 func HandleClientConnection(client *models.Client, server *models.Server) {
@@ -193,12 +194,13 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 				m.IPPM = server.Conf.AllModelInputMaxPrice
 			}
 			model := public.Model{
-				Name: m.Name,
-				Type: m.Type,
-				Size: m.Size,
-				Arch: m.Arch,
-				IPPM: m.IPPM, // 确保传递IPPM价格
-				OPPM: m.OPPM, // 确保传递OPPM价格
+				Name:  m.Name,
+				Type:  m.Type,
+				Size:  m.Size,
+				Arch:  m.Arch,
+				IPPM:  m.IPPM,  // 确保传递IPPM价格
+				OPPM:  m.OPPM,  // 确保传递OPPM价格
+				CIPPM: m.CIPPM, // 确保传递CIPPM价格
 			}
 			fmt.Println("model is", model, m.OPPM, m.IPPM)
 			server.RegisterModel(&model, client)
