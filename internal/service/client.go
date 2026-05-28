@@ -15,7 +15,15 @@ import (
 
 func HandleClientConnection(client *models.Client, server *models.Server) {
 	// if client is registered then keep the connection alive
-	go keepAliveClient(client, server)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("keep alive goroutine recovered from panic: %v", r)
+				client.Status = "offline"
+			}
+		}()
+		keepAliveClient(client, server)
+	}()
 	handleClientMessages(client, server)
 }
 
@@ -27,7 +35,9 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 		select {
 		case <-ticker.C:
 			// 如果客户端连接断开，则关闭连接
+			client.ControlConnMutex.Lock()
 			if client.ControlConn == nil {
+				client.ControlConnMutex.Unlock()
 				log.Println("Client control connection is nil, closing connection")
 				client.Status = "offline"
 				return
@@ -39,6 +49,7 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 					Timestamp: strconv.Itoa(int(time.Now().Unix())),
 				},
 			})
+			client.ControlConnMutex.Unlock()
 			if err != nil {
 				log.Println("Error while writing ping message:", err)
 				client.Status = "offline"
@@ -106,8 +117,10 @@ func handleClientMessages(client *models.Client, server *models.Server) {
 		err := client.ControlConn.ReadJSON(&message)
 		if err != nil {
 			log.Println("Error while reading message:", err)
-			client.Status = "offline"
+			client.ControlConnMutex.Lock()
 			client.ControlConn = nil
+			client.ControlConnMutex.Unlock()
+			client.Status = "offline"
 			return
 		}
 

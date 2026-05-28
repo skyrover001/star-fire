@@ -437,6 +437,20 @@ func (s *Server) RemoveClient(modelName string, clientID string) {
 	}
 }
 
+func (s *Server) GetClientByModel(model, clientID string) *Client {
+	s.clientsMu.RLock()
+	defer s.clientsMu.RUnlock()
+	modelClients, exists := s.Clients[model]
+	if !exists {
+		return nil
+	}
+	client, exists := modelClients[clientID]
+	if !exists {
+		return nil
+	}
+	return client
+}
+
 // UserModelInfo represents a model provided by the current user with its price info.
 type UserModelInfo struct {
 	ModelName string  `json:"model_name"`

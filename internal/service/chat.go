@@ -343,56 +343,45 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 	err := server.TokenUsageDB.SaveTokenUsage(usage)
 	if err != nil {
 		log.Printf("保存token使用记录失败: %v", err)
-	} else {
-		log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
-		go func(server *models.Server, model string, clientID string, inputTokens, outputTokens, totalTokens, cachedTokens int, ippm, oppm, cippm float64) {
-			// 检查 clients 是否存在
-			if server.Clients == nil {
-				log.Printf("server.Clients is nil, cannot send income message")
-				return
-			}
-
-			// 检查模型是否存在
-			modelClients, modelExists := server.Clients[model]
-			if !modelExists || modelClients == nil {
-				log.Printf("model %s not found in server.Clients", model)
-				return
-			}
-
-			// 检查客户端是否存在
-			client, clientExists := modelClients[clientID]
-			if !clientExists || client == nil {
-				log.Printf("client %s not found for model %s", clientID, model)
-				return
-			}
-
-			// 检查控制连接是否存在
-			if client.ControlConn == nil {
-				log.Printf("client %s ControlConn is nil", clientID)
-				return
-			}
-
-			// 根据client的用户userid 获取最新的总收入
-			totalIncome, err := server.TokenUsageDB.GetTotalIncomeByUserID(client.User.ID, server.ClientDB)
-			if err != nil {
-				log.Printf("获取用户 %s 总收入失败: %v", client.User.ID, err)
-				return
-			}
-			_ = client.ControlConn.WriteJSON(public.WSMessage{
-				Type: public.INCOME,
-				Content: map[string]interface{}{
-					"model": model,
-					"usage": map[string]interface{}{
-						"prompt_tokens":     inputTokens,
-						"completion_tokens": outputTokens,
-						"total_tokens":      totalTokens,
-						"cached_tokens":     cachedTokens,
-					},
-					"income":       (ippm*float64(inputTokens-cachedTokens) + cippm*float64(cachedTokens) + oppm*float64(outputTokens)) / 1000000,
-					"total_income": totalIncome,
-					"timestamp":    strconv.Itoa(int(time.Now().Unix())),
-				},
-			})
-		}(server, model, clientID, inputTokens, outputTokens, totalTokens, cachedTokens, ippm, oppm, cippm)
+		return
 	}
+	log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
+
+	// 根据client的用户userid 获取最新的总收入
+	chatClient := server.GetClientByModel(model, clientID)
+	if chatClient == nil {
+		log.Printf("client %s not found for model %s", clientID, model)
+		return
+	}
+
+	chatClient.ControlConnMutex.Lock()
+	conn := chatClient.ControlConn
+	chatClient.ControlConnMutex.Unlock()
+
+	if conn == nil {
+		log.Printf("client %s ControlConn is nil", clientID)
+		return
+	}
+
+	totalIncomeResult, totalErr := server.TokenUsageDB.GetTotalIncomeByUserID(chatClient.User.ID, server.ClientDB)
+	if totalErr != nil {
+		log.Printf("获取用户 %s 总收入失败: %v", chatClient.User.ID, totalErr)
+		return
+	}
+	totalIncome, _ := totalIncomeResult.(float64)
+	_ = conn.WriteJSON(public.WSMessage{
+		Type: public.INCOME,
+		Content: map[string]interface{}{
+			"model": model,
+			"usage": map[string]interface{}{
+				"prompt_tokens":     inputTokens,
+				"completion_tokens": outputTokens,
+				"total_tokens":      totalTokens,
+				"cached_tokens":     cachedTokens,
+			},
+			"income":       (ippm*float64(inputTokens-cachedTokens) + cippm*float64(cachedTokens) + oppm*float64(outputTokens)) / 1000000,
+			"total_income": totalIncome,
+			"timestamp":    strconv.Itoa(int(time.Now().Unix())),
+		},
+	})
 }

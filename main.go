@@ -4,10 +4,16 @@
 package main
 
 import (
+	"context"
 	"log"
-	"star-fire/config"
+	"net/http"
+	"os"
+	"os/signal"
+	configs "star-fire/config"
 	"star-fire/internal/models"
 	"star-fire/routes"
+	"syscall"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -17,10 +23,23 @@ func main() {
 	r := gin.Default()
 	routes.SetupRoutes(r, server)
 
-	// starting the server
+	srv := &http.Server{
+		Addr:    configs.Config.ServerPort,
+		Handler: r,
+	}
+
+	go func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT, syscall.SIGTERM)
+		<-sigCh
+		log.Println("Shutting down server...")
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		srv.Shutdown(ctx)
+	}()
+
 	log.Println("Starting server on", configs.Config.ServerPort)
-	err := r.Run(configs.Config.ServerPort)
-	if err != nil {
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal("Error while starting server:", err)
 	}
 }
