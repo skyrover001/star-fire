@@ -12,6 +12,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 )
 
@@ -95,69 +96,119 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 
 // handle chat response
 func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string) {
-	for {
-		if server.RespClients[fingerPrint] == nil {
-			time.Sleep(1 * time.Millisecond)
-			continue
-		}
+	// channel 等待 response 连接就绪（替代自旋），最多等 CHAT_MAX_TIME
+	readyCh := server.AddRespClientChan(fingerPrint)
+	select {
+	case <-readyCh:
+	case <-time.After(public.CHAT_MAX_TIME * time.Second):
+		log.Println("Response connection timeout for fingerprint:", fingerPrint)
+		server.RemoveRespClientChan(fingerPrint)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Chat timeout"})
+		return
+	}
 
-		// save fingerprint and client relation and connect status to database
-		if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "transmitting"); err != nil {
-			log.Printf("save fingerprint and client relation failed: %v", err)
-			_ = server.RespClients[fingerPrint].Close()
-			server.RemoveRespClient(fingerPrint)
+	respConn, ok := server.GetRespClient(fingerPrint)
+	if !ok {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Response connection lost"})
+		return
+	}
+
+	// save fingerprint and client relation and connect status to database
+	if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "transmitting"); err != nil {
+		log.Printf("save fingerprint and client relation failed: %v", err)
+		respConn.Close()
+		server.RemoveRespClient(fingerPrint)
+		return
+	}
+
+	var response public.WSMessage
+	err := respConn.ReadJSON(&response)
+	if err != nil {
+		log.Println("Error while reading json from client:", err)
+		return
+	}
+
+	switch response.Type {
+	case public.MESSAGE:
+		handleStandardChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel, respConn)
+		return
+
+	case public.MESSAGE_STREAM:
+		finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel, respConn)
+		if finished {
 			return
 		}
+		// continue reading stream
+		readStreamLoop(c, server, fingerPrint, respConn, waitStart, clientID, ippm, oppm, cippm, reqModel)
+		return
 
+	case public.CLOSE:
+		log.Println("Client closed connection")
+		// 向前端发送 [DONE] 标记，确保 SSE 流正常终止
+		if c.Writer.Header().Get("Content-Type") == "text/event-stream" {
+			_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			c.Writer.Flush()
+		}
+		respConn.Close()
+		server.RemoveRespClient(fingerPrint)
+		_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+		return
+
+	case public.MODEL_ERROR:
+		log.Println("Model error:", response.Content)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Model error: " + response.Content.(string)})
+		respConn.Close()
+		server.RemoveRespClient(fingerPrint)
+		return
+
+	default:
+		log.Println("Unknown message type:", response.Type)
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unknown message type: " + response.Type})
+		respConn.Close()
+		server.RemoveRespClient(fingerPrint)
+		return
+	}
+}
+
+// readStreamLoop 持续读取 stream 消息
+func readStreamLoop(c *gin.Context, server *models.Server, fingerPrint string, respConn *websocket.Conn, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string) {
+	for {
 		var response public.WSMessage
-		err := server.RespClients[fingerPrint].ReadJSON(&response)
+		err := respConn.ReadJSON(&response)
 		if err != nil {
 			log.Println("Error while reading json from client:", err)
 			return
 		}
-
 		switch response.Type {
-		case public.MESSAGE:
-			handleStandardChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel)
-			return
-
 		case public.MESSAGE_STREAM:
-			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel)
+			finished := handleStreamChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel, respConn)
 			if finished {
 				return
 			}
-
 		case public.CLOSE:
 			log.Println("Client closed connection")
-			// 向前端发送 [DONE] 标记，确保 SSE 流正常终止
 			if c.Writer.Header().Get("Content-Type") == "text/event-stream" {
 				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
 			}
-			_ = server.RespClients[fingerPrint].Close()
+			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return
-
 		case public.MODEL_ERROR:
 			log.Println("Model error:", response.Content)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Model error: " + response.Content.(string)})
-			_ = server.RespClients[fingerPrint].Close()
+			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			return
-
 		default:
 			log.Println("Unknown message type:", response.Type)
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Unknown message type: " + response.Type})
-			_ = server.RespClients[fingerPrint].Close()
+			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 		}
-
 		if time.Since(waitStart) > public.CHAT_MAX_TIME*time.Second {
 			log.Println("Chat timeout")
-			c.JSON(http.StatusInternalServerError, gin.H{"error": "Chat timeout"})
-			_ = server.RespClients[fingerPrint].Close()
+			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 		}
@@ -165,12 +216,12 @@ func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint strin
 }
 
 // handle standard chat response
-func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm, cippm float64, reqModel string) {
+func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm, cippm float64, reqModel string, conn *websocket.Conn) {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			_ = server.RespClients[fingerPrint].Close()
+			conn.Close()
 			server.RemoveRespClient(fingerPrint)
 			return
 		}
@@ -179,7 +230,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		err = json.Unmarshal(jsonData, &chatResponse)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			_ = server.RespClients[fingerPrint].Close()
+			conn.Close()
 			server.RemoveRespClient(fingerPrint)
 			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return
@@ -198,18 +249,18 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 			chatResponse.Usage.TotalTokens, cachedTokens, clientID, ippm, oppm, cippm)
 	} else {
 		log.Println("Invalid message content format")
-		server.RespClients[fingerPrint].Close()
+		conn.Close()
 		server.RemoveRespClient(fingerPrint)
 	}
 }
 
 // handle stream chat response
-func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm, cippm float64, reqModel string) bool {
+func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint string, response public.WSMessage, clientID string, ippm, oppm, cippm float64, reqModel string, conn *websocket.Conn) bool {
 	if content, ok := response.Content.(map[string]interface{}); ok {
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			_ = server.RespClients[fingerPrint].Close()
+			conn.Close()
 			server.RemoveRespClient(fingerPrint)
 			return true
 		}
@@ -218,7 +269,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		err = json.Unmarshal(jsonData, &chatResponse)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			_ = server.RespClients[fingerPrint].Close()
+			conn.Close()
 			server.RemoveRespClient(fingerPrint)
 			return true
 		}
@@ -232,7 +283,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		_, err = c.Writer.Write([]byte("data: " + string(jsonData) + "\n\n"))
 		if err != nil {
 			log.Println("Error while writing response:", err)
-			_ = server.RespClients[fingerPrint].Close()
+			conn.Close()
 			server.RemoveRespClient(fingerPrint)
 			return true
 		}
@@ -256,7 +307,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			// 收到 usage 后发送 [DONE] 并结束
 			_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
 			c.Writer.Flush()
-			_ = server.RespClients[fingerPrint].Close()
+			conn.Close()
 			server.RemoveRespClient(fingerPrint)
 			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 			return true
@@ -287,7 +338,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 				_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
-				_ = server.RespClients[fingerPrint].Close()
+				conn.Close()
 				server.RemoveRespClient(fingerPrint)
 				_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
 				return true
@@ -299,7 +350,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		return false
 	} else {
 		log.Println("Invalid message content format")
-		_ = server.RespClients[fingerPrint].Close()
+		conn.Close()
 		server.RemoveRespClient(fingerPrint)
 		return true
 	}

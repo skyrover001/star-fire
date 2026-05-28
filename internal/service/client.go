@@ -25,6 +25,11 @@ func HandleClientConnection(client *models.Client, server *models.Server) {
 		keepAliveClient(client, server)
 	}()
 	handleClientMessages(client, server)
+
+	// 连接断开，主动清理该 client 注册的所有模型
+	for _, m := range client.Models {
+		server.RemoveClient(m.Name, client.ID)
+	}
 }
 
 func keepAliveClient(client *models.Client, server *models.Server) {

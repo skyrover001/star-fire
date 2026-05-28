@@ -11,6 +11,7 @@ import (
 	"star-fire/pkg/public"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/glebarez/sqlite"
@@ -29,14 +30,17 @@ type MailService struct {
 }
 
 type Server struct {
-	clientsMu sync.RWMutex
-	Clients   map[string]map[string]*Client
+	clientsMu sync.Mutex
+	clients   atomic.Value // stores map[string]map[string]*Client
 
 	clientRBMu            sync.RWMutex
 	clientRoundRobinIndex map[string]int // for round-robin load balancing
 
 	respClientsMu sync.RWMutex
 	RespClients   map[string]*websocket.Conn
+
+	respClientReadyChans   map[string]chan struct{}
+	respClientReadyChansMu sync.Mutex
 
 	Port               string
 	RegisterTokenStore *RegisterTokenStore
@@ -90,11 +94,15 @@ func NewServer() *Server {
 		log.Printf("init default user failed: %v", err)
 	}
 
+	clientsVal := new(atomic.Value)
+	clientsVal.Store(make(map[string]map[string]*Client))
+
 	server := &Server{
-		Clients:               make(map[string]map[string]*Client),
+		clients:               *clientsVal,
 		Port:                  configs.Config.ServerPort,
 		RespClients:           make(map[string]*websocket.Conn),
 		clientRoundRobinIndex: make(map[string]int),
+		respClientReadyChans:  make(map[string]chan struct{}),
 
 		DB:                   gormDB,
 		APIKeyDB:             apiKeyDB,
@@ -164,13 +172,9 @@ func (s *Server) LoadBalance(model, userID string) *Client {
 		maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
 	}
 
-	// Snapshot the candidate set under a short read lock.
-	s.clientsMu.RLock()
-	snapshot := make(map[string]*Client, len(s.Clients[model]))
-	for id, c := range s.Clients[model] {
-		snapshot[id] = c
-	}
-	s.clientsMu.RUnlock()
+	// Load the immutable snapshot (lock-free).
+	allClients := s.clients.Load().(map[string]map[string]*Client)
+	snapshot := allClients[model]
 
 	// Predicate phase.
 	// Health is checked first and also identifies dead clients for background cleanup.
@@ -269,36 +273,46 @@ func (s *Server) pick(model string, eligible []*Client) *Client {
 	return nil
 }
 
+func copyClientsMap(src map[string]map[string]*Client) map[string]map[string]*Client {
+	dst := make(map[string]map[string]*Client, len(src))
+	for modelName, inner := range src {
+		newInner := make(map[string]*Client, len(inner))
+		for id, c := range inner {
+			newInner[id] = c
+		}
+		dst[modelName] = newInner
+	}
+	return dst
+}
+
 func (s *Server) RegisterModel(model *public.Model, client *Client) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	if _, exists := s.Clients[model.Name]; !exists {
-		s.Clients[model.Name] = make(map[string]*Client)
+	oldMap := s.clients.Load().(map[string]map[string]*Client)
+	if inner, exists := oldMap[model.Name]; exists {
+		if _, exists := inner[client.ID]; exists {
+			log.Println("model:", model.Name, "already registered for client:", client.ID)
+			return
+		}
 	}
-	if _, exists := s.Clients[model.Name][client.ID]; !exists {
-		s.Clients[model.Name][client.ID] = client
-		log.Println("register model:", model.Name, "for client:", client.ID)
-	} else {
-		log.Println("model:", model.Name, "already registered for client:", client.ID)
+
+	newMap := copyClientsMap(oldMap)
+	if _, exists := newMap[model.Name]; !exists {
+		newMap[model.Name] = make(map[string]*Client)
 	}
+	newMap[model.Name][client.ID] = client
+	s.clients.Store(newMap)
+	log.Println("register model:", model.Name, "for client:", client.ID)
 }
 
 // for model marketplace
 func (s *Server) GetAllModels() []*MarketplaceModel {
-	s.clientsMu.RLock()
-	clientsCopy := make(map[string]map[string]*Client)
-	for modelName, clients := range s.Clients {
-		clientsCopy[modelName] = make(map[string]*Client)
-		for clientID, client := range clients {
-			clientsCopy[modelName][clientID] = client
-		}
-	}
-	s.clientsMu.RUnlock()
+	allClients := s.clients.Load().(map[string]map[string]*Client)
 
 	var marketplaceModels []*MarketplaceModel
 	var toRemove []struct{ model, client string }
-	for modelName, clientMaps := range s.Clients {
+	for modelName, clientMaps := range allClients {
 		if len(clientMaps) == 0 {
 			continue
 		}
@@ -338,19 +352,11 @@ func (s *Server) GetAllModels() []*MarketplaceModel {
 
 // for openAI api compatibility
 func (s *Server) GetModels() map[string]interface{} {
-	s.clientsMu.RLock()
-	clientsCopy := make(map[string]map[string]*Client)
-	for modelName, clients := range s.Clients {
-		clientsCopy[modelName] = make(map[string]*Client)
-		for clientID, client := range clients {
-			clientsCopy[modelName][clientID] = client
-		}
-	}
-	s.clientsMu.RUnlock()
+	allClients := s.clients.Load().(map[string]map[string]*Client)
 
 	var models []*public.Model
 	var toRemove []struct{ model, client string }
-	for modelName, clientMaps := range clientsCopy {
+	for modelName, clientMaps := range allClients {
 		for clientID, client := range clientMaps {
 			existModel := false
 			for _, m := range client.Models {
@@ -428,27 +434,58 @@ func (s *Server) RemoveRespClient(id string) {
 	delete(s.RespClients, id)
 }
 
+// AddRespClientChan 注册一个 channel 通知 handleChatResponse conn 已就绪
+func (s *Server) AddRespClientChan(fingerPrint string) chan struct{} {
+	ch := make(chan struct{})
+	s.respClientReadyChansMu.Lock()
+	s.respClientReadyChans[fingerPrint] = ch
+	s.respClientReadyChansMu.Unlock()
+	return ch
+}
+
+// RemoveRespClientChan 移除等待 channel
+func (s *Server) RemoveRespClientChan(fingerPrint string) {
+	s.respClientReadyChansMu.Lock()
+	delete(s.respClientReadyChans, fingerPrint)
+	s.respClientReadyChansMu.Unlock()
+}
+
+// NotifyRespClientReady 通知 handleChatResponse 响应连接已就绪
+func (s *Server) NotifyRespClientReady(fingerPrint string) {
+	s.respClientReadyChansMu.Lock()
+	ch, ok := s.respClientReadyChans[fingerPrint]
+	if ok {
+		close(ch)
+		delete(s.respClientReadyChans, fingerPrint)
+	}
+	s.respClientReadyChansMu.Unlock()
+}
+
 func (s *Server) RemoveClient(modelName string, clientID string) {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
-	if clients, exists := s.Clients[modelName]; exists {
-		delete(clients, clientID)
+	oldMap := s.clients.Load().(map[string]map[string]*Client)
+	inner, exists := oldMap[modelName]
+	if !exists || inner[clientID] == nil {
+		return
 	}
+
+	newMap := copyClientsMap(oldMap)
+	delete(newMap[modelName], clientID)
+	if len(newMap[modelName]) == 0 {
+		delete(newMap, modelName)
+	}
+	s.clients.Store(newMap)
 }
 
 func (s *Server) GetClientByModel(model, clientID string) *Client {
-	s.clientsMu.RLock()
-	defer s.clientsMu.RUnlock()
-	modelClients, exists := s.Clients[model]
-	if !exists {
+	allClients := s.clients.Load().(map[string]map[string]*Client)
+	modelClients := allClients[model]
+	if modelClients == nil {
 		return nil
 	}
-	client, exists := modelClients[clientID]
-	if !exists {
-		return nil
-	}
-	return client
+	return modelClients[clientID]
 }
 
 // UserModelInfo represents a model provided by the current user with its price info.
@@ -465,12 +502,11 @@ type UserModelInfo struct {
 
 // GetUserModels returns all models provided by a specific user's connected clients.
 func (s *Server) GetUserModels(userID string) []*UserModelInfo {
-	s.clientsMu.RLock()
-	defer s.clientsMu.RUnlock()
+	allClients := s.clients.Load().(map[string]map[string]*Client)
 
 	seen := make(map[string]bool) // clientID+modelName dedup
 	var result []*UserModelInfo
-	for modelName, clients := range s.Clients {
+	for modelName, clients := range allClients {
 		for _, client := range clients {
 			if client.UserID != userID {
 				continue
@@ -503,9 +539,11 @@ func (s *Server) GetUserModels(userID string) []*UserModelInfo {
 // UpdateModelPrice updates IPPM/OPPM/CIPPM for a model across all of a user's clients.
 func (s *Server) UpdateModelPrice(userID, modelName string, ippm, oppm, cippm float64) (int, error) {
 	s.clientsMu.Lock()
-	clients, exists := s.Clients[modelName]
+	defer s.clientsMu.Unlock()
+
+	oldMap := s.clients.Load().(map[string]map[string]*Client)
+	clients, exists := oldMap[modelName]
 	if !exists {
-		s.clientsMu.Unlock()
 		return 0, fmt.Errorf("model %s not found", modelName)
 	}
 
@@ -523,7 +561,6 @@ func (s *Server) UpdateModelPrice(userID, modelName string, ippm, oppm, cippm fl
 		}
 		updated = append(updated, client)
 	}
-	s.clientsMu.Unlock()
 
 	if len(updated) == 0 {
 		return 0, fmt.Errorf("no client found for model %s", modelName)
@@ -600,20 +637,12 @@ func (s *Server) LoadBalanceEmbedding(model, userID string) *Client {
 		maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
 	}
 
-	s.clientsMu.RLock()
-	clientsCopy := make(map[string]map[string]*Client)
-	for modelName, clients := range s.Clients {
-		clientsCopy[modelName] = make(map[string]*Client)
-		for clientID, client := range clients {
-			clientsCopy[modelName][clientID] = client
-		}
-	}
-	s.clientsMu.RUnlock()
+	allClients := s.clients.Load().(map[string]map[string]*Client)
 
 	// 收集所有支持指定embedding模型的在线客户端
 	var availableClients []*Client
 
-	for modelName, clients := range clientsCopy {
+	for modelName, clients := range allClients {
 		if modelName == model {
 			log.Printf("Found embedding model: %s, checking clients: %d", modelName, len(clients))
 
