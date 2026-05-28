@@ -101,7 +101,8 @@ func (h *ClientHandler) ResponseClient(c *gin.Context) {
 		log.Println("Error while upgrading to websocket:", err)
 		return
 	}
-	h.server.RespClients[fingerPrint] = conn
+	h.server.AddRespClient(fingerPrint, conn)
+	h.server.NotifyRespClientReady(fingerPrint)
 }
 
 func (h *ClientHandler) GenerateRegisterToken(c *gin.Context) {
