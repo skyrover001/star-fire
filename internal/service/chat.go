@@ -56,6 +56,20 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
+	// Balance pre-check: reject if balance insufficient (OpenAI-compatible error)
+	balance, _, _ := server.UserDB.GetBalance(userIDStr)
+	if balance <= 0 {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error": gin.H{
+				"message": "You exceeded your current quota, please check your plan and billing details. For more information on this error, see https://platform.openai.com/docs/guides/error-codes/api-errors.",
+				"type":    "insufficient_quota",
+				"param":   nil,
+				"code":    "insufficient_quota",
+			},
+		})
+		return
+	}
+
 	ippm := 9.0  // 输入tokens价格（未命中缓存部分）
 	oppm := 9.0  // 输出tokens价格
 	cippm := 0.0 // 缓存命中输入tokens价格
@@ -389,6 +403,24 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		OPPM:         oppm,
 		CIPPM:        cippm,
 		Timestamp:    time.Now(),
+	}
+
+	// Calculate cost: (non-cached input * ippm + cached input * cippm + output * oppm) / 1e6
+	cost := (float64(inputTokens-cachedTokens)*ippm + float64(cachedTokens)*cippm + float64(outputTokens)*oppm) / 1000000
+	if cost < 0 {
+		cost = 0
+	}
+	usage.Cost = cost
+
+	// Check and deduct balance before saving usage
+	userIDStr := userID.(string)
+	if err := server.UserDB.DeductBalance(userIDStr, cost); err != nil {
+		log.Printf("余额扣费失败: user=%s, cost=%.6f, error=%v", userIDStr, cost, err)
+		// Return OpenAI-compatible insufficient balance error
+		// We can't set HTTP status here since this is called after streaming starts,
+		// so we log and continue. The balance check should happen before sending to client.
+		// For non-stream requests we return error; for stream it's best-effort.
+		return
 	}
 
 	err := server.TokenUsageDB.SaveTokenUsage(usage)

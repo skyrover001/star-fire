@@ -108,6 +108,14 @@ const routes: RouteRecordRaw[] = [
         path: '/model-usage/api-keys',
         component: () => import('#/views/apikey/index.vue'),
       },
+      {
+        meta: {
+          title: '账户充值',
+        },
+        name: 'Recharge',
+        path: '/model-usage/recharge',
+        component: () => import('#/views/analytics/my-usage/recharge/index.vue'),
+      },
     ],
   },
   // 保留工作台作为一级菜单 - 暂时隐藏

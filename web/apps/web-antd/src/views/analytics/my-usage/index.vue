@@ -2,6 +2,8 @@
 import type { TabOption } from '@vben/types';
 import { ref, onMounted, computed, provide } from 'vue';
 import { requestClient } from '#/api/request';
+import { getBalanceApi } from '#/api/core/balance';
+import type { BalanceInfo } from '#/api/core/balance';
 
 import {
   AnalysisChartCard,
@@ -42,6 +44,8 @@ interface TokenUsageRecord {
 
 const loading = ref(false);
 const usageRecords = ref<TokenUsageRecord[]>([]);
+const balanceInfo = ref<BalanceInfo>({ balance: 0, total_spent: 0 });
+const balanceLoading = ref(false);
 
 provide('usageRecords', usageRecords);
 provide('usageLoading', loading);
@@ -144,8 +148,22 @@ const fetchUsageData = async () => {
   }
 };
 
+// 获取余额
+const fetchBalance = async () => {
+  balanceLoading.value = true;
+  try {
+    const info = await getBalanceApi();
+    balanceInfo.value = info;
+  } catch {
+    // ignore
+  } finally {
+    balanceLoading.value = false;
+  }
+};
+
 onMounted(() => {
   fetchUsageData();
+  fetchBalance();
 });
 </script>
 
@@ -153,7 +171,48 @@ onMounted(() => {
   <div class="p-5">
     
     <!-- Token使用统计卡片 -->
-    <div class="mt-5 grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-6">
+    <div class="mt-5 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      <!-- 账户余额卡片 -->
+      <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <div class="flex items-center justify-center h-12 w-12 rounded-lg bg-green-100 dark:bg-green-900/20">
+              <svg class="h-6 w-6 text-green-600 dark:text-green-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+          </div>
+          <div class="ml-4">
+            <p class="text-sm font-medium text-[var(--text-secondary)]">账户余额</p>
+            <p class="text-2xl font-semibold text-green-600">
+              <span v-if="balanceLoading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-24"></span>
+              <span v-else>¥{{ balanceInfo.balance?.toFixed(4) || '0.0000' }}</span>
+            </p>
+            <p class="text-xs text-[var(--text-tertiary)] mt-1">可用余额</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- 累计消费卡片 -->
+      <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
+        <div class="flex items-center">
+          <div class="flex-shrink-0">
+            <div class="flex items-center justify-center h-12 w-12 rounded-lg bg-blue-100 dark:bg-blue-900/20">
+              <svg class="h-6 w-6 text-blue-600 dark:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+            </div>
+          </div>
+          <div class="ml-4">
+            <p class="text-sm font-medium text-[var(--text-secondary)]">累计消费</p>
+            <p class="text-2xl font-semibold text-[var(--text-primary)]">
+              <span v-if="balanceLoading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-24"></span>
+              <span v-else>¥{{ balanceInfo.total_spent?.toFixed(4) || '0.0000' }}</span>
+            </p>
+            <p class="text-xs text-[var(--text-tertiary)] mt-1">历史消费总额</p>
+          </div>
+        </div>
+      </div>
       <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
         <div class="flex items-center">
           <div class="flex-shrink-0">

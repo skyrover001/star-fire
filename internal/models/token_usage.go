@@ -23,7 +23,8 @@ type TokenUsage struct {
 	CachedTokens int       `gorm:"not null;default:0"` // 缓存命中的输入tokens数
 	TotalTokens  int       `gorm:"not null"`
 	RequestType  string    `gorm:"not null;default:'chat'"` // 请求类型: chat, embedding
-	Revenue      float64   `gorm:"not null;default:0"`      // 收益
+	Revenue      float64   `gorm:"not null;default:0"`      // 收益（client端收入）
+	Cost         float64   `gorm:"not null;default:0"`      // 费用（user端支出）
 	Fingerprint  string    `gorm:"index"`                   // 请求指纹
 	Timestamp    time.Time `gorm:"index;not null"`
 	CreatedAt    time.Time `gorm:"autoCreateTime"`

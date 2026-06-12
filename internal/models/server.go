@@ -1,6 +1,7 @@
 package models
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"math"
@@ -52,6 +53,7 @@ type Server struct {
 	ClientDB            *ClientDB
 	ClientFingerprintDB *ClientFingerprintDB
 	TrendDB             *TrendDB
+	RechargeDB          *RechargeDB
 	UserPriceCapDB      *UserPriceCapDB
 
 	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
@@ -75,8 +77,23 @@ func NewServer() *Server {
 	}
 	sqlDB, err := gormDB.DB()
 	if err == nil {
+		// Enable WAL mode for better concurrent read/write performance.
+		// WAL allows readers and writers to coexist without blocking each other.
+		pragmas := []string{
+			"PRAGMA journal_mode=WAL",
+			"PRAGMA busy_timeout=5000",
+			"PRAGMA synchronous=NORMAL",
+			"PRAGMA cache_size=-20000",
+			"PRAGMA foreign_keys=ON",
+		}
+		for _, p := range pragmas {
+			if err := gormDB.Exec(p).Error; err != nil {
+				log.Printf("WARNING: failed to set %s: %v", p, err)
+			}
+		}
+
 		sqlDB.SetMaxIdleConns(10)
-		sqlDB.SetMaxOpenConns(100)
+		sqlDB.SetMaxOpenConns(1) // SQLite only supports one writer at a time; WAL makes this safe
 		sqlDB.SetConnMaxLifetime(time.Hour)
 	}
 
@@ -87,6 +104,7 @@ func NewServer() *Server {
 	clientFingerprintDB := NewClientFingerprintDB(gormDB)
 	trendDB := NewTrendDB(gormDB)
 	userPriceCapDB := NewUserPriceCapDB(gormDB)
+	rechargeDB := NewRechargeDB(gormDB)
 
 	// 初始化默认用户
 	err = userDB.InitDefaultUsers()
@@ -113,6 +131,7 @@ func NewServer() *Server {
 		ClientFingerprintDB:  clientFingerprintDB,
 		TrendDB:              trendDB,
 		UserPriceCapDB:       userPriceCapDB,
+		RechargeDB:           rechargeDB,
 		LoadBalanceAlgorithm: configs.Config.LBA, // default load balancing algorithm
 		MailService: &MailService{
 			SMTPServer:   configs.Config.EmailHost,
@@ -605,7 +624,11 @@ func (s *Server) GetTrendsWithPagination(startDate, endDate string, page, size i
 		size = 10
 	}
 
-	trends, total, err := s.TrendDB.GetTrendsByTimeRangeWithPagination(startDate, endDate, page, size)
+	// add timeout context to prevent long-running queries from locking the db
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	trends, total, err := s.TrendDB.GetTrendsByTimeRangeWithPaginationCtx(ctx, startDate, endDate, page, size)
 	if err != nil {
 		log.Printf("get trends with pagination failed: %v", err)
 		return &TrendsResponse{

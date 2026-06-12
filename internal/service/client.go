@@ -82,6 +82,7 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				return
 			} else {
 				client.Models = pong.AvailableModels
+				var trends []*models.Trend
 				for _, m := range client.Models {
 					if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
 						log.Println("OPPM price is too high, set starfire platform default value!")
@@ -94,7 +95,7 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 					server.RegisterModel(m, client)
 					fmt.Println("Client available model:", m.Name, m)
 					// add trend for client keep alive
-					trend := models.Trend{
+					trends = append(trends, &models.Trend{
 						Name:        fmt.Sprintf("%s_%s", client.User.Username, "keep alive model: "+m.Name),
 						Description: "用户 " + client.User.Username + " 保持模型: " + m.Name + " 在线",
 						CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
@@ -102,12 +103,13 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 						DeletedAt:   "",
 						Active:      true,
 						User:        client.User,
-					}
-					if err := server.TrendDB.SaveTrend(&trend); err != nil {
-						log.Println("Error saving trend:", err)
-					} else {
-						log.Println("Trend saved successfully:", trend.Name)
-					}
+					})
+				}
+				// batch save all trends in a single transaction
+				if err := server.TrendDB.SaveTrends(trends); err != nil {
+					log.Println("Error saving trends:", err)
+				} else {
+					log.Printf("Trends saved successfully: %d records", len(trends))
 				}
 				client.Status = "online"
 			}
@@ -201,6 +203,7 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 		client.Status = "online"
 		client.RegisterTime = time.Now()
 
+		var trends []*models.Trend
 		for _, m := range client.Models {
 			fmt.Println("Registering model:", m.Name, "Type:", m.Type, "IPPM:", m.IPPM, "OPPM:", m.OPPM, server.Conf.AllModelOutPutMaxPrice, server.Conf.AllModelInputMaxPrice)
 			if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
@@ -231,7 +234,7 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 				description = fmt.Sprintf("用户 %s 贡献了模型: %s", client.User.Username, m.Name)
 			}
 
-			trend := models.Trend{
+			trends = append(trends, &models.Trend{
 				Name:        fmt.Sprintf("%s_%s", client.User.Username, "register model: "+m.Name),
 				Description: description,
 				CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
@@ -240,12 +243,13 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 				Active:      true,
 				User:        client.User,
 				Client:      client,
-			}
-			if err := server.TrendDB.SaveTrend(&trend); err != nil {
-				log.Println("Error saving trend:", err)
-			} else {
-				log.Println("Trend saved successfully:", trend.Name)
-			}
+			})
+		}
+		// batch save all registration trends in a single transaction
+		if err := server.TrendDB.SaveTrends(trends); err != nil {
+			log.Println("Error saving trends:", err)
+		} else {
+			log.Printf("Trends saved successfully: %d records", len(trends))
 		}
 	}
 }
