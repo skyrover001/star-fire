@@ -10,13 +10,15 @@ import (
 )
 
 type User struct {
-	ID        string    `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username  string    `gorm:"uniqueIndex;not null" json:"username"`
-	Password  string    `gorm:"not null" json:"-"`
-	Email     string    `gorm:"index" json:"email"`
-	Role      string    `gorm:"default:user;not null" json:"role"`
-	CreatedAt time.Time `gorm:"not null" json:"created_at"`
-	UpdatedAt time.Time `gorm:"not null" json:"updated_at"`
+	ID         string    `gorm:"primaryKey;autoIncrement" json:"id"`
+	Username   string    `gorm:"uniqueIndex;not null" json:"username"`
+	Password   string    `gorm:"not null" json:"-"`
+	Email      string    `gorm:"index" json:"email"`
+	Role       string    `gorm:"default:user;not null" json:"role"`
+	Balance    float64   `gorm:"default:0;not null" json:"balance"`     // 账户余额（元）
+	TotalSpent float64   `gorm:"default:0;not null" json:"total_spent"` // 累计消费（元）
+	CreatedAt  time.Time `gorm:"not null" json:"created_at"`
+	UpdatedAt  time.Time `gorm:"not null" json:"updated_at"`
 }
 
 // UserDB
@@ -188,4 +190,35 @@ func (udb *UserDB) GetMaxUserID() (int, error) {
 		return 0, nil // No users found
 	}
 	return maxID, nil
+}
+
+// DeductBalance deducts amount from user balance. Allows balance going negative as long as it was > 0 before deduction.
+func (udb *UserDB) DeductBalance(userID string, amount float64) error {
+	var user User
+	if err := udb.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return err
+	}
+	if user.Balance <= 0 {
+		return errors.New("insufficient balance")
+	}
+	return udb.db.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"balance":     user.Balance - amount,
+		"total_spent": user.TotalSpent + amount,
+	}).Error
+}
+
+// AddBalance adds amount to user balance
+func (udb *UserDB) AddBalance(userID string, amount float64) error {
+	return udb.db.Model(&User{}).Where("id = ?", userID).
+		Update("balance", gorm.Expr("balance + ?", amount)).Error
+}
+
+// GetBalance returns user's balance and total spent
+func (udb *UserDB) GetBalance(userID string) (balance float64, totalSpent float64, err error) {
+	var user User
+	result := udb.db.Where("id = ?", userID).First(&user)
+	if result.Error != nil {
+		return 0, 0, result.Error
+	}
+	return user.Balance, user.TotalSpent, nil
 }

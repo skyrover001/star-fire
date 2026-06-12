@@ -41,6 +41,20 @@ func HandleEmbeddingRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
+	// Balance pre-check: reject if balance insufficient (OpenAI-compatible error)
+	balance, _, _ := server.UserDB.GetBalance(userIDStr)
+	if balance <= 0 {
+		c.JSON(http.StatusPaymentRequired, gin.H{
+			"error": gin.H{
+				"message": "You exceeded your current quota, please check your plan and billing details. For more information on this error, see https://platform.openai.com/docs/guides/error-codes/api-errors.",
+				"type":    "insufficient_quota",
+				"param":   nil,
+				"code":    "insufficient_quota",
+			},
+		})
+		return
+	}
+
 	// 获取embedding模型的定价 (只有输入tokens，没有输出tokens)
 	ippm := 0.1 // 默认embedding输入tokens价格
 	for _, m := range client.Models {
@@ -149,9 +163,21 @@ func handleStandardEmbeddingResponse(c *gin.Context, server *models.Server, fing
 	requestID := fmt.Sprintf("emb_%s_%d", fingerPrint, time.Now().Unix())
 
 	// 记录token使用情况
+	cost := float64(inputTokens) * ippm / 1000000 // embedding只有输入tokens
+	if cost < 0 {
+		cost = 0
+	}
+
+	// Deduct balance
+	userIDStr := userID.(string)
+	if err := server.UserDB.DeductBalance(userIDStr, cost); err != nil {
+		log.Printf("余额扣费失败(embedding): user=%s, cost=%.6f, error=%v", userIDStr, cost, err)
+		// Continue recording usage even if deduction fails
+	}
+
 	tokenUsage := models.TokenUsage{
 		RequestID:    requestID,
-		UserID:       userID.(string),
+		UserID:       userIDStr,
 		APIKey:       apiKey.(string),
 		ClientID:     clientID,
 		ClientIP:     c.ClientIP(),
@@ -163,6 +189,7 @@ func handleStandardEmbeddingResponse(c *gin.Context, server *models.Server, fing
 		TotalTokens:  inputTokens,
 		RequestType:  "embedding",
 		Revenue:      revenue,
+		Cost:         cost,
 		Fingerprint:  fingerPrint,
 		Timestamp:    time.Now(),
 		CreatedAt:    time.Now(),

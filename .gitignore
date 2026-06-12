@@ -68,4 +68,6 @@ coverage.html
 
 # 数据库文件
 *.db
+*.db-wal
+*.db-shm
 *.sqlite

@@ -1,8 +1,10 @@
 package models
 
 import (
-	"gorm.io/gorm"
+	"context"
 	"log"
+
+	"gorm.io/gorm"
 )
 
 // Trend represents a trend in the marketplace in sqlite
@@ -10,7 +12,7 @@ type Trend struct {
 	ID          int64   `json:"id" gorm:"primaryKey;autoIncrement"`
 	Name        string  `json:"name" gorm:"not null;Index"`
 	Description string  `json:"description" gorm:"not null"`
-	CreatedAt   string  `json:"created_at" gorm:"not null"`
+	CreatedAt   string  `json:"created_at" gorm:"not null;index"`
 	UpdatedAt   string  `json:"updated_at" gorm:"not null"`
 	DeletedAt   string  `json:"deleted_at" gorm:"default:0"` // Use 0 for not deleted
 	Active      bool    `json:"active" gorm:"default:true;not null"`
@@ -32,6 +34,14 @@ func NewTrendDB(db *gorm.DB) *TrendDB {
 // SaveTrend saves a new trend to the database.
 func (t *TrendDB) SaveTrend(trend *Trend) error {
 	return t.db.Create(trend).Error
+}
+
+// SaveTrends batch-saves multiple trends in a single transaction.
+func (t *TrendDB) SaveTrends(trends []*Trend) error {
+	if len(trends) == 0 {
+		return nil
+	}
+	return t.db.CreateInBatches(trends, 100).Error
 }
 
 // GetTrendByID retrieves a trend by its ID.
@@ -77,6 +87,36 @@ func (t *TrendDB) GetTrendsByTimeRangeWithPagination(start, end string, page, si
 
 	// 构建基础查询
 	query := t.db.Model(&Trend{})
+	if start != "" && end != "" {
+		query = query.Where("created_at >= ? AND created_at <= ?", start, end)
+	}
+
+	// 获取总数
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	// 计算偏移量
+	offset := (page - 1) * size
+
+	// 获取分页数据
+	result := query.Order("created_at DESC").Offset(offset).Limit(size).Find(&trends)
+	if result.Error != nil {
+		return nil, 0, result.Error
+	}
+
+	return trends, total, nil
+}
+
+// GetTrendsByTimeRangeWithPaginationCtx is the context-aware variant that supports query timeout.
+func (t *TrendDB) GetTrendsByTimeRangeWithPaginationCtx(ctx context.Context, start, end string, page, size int) ([]*Trend, int64, error) {
+	var trends []*Trend
+	var total int64
+
+	log.Println("GetTrendsByTimeRangeWithPagination", start, end, "page:", page, "size:", size)
+
+	// 构建基础查询（带上 context 以实现超时控制）
+	query := t.db.WithContext(ctx).Model(&Trend{})
 	if start != "" && end != "" {
 		query = query.Where("created_at >= ? AND created_at <= ?", start, end)
 	}
