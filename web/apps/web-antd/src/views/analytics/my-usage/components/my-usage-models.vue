@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { ref, computed, inject } from 'vue';
-import type { Ref } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { requestClient } from '#/api/request';
 
 interface TokenUsageRecord {
   ID: number;
@@ -20,6 +20,18 @@ interface TokenUsageRecord {
   Timestamp: string;
 }
 
+interface ModelUsageStat {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+  calls: number;
+  client_count: number;
+  last_used: string;
+}
+
 interface ModelUsageSummary {
   model: string;
   totalCalls: number;
@@ -32,108 +44,107 @@ interface ModelUsageSummary {
   cachedInputCost: number;
   outputCost: number;
   lastUsed: string;
+  clientCount: number;
 }
 
-const usageRecords = inject<Ref<TokenUsageRecord[]>>(
-  'usageRecords',
-  ref<TokenUsageRecord[]>([]),
-);
-const loading = inject<Ref<boolean>>('usageLoading', ref(false));
+const loading = ref(false);
+const modelStatsData = ref<ModelUsageStat[]>([]);
 
 // 当前展开详情的模型
 const expandedModel = ref<string | null>(null);
 
-// 详情分页
+// 详情分页（服务端分页）
 const detailPage = ref(1);
 const detailPageSize = 15;
+const detailRecords = ref<TokenUsageRecord[]>([]);
+const detailTotal = ref(0);
+const detailLoading = ref(false);
 
-// 费用计算
-const calcRecordCost = (r: TokenUsageRecord) => {
-  const cached = r.CachedTokens || 0;
-  const uncachedInput = ((r.InputTokens - cached) * (r.IPPM || 0)) / 1000000;
-  const cachedInput = (cached * (r.CIPPM || 0)) / 1000000;
-  const output = (r.OutputTokens * (r.OPPM || 0)) / 1000000;
-  return { uncachedInput, cachedInput, output, total: uncachedInput + cachedInput + output };
-};
-
-// 模型汇总
+// 模型汇总（来自后端 /usage/models 接口）
 const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
-  const stats: Record<string, {
-    calls: number;
-    totalTokens: number;
-    inputTokens: number;
-    outputTokens: number;
-    cachedTokens: number;
-    uncachedInputCost: number;
-    cachedInputCost: number;
-    outputCost: number;
-    totalCost: number;
-    lastTs: number;
-  }> = {};
-
-  usageRecords.value.forEach(record => {
-    const model = record.Model;
-    if (!stats[model]) {
-      stats[model] = {
-        calls: 0, totalTokens: 0, inputTokens: 0, outputTokens: 0, cachedTokens: 0,
-        uncachedInputCost: 0, cachedInputCost: 0, outputCost: 0, totalCost: 0, lastTs: 0,
-      };
-    }
-    const s = stats[model]!;
-    s.calls += 1;
-    s.totalTokens += record.TotalTokens;
-    s.inputTokens += record.InputTokens;
-    s.outputTokens += record.OutputTokens;
-    s.cachedTokens += record.CachedTokens || 0;
-
-    const cost = calcRecordCost(record);
-    s.uncachedInputCost += cost.uncachedInput;
-    s.cachedInputCost += cost.cachedInput;
-    s.outputCost += cost.output;
-    s.totalCost += cost.total;
-
-    const ts = new Date(record.Timestamp).getTime();
-    if (ts > s.lastTs) s.lastTs = ts;
-  });
-
-  return Object.entries(stats).map(([model, s]) => ({
-    model,
-    totalCalls: s.calls,
-    totalTokens: s.totalTokens,
-    inputTokens: s.inputTokens,
-    outputTokens: s.outputTokens,
-    cachedTokens: s.cachedTokens,
-    totalCost: s.totalCost,
-    uncachedInputCost: s.uncachedInputCost,
-    cachedInputCost: s.cachedInputCost,
-    outputCost: s.outputCost,
-    lastUsed: s.lastTs > 0 ? new Date(s.lastTs).toLocaleString('zh-CN') : 'N/A',
-  })).sort((a, b) => b.totalCost - a.totalCost);
+  return modelStatsData.value.map(stat => ({
+    model: stat.model,
+    totalCalls: stat.calls,
+    totalTokens: stat.total_tokens,
+    inputTokens: stat.input_tokens,
+    outputTokens: stat.output_tokens,
+    cachedTokens: stat.cached_tokens,
+    totalCost: stat.total_cost,
+    uncachedInputCost: 0, // 后端聚合不再细分，如需可后端补字段
+    cachedInputCost: 0,
+    outputCost: 0,
+    lastUsed: stat.last_used ? new Date(stat.last_used).toLocaleString('zh-CN') : 'N/A',
+    clientCount: stat.client_count,
+  }));
 });
 
-// 展开模型的详情记录
-const expandedRecords = computed(() => {
-  if (!expandedModel.value) return [];
-  return usageRecords.value
-    .filter(r => r.Model === expandedModel.value)
-    .sort((a, b) => new Date(b.Timestamp).getTime() - new Date(a.Timestamp).getTime());
-});
+// 展开模型的详情记录（服务端分页，直接展示已加载数据）
+const expandedRecords = computed(() => detailRecords.value);
 
-const paginatedDetailRecords = computed(() => {
-  const start = (detailPage.value - 1) * detailPageSize;
-  return expandedRecords.value.slice(start, start + detailPageSize);
-});
+const paginatedDetailRecords = computed(() => detailRecords.value);
 
 const detailTotalPages = computed(() => {
-  return Math.max(1, Math.ceil(expandedRecords.value.length / detailPageSize));
+  return Math.max(1, Math.ceil(detailTotal.value / detailPageSize));
 });
+
+// 获取模型汇总（onMounted 时加载）
+const fetchModelStats = async () => {
+  try {
+    loading.value = true;
+    const response = await requestClient.get('/user/usage/models');
+    if (response && Array.isArray(response.data)) {
+      modelStatsData.value = response.data;
+    } else {
+      modelStatsData.value = [];
+    }
+  } catch (error) {
+    console.error('获取模型使用统计失败:', error);
+    modelStatsData.value = [];
+  } finally {
+    loading.value = false;
+  }
+};
+
+// 获取展开模型的详情（服务端分页懒加载）
+const fetchModelDetail = async (model: string, page: number = 1) => {
+  try {
+    detailLoading.value = true;
+    const response = await requestClient.get(`/user/usage/models/${encodeURIComponent(model)}`, {
+      params: { page, size: detailPageSize },
+    });
+    if (response && Array.isArray(response.data)) {
+      detailRecords.value = response.data;
+      detailTotal.value = response.total || response.data.length;
+      detailPage.value = page;
+    } else {
+      detailRecords.value = [];
+      detailTotal.value = 0;
+    }
+  } catch (error) {
+    console.error('获取模型详情失败:', error);
+    detailRecords.value = [];
+    detailTotal.value = 0;
+  } finally {
+    detailLoading.value = false;
+  }
+};
 
 const toggleDetail = (model: string) => {
   if (expandedModel.value === model) {
     expandedModel.value = null;
+    detailRecords.value = [];
+    detailTotal.value = 0;
   } else {
     expandedModel.value = model;
     detailPage.value = 1;
+    fetchModelDetail(model, 1);
+  }
+};
+
+// 详情翻页
+const goToDetailPage = (page: number) => {
+  if (expandedModel.value && page >= 1 && page <= detailTotalPages.value) {
+    fetchModelDetail(expandedModel.value, page);
   }
 };
 
@@ -148,6 +159,10 @@ const formatTime = (timestamp: string) => {
     month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit',
   });
 };
+
+onMounted(() => {
+  fetchModelStats();
+});
 </script>
 
 <template>
@@ -333,19 +348,19 @@ const formatTime = (timestamp: string) => {
         <!-- 分页 -->
         <div v-if="detailTotalPages > 1" class="px-4 py-2 border-t border-blue-500/20 flex items-center justify-between">
           <span class="text-xs text-[var(--text-secondary)]">
-            第 {{ (detailPage - 1) * detailPageSize + 1 }}-{{ Math.min(detailPage * detailPageSize, expandedRecords.length) }} 条，共 {{ expandedRecords.length }} 条
+            第 {{ (detailPage - 1) * detailPageSize + 1 }}-{{ Math.min(detailPage * detailPageSize, detailTotal) }} 条，共 {{ detailTotal }} 条
           </span>
           <div class="flex items-center gap-2">
             <button
-              :disabled="detailPage <= 1"
+              :disabled="detailPage <= 1 || detailLoading"
               class="px-2 py-1 text-xs border border-[var(--border-color)] rounded hover:bg-[var(--bg-color-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
-              @click="detailPage--"
+              @click="goToDetailPage(detailPage - 1)"
             >上一页</button>
             <span class="text-xs text-[var(--text-secondary)]">{{ detailPage }} / {{ detailTotalPages }}</span>
             <button
-              :disabled="detailPage >= detailTotalPages"
+              :disabled="detailPage >= detailTotalPages || detailLoading"
               class="px-2 py-1 text-xs border border-[var(--border-color)] rounded hover:bg-[var(--bg-color-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
-              @click="detailPage++"
+              @click="goToDetailPage(detailPage + 1)"
             >下一页</button>
           </div>
         </div>

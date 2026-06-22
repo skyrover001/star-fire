@@ -60,7 +60,15 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		userAPI.DELETE("/keys/:id", apiKeyHandler.DeleteAPIKey)
 
 		userAPI.GET("/token-usage", tokenUsageHandler.GetUserTokenUsage)
+		userAPI.GET("/usage/total", tokenUsageHandler.GetUserUsageTotal)
+		userAPI.GET("/usage/stats", tokenUsageHandler.GetUserUsageStats)
+		userAPI.GET("/usage/trend", tokenUsageHandler.GetUserUsageTrend)
+		userAPI.GET("/usage/models", tokenUsageHandler.GetUserUsageModels)
+		userAPI.GET("/usage/models/:model", tokenUsageHandler.GetUserUsageModelDetail)
 		userAPI.GET("/income", tokenUsageHandler.GetUserIncome)
+		userAPI.GET("/income/total", tokenUsageHandler.GetUserIncomeTotal)
+		userAPI.GET("/income/trend", tokenUsageHandler.GetUserIncomeTrend)
+		userAPI.GET("/income/models", tokenUsageHandler.GetUserIncomeModels)
 
 		// Balance and recharge
 		userAPI.GET("/balance", balanceHandler.GetBalance)

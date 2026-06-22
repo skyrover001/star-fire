@@ -167,7 +167,8 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, reactive, onMounted, nextTick, onUnmounted } from 'vue';
+import { ref, reactive, onMounted, nextTick, onUnmounted, watch, inject } from 'vue';
+import type { Ref } from 'vue';
 import { message } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
 import {
@@ -191,6 +192,40 @@ interface TokenUsageRecord {
   TotalTokens: number;
   Timestamp: string;
 }
+
+interface UsageStats {
+  total_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+  client_count: number;
+  model_count: number;
+}
+
+interface ModelUsageStat {
+  model: string;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+  calls: number;
+  client_count: number;
+  last_used: string;
+}
+
+// 从父组件注入聚合统计数据（替代全量 usageRecords）
+const usageTotalStats = inject<Ref<UsageStats>>('usageTotalStats', ref<UsageStats>({
+  total_calls: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0,
+  total_tokens: 0, total_cost: 0, client_count: 0, model_count: 0,
+}));
+const usageStats = inject<Ref<UsageStats>>('usageStats', ref<UsageStats>({
+  total_calls: 0, input_tokens: 0, output_tokens: 0, cached_tokens: 0,
+  total_tokens: 0, total_cost: 0, client_count: 0, model_count: 0,
+}));
+const usageLoading = inject<Ref<boolean>>('usageLoading', ref(false));
 
 
 
@@ -275,43 +310,6 @@ const formatDateTime = (dateTimeStr: string): string => {
 
 
 
-// 兼容不同数据结构的工具函数
-const normalizeTokenUsageResponse = (payload: unknown): TokenUsageRecord[] => {
-  if (!payload) {
-    return [];
-  }
-
-  if (Array.isArray(payload)) {
-    return payload as TokenUsageRecord[];
-  }
-
-  if (typeof payload === 'object') {
-    const body = payload as Record<string, unknown>;
-
-    if (Array.isArray(body.data)) {
-      return body.data as TokenUsageRecord[];
-    }
-
-    if (
-      body.data &&
-      typeof body.data === 'object' &&
-      Array.isArray((body.data as Record<string, unknown>).data)
-    ) {
-      return (body.data as Record<string, unknown>).data as TokenUsageRecord[];
-    }
-
-    if (Array.isArray(body.records)) {
-      return body.records as TokenUsageRecord[];
-    }
-
-    if (Array.isArray(body.items)) {
-      return body.items as TokenUsageRecord[];
-    }
-  }
-
-  return [];
-};
-
 const resetTokenUsageStats = () => {
   Object.assign(tokenUsage, {
     todayUsage: 0,
@@ -322,154 +320,61 @@ const resetTokenUsageStats = () => {
   modelStats.value = [];
 };
 
-// 获取 Token 使用情况
-const fetchTokenUsage = async () => {
-  loading.value = true;
-  try {
-    const response = await requestClient.get('/user/token-usage');
-    console.log('Token使用情况API响应:', response);
+// 从注入的聚合数据计算统计（替代原 fetchTokenUsage 拉全量记录）
+const calculateStatisticsFromStats = () => {
+  const total = usageTotalStats.value.total_tokens;
+  const monthly = usageStats.value.total_tokens; // 30天窗口近似月度
+  const today = 0; // 今日数据需按天接口，暂用 0
+  const daysInMonth = 30;
+  const averageDailyUsage = Math.round(monthly / daysInMonth);
 
-    const records = normalizeTokenUsageResponse(response);
-
-    if (records.length === 0) {
-      console.warn('Token使用数据为空');
-      resetTokenUsageStats();
-      message.info('您还没开始使用Token，请先进行调用');
-      return;
-    }
-
-    console.log('处理的Token记录数量:', records.length);
-
-    calculateStatistics(records);
-    processModelStats(records);
-  } catch (error) {
-    console.error('获取Token使用情况失败:', error);
-    message.error('获取Token使用情况失败，请稍后重试');
-    resetTokenUsageStats();
-  } finally {
-    loading.value = false;
-  }
-};
-
-// 计算统计数据
-const calculateStatistics = (records: TokenUsageRecord[]) => {
-  const today = new Date();
-  const todayStr = today.toISOString().split('T')[0];
-  const thisMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-  
-  let todayUsage = 0;
-  let monthlyUsage = 0;
-  let totalUsage = 0;
-  
-  records.forEach(record => {
-    const recordDate = new Date(record.Timestamp);
-    const recordDateStr = recordDate.toISOString().split('T')[0];
-    
-    totalUsage += record.TotalTokens;
-    
-    if (recordDateStr === todayStr) {
-      todayUsage += record.TotalTokens;
-    }
-    
-    if (recordDate >= thisMonth) {
-      monthlyUsage += record.TotalTokens;
-    }
-  });
-  
-  // 计算日均使用量（基于本月数据）
-  const daysInMonth = Math.max(1, Math.ceil((today.getTime() - thisMonth.getTime()) / (1000 * 60 * 60 * 24)));
-  const averageDailyUsage = Math.round(monthlyUsage / daysInMonth);
-  
   Object.assign(tokenUsage, {
-    todayUsage,
-    monthlyUsage,
-    totalUsage,
+    todayUsage: today,
+    monthlyUsage: monthly,
+    totalUsage: total,
     averageDailyUsage,
   });
 };
 
-// 处理模型统计数据
-const processModelStats = (records: TokenUsageRecord[]) => {
-  console.log('开始处理模型统计数据，记录数量:', records.length);
-  console.log('当前选择的时间周期:', selectedPeriod.value);
-  
-  // 根据选择的时间周期过滤数据
-  const now = new Date();
-  let daysToFilter = 30; // 默认30天
-  
-  switch (selectedPeriod.value) {
-    case '7d':
-      daysToFilter = 7;
-      break;
-    case '30d':
-      daysToFilter = 30;
-      break;
-    case '90d':
-      daysToFilter = 90;
-      break;
-  }
-  
-  const startDate = new Date(now.getTime() - daysToFilter * 24 * 60 * 60 * 1000);
-  console.log('过滤起始日期:', startDate.toISOString());
-  
-  // 过滤指定时间范围内的记录
-  const filteredRecords = records.filter(record => {
-    const recordDate = new Date(record.Timestamp);
-    return recordDate >= startDate;
-  });
-  
-  console.log('过滤后的记录数量:', filteredRecords.length);
-  
-  // 按模型分组统计
-  const modelData: { [key: string]: {
-    model: string;
-    requestCount: number;
-    inputTokens: number;
-    outputTokens: number;
-    totalTokens: number;
-  } } = {};
-  
-  filteredRecords.forEach(record => {
-    const model = record.Model;
-    
-    if (!modelData[model]) {
-      modelData[model] = {
-        model,
-        requestCount: 0,
-        inputTokens: 0,
-        outputTokens: 0,
-        totalTokens: 0,
-      };
+// 获取模型统计（调 /usage/models 接口，替代客户端聚合）
+const fetchModelStats = async () => {
+  try {
+    const response = await requestClient.get('/user/usage/models');
+    if (response && Array.isArray(response.data)) {
+      const stats = response.data as ModelUsageStat[];
+      const totalTokensAll = stats.reduce((sum, item) => sum + item.total_tokens, 0);
+      modelStats.value = stats.map(item => ({
+        model: item.model,
+        requestCount: item.calls,
+        inputTokens: item.input_tokens,
+        outputTokens: item.output_tokens,
+        totalTokens: item.total_tokens,
+        percentage: totalTokensAll > 0 ? (item.total_tokens / totalTokensAll) * 100 : 0,
+      })).sort((a, b) => b.totalTokens - a.totalTokens);
+    } else {
+      modelStats.value = [];
     }
-    
-    modelData[model].requestCount += 1;
-    modelData[model].inputTokens += record.InputTokens;
-    modelData[model].outputTokens += record.OutputTokens;
-    modelData[model].totalTokens += record.TotalTokens;
-  });
-  
-  // 计算总Token数用于计算百分比
-  const totalTokensAll = Object.values(modelData).reduce((sum, item) => sum + item.totalTokens, 0);
-  
-  // 转换为数组并添加百分比，按总Token降序排序
-  const statsWithPercentage = Object.values(modelData).map(item => ({
-    ...item,
-    percentage: totalTokensAll > 0 ? (item.totalTokens / totalTokensAll) * 100 : 0,
-  })).sort((a, b) => b.totalTokens - a.totalTokens);
-  
-  console.log('模型统计数据:', statsWithPercentage);
-  
-  modelStats.value = statsWithPercentage;
+  } catch (error) {
+    console.error('获取模型统计失败:', error);
+    modelStats.value = [];
+  }
 };
+
+// 监听注入数据变化，重新计算
+watch([usageTotalStats, usageStats], () => {
+  calculateStatisticsFromStats();
+}, { deep: true });
 
 // 导出刷新方法
 const refreshData = () => {
-  fetchTokenUsage();
+  calculateStatisticsFromStats();
+  fetchModelStats();
 };
 
-// 组件挂载时加载数据
+// 组件挂载时加载数据（用注入的聚合数据 + 拉取模型统计）
 onMounted(() => {
-  fetchTokenUsage();
+  calculateStatisticsFromStats();
+  fetchModelStats();
 });
 
 // 组件卸载时清理资源

@@ -1,82 +1,75 @@
 <script lang="ts" setup>
 import type { EchartsUIType } from '@vben/plugins/echarts';
-import type { Ref } from 'vue';
 
-import { onMounted, ref, computed, inject, watch } from 'vue';
+import { onMounted, ref, watch } from 'vue';
+import { requestClient } from '#/api/request';
+import { RangePicker as ARangePicker } from 'ant-design-vue';
+import dayjs, { type Dayjs } from 'dayjs';
 
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 
-interface TokenUsageRecord {
-  ID: number;
-  RequestID: string;
-  UserID: string;
-  APIKey: string;
-  ClientID: string;
-  ClientIP: string;
-  Model: string;
-  InputTokens: number;
-  OutputTokens: number;
-  TotalTokens: number;
-  Timestamp: string;
-  PPM?: number;
+interface UsageTrendPoint {
+  date: string;
+  input_tokens: number;
+  output_tokens: number;
+  total_tokens: number;
+  calls: number;
 }
 
 const chartRef = ref<EchartsUIType>();
 const { renderEcharts } = useEcharts(chartRef);
 
-// 从父组件注入使用记录数据
-const usageRecords = inject<Ref<TokenUsageRecord[]>>('usageRecords', ref([]));
+const loading = ref(false);
+const trendPoints = ref<UsageTrendPoint[]>([]);
 
-// 监听数据变化，重新渲染图表
-watch(usageRecords, () => {
+// 日期范围（默认最近 90 天，用 dayjs 对象供 a-range-picker 使用）
+const dateRange = ref<[Dayjs, Dayjs]>([
+  dayjs().subtract(90, 'day'),
+  dayjs(),
+]);
+
+// 获取趋势数据（调 /usage/trend 接口）
+const fetchTrendData = async (startDate?: string, endDate?: string) => {
+  try {
+    loading.value = true;
+    const params: Record<string, string> = {};
+    if (startDate) params.start_date = startDate;
+    if (endDate) params.end_date = endDate;
+    
+    const response = await requestClient.get('/user/usage/trend', { params });
+    if (response && Array.isArray(response.data)) {
+      trendPoints.value = response.data;
+    } else {
+      trendPoints.value = [];
+    }
+  } catch (error) {
+    console.error('获取使用趋势失败:', error);
+    trendPoints.value = [];
+  } finally {
+    loading.value = false;
+  }
+};
+
+// 日期范围变更
+const onDateChange = (dates: [Dayjs, Dayjs] | null) => {
+  if (dates && dates.length === 2) {
+    const start = dates[0].format('YYYY-MM-DD');
+    const end = dates[1].format('YYYY-MM-DD');
+    dateRange.value = [dates[0], dates[1]];
+    fetchTrendData(start, end);
+  }
+};
+
+// 监听趋势数据变化，重新渲染图表
+watch(trendPoints, () => {
   renderChart();
 }, { deep: true });
-
-// 计算按日期分组的使用趋势数据
-const trendData = computed(() => {
-  if (!usageRecords.value || usageRecords.value.length === 0) {
-    return { dates: [], inputTokens: [], outputTokens: [], totalTokens: [] };
-  }
-
-  // 按日期分组统计
-  const dateMap: { [key: string]: { input: number; output: number; total: number } } = {};
-  
-  usageRecords.value.forEach((record: TokenUsageRecord) => {
-    if (!record.Timestamp) return;
-    
-    const date = record.Timestamp.split('T')[0] || record.Timestamp.split(' ')[0];
-    if (!date) return;
-    
-    if (!dateMap[date]) {
-      dateMap[date] = { input: 0, output: 0, total: 0 };
-    }
-    
-    dateMap[date].input += record.InputTokens || 0;
-    dateMap[date].output += record.OutputTokens || 0;
-    dateMap[date].total += record.TotalTokens || 0;
-  });
-
-  // 获取最近30天的数据
-  const sortedDates = Object.keys(dateMap).sort().slice(-30);
-  
-  return {
-    dates: sortedDates.map(date => {
-      const d = new Date(date);
-      return `${d.getMonth() + 1}/${d.getDate()}`;
-    }),
-    inputTokens: sortedDates.map(date => dateMap[date]?.input || 0),
-    outputTokens: sortedDates.map(date => dateMap[date]?.output || 0),
-    totalTokens: sortedDates.map(date => dateMap[date]?.total || 0),
-  };
-});
 
 // 渲染图表
 const renderChart = () => {
   if (!chartRef.value) return;
   
-  const data = trendData.value;
-  if (data.dates.length === 0) {
-    // 如果没有数据，显示空状态
+  if (trendPoints.value.length === 0) {
     renderEcharts({
       title: {
         text: '暂无使用数据',
@@ -117,7 +110,7 @@ const renderChart = () => {
         areaStyle: {
           opacity: 0.3
         },
-        data: data.inputTokens,
+        data: trendPoints.value.map(p => p.input_tokens),
         itemStyle: {
           color: '#5ab1ef',
         },
@@ -129,7 +122,7 @@ const renderChart = () => {
         areaStyle: {
           opacity: 0.3
         },
-        data: data.outputTokens,
+        data: trendPoints.value.map(p => p.output_tokens),
         itemStyle: {
           color: '#019680',
         },
@@ -141,7 +134,7 @@ const renderChart = () => {
         areaStyle: {
           opacity: 0.2
         },
-        data: data.totalTokens,
+        data: trendPoints.value.map(p => p.total_tokens),
         itemStyle: {
           color: '#ff9800',
         },
@@ -172,7 +165,10 @@ const renderChart = () => {
         show: false,
       },
       boundaryGap: false,
-      data: data.dates,
+      data: trendPoints.value.map(p => {
+        const d = new Date(p.date);
+        return `${d.getMonth() + 1}/${d.getDate()}`;
+      }),
       splitLine: {
         lineStyle: {
           type: 'dashed',
@@ -209,10 +205,23 @@ const renderChart = () => {
 };
 
 onMounted(() => {
-  renderChart();
+  fetchTrendData(
+    dateRange.value[0].format('YYYY-MM-DD'),
+    dateRange.value[1].format('YYYY-MM-DD'),
+  );
 });
 </script>
 
 <template>
-  <EchartsUI ref="chartRef" />
+  <div class="space-y-3">
+    <div class="flex justify-end">
+      <a-range-picker
+        :value="dateRange"
+        @change="onDateChange"
+        :allow-clear="false"
+        size="small"
+      />
+    </div>
+    <EchartsUI ref="chartRef" />
+  </div>
 </template>

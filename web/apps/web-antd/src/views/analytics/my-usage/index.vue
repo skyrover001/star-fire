@@ -42,79 +42,66 @@ interface TokenUsageRecord {
   Timestamp: string;
 }
 
+interface UsageTotalStats {
+  total_calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+  total_cost: number;
+  client_count: number;
+  model_count: number;
+}
+
 const loading = ref(false);
-const usageRecords = ref<TokenUsageRecord[]>([]);
 const balanceInfo = ref<BalanceInfo>({ balance: 0, total_spent: 0 });
 const balanceLoading = ref(false);
 
-provide('usageRecords', usageRecords);
+// 总计使用统计（来自 /usage/total，真·总计，无时间过滤）
+const totalStatsData = ref<UsageTotalStats>({
+  total_calls: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  cached_tokens: 0,
+  total_tokens: 0,
+  total_cost: 0,
+  client_count: 0,
+  model_count: 0,
+});
+
+// 30天聚合统计（来自 /usage/stats，用于今日/输入/输出等时段卡片）
+const statsData = ref<UsageTotalStats>({
+  total_calls: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  cached_tokens: 0,
+  total_tokens: 0,
+  total_cost: 0,
+  client_count: 0,
+  model_count: 0,
+});
+
+// 下发给子组件的聚合数据（替代原 usageRecords 全量下发）
+provide('usageTotalStats', totalStatsData);
+provide('usageStats', statsData);
 provide('usageLoading', loading);
 
-const normalizeUsageRecords = (payload: unknown): TokenUsageRecord[] => {
-  if (!payload) {
-    return [];
-  }
-
-  if (Array.isArray(payload)) {
-    return payload as TokenUsageRecord[];
-  }
-
-  if (typeof payload === 'object') {
-    const body = payload as Record<string, unknown>;
-
-    if (Array.isArray(body.data)) {
-      return body.data as TokenUsageRecord[];
-    }
-
-    if (
-      body.data &&
-      typeof body.data === 'object' &&
-      Array.isArray((body.data as Record<string, unknown>).data)
-    ) {
-      return (body.data as Record<string, unknown>).data as TokenUsageRecord[];
-    }
-
-    if (Array.isArray(body.records)) {
-      return body.records as TokenUsageRecord[];
-    }
-
-    if (Array.isArray(body.items)) {
-      return body.items as TokenUsageRecord[];
-    }
-  }
-
-  return [];
-};
-
-// 计算总Token统计（包括输入和输出）
+// 计算总Token统计（来自后端总计接口，真·总计）
 const totalTokenStats = computed(() => {
-  const records = usageRecords.value;
-  const totalTokens = records.reduce((sum, r) => sum + r.TotalTokens, 0);
-  const totalInput = records.reduce((sum, r) => sum + r.InputTokens, 0);
-  const totalOutput = records.reduce((sum, r) => sum + r.OutputTokens, 0);
-  
-  const today = new Date().toISOString().split('T')[0] || '';
-  const todayRecords = records.filter(r => r.Timestamp && r.Timestamp.startsWith(today));
-  const todayTotalTokens = todayRecords.reduce((sum, r) => sum + r.TotalTokens, 0);
-
   return {
-    total: totalTokens,
-    today: todayTotalTokens,
-    totalInput,
-    totalOutput,
-    totalCalls: records.length,
+    total: totalStatsData.value.total_tokens,
+    today: statsData.value.total_tokens, // 30天窗口内的今日数据暂用 stats 近似
+    totalInput: totalStatsData.value.input_tokens,
+    totalOutput: totalStatsData.value.output_tokens,
+    totalCalls: totalStatsData.value.total_calls,
   };
 });
 
-// 计算客户端统计
+// 计算客户端统计（来自后端总计接口）
 const clientStats = computed(() => {
-  const records = usageRecords.value;
-  const uniqueClients = new Set(records.map(r => r.ClientID));
-  const uniqueApiKeys = new Set(records.map(r => r.APIKey));
-  
   return {
-    totalClients: uniqueClients.size,
-    totalApiKeys: uniqueApiKeys.size,
+    totalClients: totalStatsData.value.client_count,
+    totalApiKeys: 0, // API key 统计已移除全量数据，暂不展示
   };
 });
 
@@ -133,16 +120,28 @@ const chartTabs: TabOption[] = [
   },
 ];
 
-// 获取Token使用数据
-const fetchUsageData = async () => {
+// 获取总计使用统计（真·总计）
+const fetchUsageTotal = async () => {
+  try {
+    const response = await requestClient.get('/user/usage/total');
+    if (response && typeof response === 'object') {
+      totalStatsData.value = response as UsageTotalStats;
+    }
+  } catch (error) {
+    console.error('获取使用总计失败:', error);
+  }
+};
+
+// 获取30天聚合统计
+const fetchUsageStats = async () => {
   loading.value = true;
   try {
-    const response = await requestClient.get('/user/token-usage');
-    const records = normalizeUsageRecords(response);
-    usageRecords.value = records;
+    const response = await requestClient.get('/user/usage/stats');
+    if (response && typeof response === 'object') {
+      statsData.value = response as UsageTotalStats;
+    }
   } catch (error) {
-    console.error('获取使用数据失败:', error);
-    usageRecords.value = [];
+    console.error('获取使用统计失败:', error);
   } finally {
     loading.value = false;
   }
@@ -162,7 +161,9 @@ const fetchBalance = async () => {
 };
 
 onMounted(() => {
-  fetchUsageData();
+  // 并行加载：总计统计 + 30天统计 + 余额
+  fetchUsageTotal();
+  fetchUsageStats();
   fetchBalance();
 });
 </script>
