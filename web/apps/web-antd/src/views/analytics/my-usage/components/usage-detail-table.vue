@@ -1,6 +1,6 @@
 <script lang="ts" setup>
-import { ref, computed, inject, watch } from 'vue';
-import type { Ref } from 'vue';
+import { ref, computed, onMounted } from 'vue';
+import { requestClient } from '#/api/request';
 
 interface TokenUsageRecord {
   ID: number;
@@ -20,7 +20,7 @@ interface TokenUsageRecord {
   Timestamp: string;
 }
 
-// 计算收益明细
+// 计算费用明细
 const calcUncachedInputCost = (r: TokenUsageRecord) => {
   const cached = r.CachedTokens || 0;
   return ((r.InputTokens - cached) * (r.IPPM || 0)) / 1000000;
@@ -35,42 +35,35 @@ const calcTotalCost = (r: TokenUsageRecord) => {
   return calcUncachedInputCost(r) + calcCachedInputCost(r) + calcOutputCost(r);
 };
 
-const usageRecords = inject<Ref<TokenUsageRecord[]>>(
-  'usageRecords',
-  ref<TokenUsageRecord[]>([]),
-);
-
-const loading = inject<Ref<boolean>>('usageLoading', ref(false));
+const loading = ref(false);
+const usageRecords = ref<TokenUsageRecord[]>([]);
 const currentPage = ref(1);
 const pageSize = ref(15);
+const totalRecords = ref(0);
 
-// 分页数据
-const paginatedRecords = computed(() => {
-  const start = (currentPage.value - 1) * pageSize.value;
-  const end = start + pageSize.value;
-  return usageRecords.value.slice(start, end);
-});
+// 分页数据（服务端分页，直接展示已加载数据）
+const paginatedRecords = computed(() => usageRecords.value);
 
-// 总页数
+// 总页数（基于服务端返回的总记录数）
 const totalPages = computed(() => {
-  const total = Math.ceil(usageRecords.value.length / pageSize.value);
+  const total = Math.ceil(totalRecords.value / pageSize.value);
   return total === 0 ? 1 : total;
 });
 
-const totalItems = computed(() => usageRecords.value.length);
+const totalItems = computed(() => totalRecords.value);
 
 const rangeStart = computed(() => {
-  if (totalItems.value === 0) {
+  if (usageRecords.value.length === 0) {
     return 0;
   }
   return (currentPage.value - 1) * pageSize.value + 1;
 });
 
 const rangeEnd = computed(() => {
-  if (totalItems.value === 0) {
+  if (usageRecords.value.length === 0) {
     return 0;
   }
-  return Math.min(currentPage.value * pageSize.value, totalItems.value);
+  return (currentPage.value - 1) * pageSize.value + usageRecords.value.length;
 });
 
 // 格式化时间
@@ -85,24 +78,41 @@ const formatTime = (timestamp: string) => {
   });
 };
 
-// 切换页面
-const goToPage = (page: number) => {
-  if (page >= 1 && page <= totalPages.value) {
-    currentPage.value = page;
+// 获取使用详单（服务端分页）
+const fetchUsageDetail = async (page: number = 1) => {
+  try {
+    loading.value = true;
+    const response = await requestClient.get('/user/token-usage', {
+      params: { page, size: pageSize.value },
+    });
+    
+    if (response && Array.isArray(response.data)) {
+      usageRecords.value = response.data;
+      totalRecords.value = response.total || response.data.length;
+      currentPage.value = page;
+    } else {
+      usageRecords.value = [];
+      totalRecords.value = 0;
+    }
+  } catch (error) {
+    console.error('获取使用详单失败:', error);
+    usageRecords.value = [];
+    totalRecords.value = 0;
+  } finally {
+    loading.value = false;
   }
 };
 
-watch(
-  () => usageRecords.value.length,
-  () => {
-    if (currentPage.value > totalPages.value) {
-      currentPage.value = totalPages.value;
-    }
-    if (usageRecords.value.length === 0) {
-      currentPage.value = 1;
-    }
-  },
-);
+// 切换页面（服务端分页，触发请求）
+const goToPage = (page: number) => {
+  if (page >= 1 && page <= totalPages.value) {
+    fetchUsageDetail(page);
+  }
+};
+
+onMounted(() => {
+  fetchUsageDetail(1);
+});
 </script>
 
 <template>
