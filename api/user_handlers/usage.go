@@ -303,6 +303,48 @@ func (h *TokenUsageHandler) GetUserIncomeTotal(c *gin.Context) {
 	c.JSON(http.StatusOK, stats)
 }
 
+// GetUserIncomeStats 获取用户指定时间段的收益统计（服务端聚合，用于今日/近7日/本月卡片）
+// 不依赖详单分页数据，避免数据量小时三个时段数值相同的问题
+func (h *TokenUsageHandler) GetUserIncomeStats(c *gin.Context) {
+	userIDStr, ok := getUserIDFromContext(c)
+	if !ok {
+		return
+	}
+
+	startTime, endTime, err := parseTimeRange(c, 30)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+
+	userClients, err := h.server.ClientDB.GetClientsByUserID(userIDStr)
+	if userClients == nil || len(userClients) == 0 {
+		c.JSON(http.StatusOK, gin.H{
+			"total_income":  0,
+			"total_calls":   0,
+			"input_tokens":  0,
+			"output_tokens": 0,
+			"cached_tokens": 0,
+			"total_tokens":  0,
+			"models":        0,
+		})
+		return
+	}
+
+	clientIDs := make([]string, 0, len(userClients))
+	for _, client := range userClients {
+		clientIDs = append(clientIDs, client.ID)
+	}
+
+	stats, err := h.server.TokenUsageDB.GetIncomeStatsByTimeRange(clientIDs, startTime, endTime)
+	if err != nil {
+		c.JSON(http.StatusInternalServerError, gin.H{"error": "query income stats failed"})
+		return
+	}
+
+	c.JSON(http.StatusOK, stats)
+}
+
 // GetUserIncomeTrend 获取用户收益趋势（按天聚合）
 func (h *TokenUsageHandler) GetUserIncomeTrend(c *gin.Context) {
 	userIDStr, ok := getUserIDFromContext(c)

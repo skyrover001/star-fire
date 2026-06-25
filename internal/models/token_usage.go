@@ -308,6 +308,60 @@ func (tdb *TokenUsageDB) GetTotalIncomeStatsByUserID(userID string, clientDB *Cl
 	}, nil
 }
 
+// GetIncomeStatsByTimeRange 获取用户指定时间段的收益统计（服务端聚合，不受分页/详单限制）
+// 返回 total_income/total_calls/input_tokens/output_tokens/cached_tokens/total_tokens/models
+func (tdb *TokenUsageDB) GetIncomeStatsByTimeRange(clientIDs []string, startTime, endTime time.Time) (map[string]float64, error) {
+	if len(clientIDs) == 0 {
+		return map[string]float64{
+			"total_income":  0,
+			"total_calls":   0,
+			"input_tokens":  0,
+			"output_tokens": 0,
+			"cached_tokens": 0,
+			"total_tokens":  0,
+			"models":        0,
+		}, nil
+	}
+
+	type Result struct {
+		TotalIncome  float64
+		TotalCalls   int64
+		InputTokens  int64
+		OutputTokens int64
+		CachedTokens int64
+		TotalTokens  int64
+		Models       int64
+	}
+
+	var result Result
+	err := tdb.db.Model(&TokenUsage{}).
+		Select(`
+			SUM(((input_tokens - cached_tokens) * ip_pm + cached_tokens * cippm + output_tokens * oppm) / 1000000.0) as total_income,
+			COUNT(*) as total_calls,
+			SUM(input_tokens) as input_tokens,
+			SUM(output_tokens) as output_tokens,
+			SUM(cached_tokens) as cached_tokens,
+			SUM(total_tokens) as total_tokens,
+			COUNT(DISTINCT model) as models
+		`).
+		Where("client_id IN ? AND timestamp BETWEEN ? AND ?", clientIDs, startTime, endTime).
+		Scan(&result).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return map[string]float64{
+		"total_income":  result.TotalIncome,
+		"total_calls":   float64(result.TotalCalls),
+		"input_tokens":  float64(result.InputTokens),
+		"output_tokens": float64(result.OutputTokens),
+		"cached_tokens": float64(result.CachedTokens),
+		"total_tokens":  float64(result.TotalTokens),
+		"models":        float64(result.Models),
+	}, nil
+}
+
 // GetIncomeTokenUsagePaged 分页获取收益详单
 func (tdb *TokenUsageDB) GetIncomeTokenUsagePaged(clientIDs []string, startTime, endTime time.Time, page, size int) ([]*TokenUsage, int64, error) {
 	var usages []*TokenUsage
