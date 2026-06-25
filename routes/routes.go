@@ -67,6 +67,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		userAPI.GET("/usage/models/:model", tokenUsageHandler.GetUserUsageModelDetail)
 		userAPI.GET("/income", tokenUsageHandler.GetUserIncome)
 		userAPI.GET("/income/total", tokenUsageHandler.GetUserIncomeTotal)
+		userAPI.GET("/income/stats", tokenUsageHandler.GetUserIncomeStats)
 		userAPI.GET("/income/trend", tokenUsageHandler.GetUserIncomeTrend)
 		userAPI.GET("/income/models", tokenUsageHandler.GetUserIncomeModels)
 

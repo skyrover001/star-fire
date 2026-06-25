@@ -548,6 +548,17 @@ interface TotalIncomeStats {
   unique_users: number
 }
 
+// 时段收益统计（来自 /income/stats，服务端聚合，避免详单分页导致今日/近7日/本月数值相同）
+interface TimeRangeStats {
+  total_income: number
+  total_calls: number
+  input_tokens: number
+  output_tokens: number
+  cached_tokens: number
+  total_tokens: number
+  models: number
+}
+
 interface TrendPoint {
   date: string
   income: number
@@ -585,6 +596,20 @@ const totalStatsData = ref<TotalIncomeStats>({
   client_count: 0,
   unique_users: 0,
 })
+
+// 时段收益数据（来自 /income/stats，服务端按时间段聚合）
+const emptyTimeRangeStats = (): TimeRangeStats => ({
+  total_income: 0,
+  total_calls: 0,
+  input_tokens: 0,
+  output_tokens: 0,
+  cached_tokens: 0,
+  total_tokens: 0,
+  models: 0,
+})
+const todayStatsData = ref<TimeRangeStats>(emptyTimeRangeStats())
+const weekStatsData = ref<TimeRangeStats>(emptyTimeRangeStats())
+const monthStatsData = ref<TimeRangeStats>(emptyTimeRangeStats())
 
 // 趋势数据（来自 /income/trend，按天聚合）
 const trendData = ref<TrendPoint[]>([])
@@ -639,47 +664,38 @@ const formatTimestamp = (timestamp: string) => {
   })
 }
 
-// 计算时间段统计数据（today/week/month 基于已加载详单客户端过滤，total 用后端总计接口）
+// 计算时间段统计数据（today/week/month 来自后端 /income/stats 服务端聚合，total 用后端总计接口）
 const timeStatsData = computed(() => {
-  const records = incomeData.value
-  const now = new Date()
-  const today = now.toISOString().split('T')[0]
-  const weekStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1)
-  
-  // 今日数据
-  const todayRecords = records.filter(r => r.Timestamp && r.Timestamp.startsWith(today || ''))
+  // 今日数据 — 来自后端 /income/stats（今日 00:00 ~ 23:59:59）
   const todayStats = {
-    totalTokens: todayRecords.reduce((sum, r) => sum + r.TotalTokens, 0),
-    inputTokens: todayRecords.reduce((sum, r) => sum + r.InputTokens, 0),
-    outputTokens: todayRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
-    calls: todayRecords.length,
-    models: new Set(todayRecords.map(r => r.Model)).size,
-    income: todayRecords.reduce((sum, r) => sum + calculateSingleCallIncome(r), 0)
+    totalTokens: todayStatsData.value.total_tokens,
+    inputTokens: todayStatsData.value.input_tokens,
+    outputTokens: todayStatsData.value.output_tokens,
+    calls: todayStatsData.value.total_calls,
+    models: todayStatsData.value.models,
+    income: todayStatsData.value.total_income,
   }
-  
-  // 本周数据
-  const weekRecords = records.filter(r => new Date(r.Timestamp) >= weekStart)
+
+  // 近7日数据 — 来自后端 /income/stats（最近 7 天）
   const weekStats = {
-    totalTokens: weekRecords.reduce((sum, r) => sum + r.TotalTokens, 0),
-    inputTokens: weekRecords.reduce((sum, r) => sum + r.InputTokens, 0),
-    outputTokens: weekRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
-    calls: weekRecords.length,
-    models: new Set(weekRecords.map(r => r.Model)).size,
-    income: weekRecords.reduce((sum, r) => sum + calculateSingleCallIncome(r), 0)
+    totalTokens: weekStatsData.value.total_tokens,
+    inputTokens: weekStatsData.value.input_tokens,
+    outputTokens: weekStatsData.value.output_tokens,
+    calls: weekStatsData.value.total_calls,
+    models: weekStatsData.value.models,
+    income: weekStatsData.value.total_income,
   }
-  
-  // 本月数据
-  const monthRecords = records.filter(r => new Date(r.Timestamp) >= monthStart)
+
+  // 本月数据 — 来自后端 /income/stats（本月 1 日至今）
   const monthStats = {
-    totalTokens: monthRecords.reduce((sum, r) => sum + r.TotalTokens, 0),
-    inputTokens: monthRecords.reduce((sum, r) => sum + r.InputTokens, 0),
-    outputTokens: monthRecords.reduce((sum, r) => sum + r.OutputTokens, 0),
-    calls: monthRecords.length,
-    models: new Set(monthRecords.map(r => r.Model)).size,
-    income: monthRecords.reduce((sum, r) => sum + calculateSingleCallIncome(r), 0)
+    totalTokens: monthStatsData.value.total_tokens,
+    inputTokens: monthStatsData.value.input_tokens,
+    outputTokens: monthStatsData.value.output_tokens,
+    calls: monthStatsData.value.total_calls,
+    models: monthStatsData.value.models,
+    income: monthStatsData.value.total_income,
   }
-  
+
   // 总计数据 — 来自后端 /income/total 接口（真·总计，不受 30 天限制）
   const totalStats = {
     totalTokens: totalStatsData.value.total_tokens,
@@ -689,7 +705,7 @@ const timeStatsData = computed(() => {
     models: totalStatsData.value.models,
     income: totalStatsData.value.total_income
   }
-  
+
   return {
     today: todayStats,
     week: weekStats,
@@ -811,6 +827,42 @@ const fetchTotalIncome = async () => {
   } catch (error) {
     console.error('Failed to load total income:', error)
   }
+}
+
+// 获取指定时间段的收益统计（服务端聚合）
+const fetchIncomeStatsByRange = async (
+  startDate: string,
+  endDate: string,
+): Promise<TimeRangeStats> => {
+  try {
+    const response = await requestClient.get('/user/income/stats', {
+      params: { start_date: startDate, end_date: endDate },
+    })
+    if (response && typeof response === 'object') {
+      return response as TimeRangeStats
+    }
+  } catch (error) {
+    console.error('Failed to load income stats by range:', error)
+  }
+  return emptyTimeRangeStats()
+}
+
+// 获取今日/近7日/本月收益统计（并行请求）
+const fetchTimeRangeStats = async () => {
+  const now = dayjs()
+  const todayStart = now.startOf('day').format('YYYY-MM-DD')
+  const todayEnd = now.endOf('day').format('YYYY-MM-DD')
+  const weekStart = now.subtract(6, 'day').startOf('day').format('YYYY-MM-DD')
+  const monthStart = now.startOf('month').format('YYYY-MM-DD')
+
+  const [today, week, month] = await Promise.all([
+    fetchIncomeStatsByRange(todayStart, todayEnd),
+    fetchIncomeStatsByRange(weekStart, todayEnd),
+    fetchIncomeStatsByRange(monthStart, todayEnd),
+  ])
+  todayStatsData.value = today
+  weekStatsData.value = week
+  monthStatsData.value = month
 }
 
 // 获取收益详单（分页，支持懒加载追加）
@@ -1069,8 +1121,9 @@ watch(dailyIncomeData, () => {
 }, { deep: true })
 
 onMounted(() => {
-  // 并行加载：总计收益 + 详单首页 + 趋势图 + 模型收益柱状图
+  // 并行加载：总计收益 + 时段收益(今日/近7日/本月) + 详单首页 + 趋势图 + 模型收益柱状图
   fetchTotalIncome()
+  fetchTimeRangeStats()
   fetchIncomeData(1)
   fetchTrendData(
     trendDateRange.value[0].format('YYYY-MM-DD'),
