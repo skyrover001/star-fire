@@ -357,6 +357,32 @@
       </AnalysisChartCard>
     </div>
 
+    <!-- 时间趋势图 -->
+    <div class="mt-5">
+      <AnalysisChartCard title="收益趋势">
+        <div class="flex justify-end mb-3">
+          <a-range-picker
+            :value="trendDateRange"
+            @change="onTrendDateChange"
+            :allow-clear="false"
+            size="small"
+          />
+        </div>
+        <div class="h-96 p-4 relative">
+          <EchartsUI 
+            ref="trendChartRef" 
+            class="w-full h-full" 
+          />
+          <div v-if="trendLoading" class="flex items-center justify-center absolute inset-0">
+            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
+          </div>
+          <div v-if="!trendLoading && dailyIncomeData.length === 0" class="flex items-center justify-center absolute inset-0 text-[var(--text-secondary)]">
+            <p>暂无趋势数据</p>
+          </div>
+        </div>
+      </AnalysisChartCard>
+    </div>
+
     <!-- 按模型收益柱状图 + 模型收益详情（按钮控制） -->
     <div class="mt-5 relative">
       <AnalysisChartCard title="按模型收益统计">
@@ -371,16 +397,15 @@
           </button>
         </div>
         <!-- 柱状图 -->
-        <div class="h-96 p-4">
+        <div class="h-96 p-4 relative">
           <EchartsUI 
-            v-if="modelIncomeData.length > 0 && !modelLoading" 
             ref="incomeChartRef" 
             class="w-full h-full" 
           />
-          <div v-else-if="modelLoading" class="flex items-center justify-center h-full">
+          <div v-if="modelLoading" class="flex items-center justify-center absolute inset-0">
             <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
-          <div v-else class="flex items-center justify-center h-full text-[var(--text-secondary)]">
+          <div v-if="!modelLoading && modelIncomeData.length === 0" class="flex items-center justify-center absolute inset-0 text-[var(--text-secondary)]">
             <p>暂无收益数据</p>
           </div>
         </div>
@@ -475,32 +500,6 @@
       </AnalysisChartCard>
     </div>
 
-    <!-- 时间趋势图 -->
-    <div class="mt-5">
-      <AnalysisChartCard title="收益趋势">
-        <div class="flex justify-end mb-3">
-          <a-range-picker
-            :value="trendDateRange"
-            @change="onTrendDateChange"
-            :allow-clear="false"
-            size="small"
-          />
-        </div>
-        <div class="h-96 p-4">
-          <EchartsUI 
-            v-if="dailyIncomeData.length > 0 && !trendLoading" 
-            ref="trendChartRef" 
-            class="w-full h-full" 
-          />
-          <div v-else-if="trendLoading" class="flex items-center justify-center h-full">
-            <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
-          </div>
-          <div v-else class="flex items-center justify-center h-full text-[var(--text-secondary)]">
-            <p>暂无趋势数据</p>
-          </div>
-        </div>
-      </AnalysisChartCard>
-    </div>
   </div>
 </template>
 
