@@ -430,7 +430,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 	}
 	log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
 
-	// 根据client的用户userid 获取最新的总收入
+	// 根据client的用户userid 获取最新的总收入（异步执行，避免阻塞聊天请求）
 	chatClient := server.GetClientByModel(model, clientID)
 	if chatClient == nil {
 		log.Printf("client %s not found for model %s", clientID, model)
@@ -446,25 +446,30 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		return
 	}
 
-	totalIncomeResult, totalErr := server.TokenUsageDB.GetTotalIncomeByUserID(chatClient.User.ID, server.ClientDB)
-	if totalErr != nil {
-		log.Printf("获取用户 %s 总收入失败: %v", chatClient.User.ID, totalErr)
-		return
-	}
-	totalIncome, _ := totalIncomeResult.(float64)
-	_ = conn.WriteJSON(public.WSMessage{
-		Type: public.INCOME,
-		Content: map[string]interface{}{
-			"model": model,
-			"usage": map[string]interface{}{
-				"prompt_tokens":     inputTokens,
-				"completion_tokens": outputTokens,
-				"total_tokens":      totalTokens,
-				"cached_tokens":     cachedTokens,
+	// 异步通知 client 收益更新，避免全表扫描阻塞聊天响应
+	go func(clientID, model string, income float64, inputTokens, outputTokens, totalTokens, cachedTokens int) {
+		totalIncomeResult, totalErr := server.TokenUsageDB.GetTotalIncomeByUserID(chatClient.User.ID, server.ClientDB)
+		if totalErr != nil {
+			log.Printf("获取用户 %s 总收入失败: %v", chatClient.User.ID, totalErr)
+			return
+		}
+		totalIncome, _ := totalIncomeResult.(float64)
+		_ = conn.WriteJSON(public.WSMessage{
+			Type: public.INCOME,
+			Content: map[string]interface{}{
+				"model": model,
+				"usage": map[string]interface{}{
+					"prompt_tokens":     inputTokens,
+					"completion_tokens": outputTokens,
+					"total_tokens":      totalTokens,
+					"cached_tokens":     cachedTokens,
+				},
+				"income":       income,
+				"total_income": totalIncome,
+				"timestamp":    strconv.Itoa(int(time.Now().Unix())),
 			},
-			"income":       (ippm*float64(inputTokens-cachedTokens) + cippm*float64(cachedTokens) + oppm*float64(outputTokens)) / 1000000,
-			"total_income": totalIncome,
-			"timestamp":    strconv.Itoa(int(time.Now().Unix())),
-		},
-	})
+		})
+	}(clientID, model,
+		(ippm*float64(inputTokens-cachedTokens)+cippm*float64(cachedTokens)+oppm*float64(outputTokens))/1000000,
+		inputTokens, outputTokens, totalTokens, cachedTokens)
 }

@@ -47,7 +47,6 @@ func (uh *UserHandler) SendVerificationCode(c *gin.Context) {
 	}
 
 	// 生成6位验证码
-	rand.Seed(time.Now().UnixNano())
 	code := fmt.Sprintf("%06d", rand.Intn(1000000))
 
 	// 存储验证码(10分钟有效期)

@@ -53,6 +53,17 @@ func NewTokenUsageDB(db *gorm.DB) *TokenUsageDB {
 	if err != nil {
 		return nil
 	}
+
+	// 创建复合索引以大幅提升大表查询性能
+	// (user_id, timestamp) — 使用量详单/统计/趋势查询
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_user_timestamp ON token_usages(user_id, timestamp)")
+	// (client_id, timestamp) — 收益详单/统计/趋势查询
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_client_timestamp ON token_usages(client_id, timestamp)")
+	// (user_id, model, timestamp) — 按模型的使用量查询
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_user_model_timestamp ON token_usages(user_id, model, timestamp)")
+	// (client_id, model, timestamp) — 按模型的收益查询
+	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_client_model_timestamp ON token_usages(client_id, model, timestamp)")
+
 	return &TokenUsageDB{db: db}
 }
 
