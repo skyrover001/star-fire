@@ -36,6 +36,8 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 	ticker := time.NewTicker(public.KEEPALIVE_TIME * time.Second)
 	defer ticker.Stop()
 
+	lastTrendSave := time.Now()
+
 	for {
 		select {
 		case <-ticker.C:
@@ -77,7 +79,11 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 
 			if latency > public.MAXLATENCE {
 				log.Println("Client latency is too high, closing connection")
-				client.ControlConn.Close()
+				client.ControlConnMutex.Lock()
+				if client.ControlConn != nil {
+					client.ControlConn.Close()
+				}
+				client.ControlConnMutex.Unlock()
 				client.Status = "offline"
 				return
 			} else {
@@ -105,11 +111,14 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 						User:        client.User,
 					})
 				}
-				// batch save all trends in a single transaction
-				if err := server.TrendDB.SaveTrends(trends); err != nil {
-					log.Println("Error saving trends:", err)
-				} else {
-					log.Printf("Trends saved successfully: %d records", len(trends))
+				// batch save all trends in a single transaction (throttled: every 60s)
+				if time.Since(lastTrendSave) >= 60*time.Second && len(trends) > 0 {
+					if err := server.TrendDB.SaveTrends(trends); err != nil {
+						log.Println("Error saving trends:", err)
+					} else {
+						log.Printf("Trends saved successfully: %d records", len(trends))
+					}
+					lastTrendSave = time.Now()
 				}
 				client.Status = "online"
 			}
@@ -119,6 +128,12 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 
 // handle client messages
 func handleClientMessages(client *models.Client, server *models.Server) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("handleClientMessages recovered from panic: %v", r)
+			client.Status = "offline"
+		}
+	}()
 	for {
 		var message public.WSMessage
 		err := client.ControlConn.ReadJSON(&message)
@@ -175,7 +190,11 @@ func handleKeepAliveMessage(client *models.Client, message public.WSMessage) {
 		client.Latency = int(time.Now().Unix() - timestamp)
 		if client.Latency > public.MAXLATENCE {
 			log.Println("Client latency is too high, closing connection")
-			client.ControlConn.Close()
+			client.ControlConnMutex.Lock()
+			if client.ControlConn != nil {
+				client.ControlConn.Close()
+			}
+			client.ControlConnMutex.Unlock()
 			client.Status = "offline"
 			return
 		}

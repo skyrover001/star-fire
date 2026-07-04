@@ -93,7 +93,7 @@ func NewServer() *Server {
 		}
 
 		sqlDB.SetMaxIdleConns(10)
-		sqlDB.SetMaxOpenConns(1) // SQLite only supports one writer at a time; WAL makes this safe
+		sqlDB.SetMaxOpenConns(4) // SQLite WAL mode allows concurrent reads; 4 handles typical load
 		sqlDB.SetConnMaxLifetime(time.Hour)
 	}
 
@@ -249,7 +249,6 @@ func (s *Server) pick(model string, eligible []*Client) *Client {
 		return eligible[index]
 
 	case "random":
-		rand.Seed(time.Now().UnixNano())
 		return eligible[rand.Intn(len(eligible))]
 
 	case "min-conn":
@@ -692,7 +691,6 @@ func (s *Server) LoadBalanceEmbedding(model, userID string) *Client {
 	}
 
 	// 从可用的客户端中随机选择一个
-	rand.Seed(time.Now().UnixNano())
 	randomIndex := rand.Intn(len(availableClients))
 	selectedClient := availableClients[randomIndex]
 
