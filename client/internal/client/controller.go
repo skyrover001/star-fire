@@ -152,7 +152,7 @@ func (c *Client) handleChatMessage(message public.WSMessage) {
 	log.Printf("recieve chat message request: %v", message.FingerPrint)
 
 	tmp, _ := json.Marshal(message.Content)
-	var openaiReq openai.ChatCompletionRequest
+	var openaiReq public.ExtendedChatRequest
 	if err := json.Unmarshal(tmp, &openaiReq); err != nil {
 		log.Printf("parse message error: %v", err)
 		return

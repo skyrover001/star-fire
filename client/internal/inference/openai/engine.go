@@ -96,7 +96,7 @@ func (e *Engine) SupportsModel(modelName string, conf *config.Config) bool {
 }
 
 func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
-	request *openai.ChatCompletionRequest,
+	request *public.ExtendedChatRequest,
 	responseConn *websocket.Conn) error {
 	log.Printf("handle chat request [%s]: modle=%s, strem=%v, API BASE URL=%s",
 		fingerprint, request.Model, request.Stream, e.baseURL)
@@ -110,6 +110,14 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		if request.Messages[i].Role == openai.ChatMessageRoleTool && request.Messages[i].Content == "" {
 			request.Messages[i].Content = " "
 		}
+	}
+
+	// 若请求带有 go-openai 未覆盖的扩展参数（如 thinking），走原始 JSON 透传路径，
+	// 避免这些字段在 SDK 类型化请求中被丢弃。kimi/moonshot 有独立的响应格式，
+	// 仍走其专用逻辑。
+	if len(request.ExtraFields()) > 0 &&
+		!strings.Contains(request.Model, "kimi") && !strings.Contains(request.Model, "moonshot") {
+		return e.handleChatRaw(ctx, fingerprint, request, responseConn)
 	}
 
 	// 判断模型是否为kimi模型，kimi模型的request 和openai的request不同，stream response也不同
@@ -128,7 +136,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			}
 		} else {
 			log.Printf("not stream request [%s]", fingerprint)
-			resp, err := e.client.CreateChatCompletion(ctx, *request)
+			resp, err := e.client.CreateChatCompletion(ctx, request.ChatCompletionRequest)
 			if err != nil {
 				errMsg := fmt.Sprintf("create chat error: %v", err)
 				log.Printf("[%s] %s", fingerprint, errMsg)
@@ -178,7 +186,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			request.StreamOptions.IncludeUsage = true
 		}
 
-		stream, err := e.client.CreateChatCompletionStream(ctx, *request)
+		stream, err := e.client.CreateChatCompletionStream(ctx, request.ChatCompletionRequest)
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat complation error: %v", err)
 			log.Printf("[%s] %s", fingerprint, errMsg)
@@ -263,7 +271,7 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		}
 	} else {
 		log.Printf("not stream request [%s]", fingerprint)
-		resp, err := e.client.CreateChatCompletion(ctx, *request)
+		resp, err := e.client.CreateChatCompletion(ctx, request.ChatCompletionRequest)
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat error: %v", err)
 			log.Printf("[%s] %s", fingerprint, errMsg)
@@ -297,12 +305,148 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	return err
 }
 
+// handleChatRaw 以原始 JSON 请求体直连后端，保证 go-openai 未覆盖的扩展参数
+// （如 thinking / enable_thinking）能透传给后端；响应侧按 map 原样转发，
+// 因此后端返回的 reasoning 等非标准字段也不会被丢弃。
+func (e *Engine) handleChatRaw(ctx context.Context, fingerprint string,
+	request *public.ExtendedChatRequest, responseConn *websocket.Conn) error {
+
+	// 流式确保带上 usage，便于服务端计费与正常结束
+	if request.Stream {
+		if request.StreamOptions == nil {
+			request.StreamOptions = &openai.StreamOptions{IncludeUsage: true}
+		} else {
+			request.StreamOptions.IncludeUsage = true
+		}
+	}
+
+	reqBody, err := request.BuildRequestBody()
+	if err != nil {
+		return fmt.Errorf("marshal request error: %w", err)
+	}
+
+	baseURL := e.baseURL
+	if baseURL == "" {
+		baseURL = "https://api.openai.com/v1"
+	}
+	url := strings.TrimSuffix(baseURL, "/") + "/chat/completions"
+
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewReader(reqBody))
+	if err != nil {
+		return fmt.Errorf("create http request error: %w", err)
+	}
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("Authorization", "Bearer "+e.apiKey)
+	if request.Stream {
+		httpReq.Header.Set("Accept", "text/event-stream")
+	}
+
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		errMsg := fmt.Sprintf("create chat completion error: %v", err)
+		log.Printf("[%s] %s", fingerprint, errMsg)
+		_ = responseConn.WriteJSON(public.WSMessage{
+			Type:        public.MODEL_ERROR,
+			Content:     errMsg,
+			FingerPrint: fingerprint,
+		})
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		errMsg := fmt.Sprintf("API error: status=%d, body=%s", resp.StatusCode, string(body))
+		log.Printf("[%s] %s", fingerprint, errMsg)
+		_ = responseConn.WriteJSON(public.WSMessage{
+			Type:        public.MODEL_ERROR,
+			Content:     errMsg,
+			FingerPrint: fingerprint,
+		})
+		return fmt.Errorf(errMsg)
+	}
+
+	// 非流式：整体读取后原样转发
+	if !request.Stream {
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return fmt.Errorf("read response error: %w", err)
+		}
+		var content map[string]interface{}
+		if err := json.Unmarshal(body, &content); err != nil {
+			return fmt.Errorf("unmarshal response error: %w", err)
+		}
+		if err := responseConn.WriteJSON(public.WSMessage{
+			Type:        public.MESSAGE,
+			Content:     content,
+			FingerPrint: fingerprint,
+		}); err != nil {
+			return err
+		}
+		return responseConn.WriteJSON(public.WSMessage{
+			Type:        public.CLOSE,
+			Content:     nil,
+			FingerPrint: fingerprint,
+		})
+	}
+
+	// 流式：逐块透传原始 JSON
+	reader := bufio.NewReader(resp.Body)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			errMsg := fmt.Sprintf("read stream error: %v", err)
+			log.Printf("[%s] %s", fingerprint, errMsg)
+			_ = responseConn.WriteJSON(public.WSMessage{
+				Type:        public.MODEL_ERROR,
+				Content:     errMsg,
+				FingerPrint: fingerprint,
+			})
+			return err
+		}
+
+		line = bytes.TrimSpace(line)
+		if len(line) == 0 || !bytes.HasPrefix(line, []byte("data: ")) {
+			continue
+		}
+
+		data := bytes.TrimPrefix(line, []byte("data: "))
+		if bytes.Equal(data, []byte("[DONE]")) {
+			break
+		}
+
+		var content map[string]interface{}
+		if err := json.Unmarshal(data, &content); err != nil {
+			log.Printf("[%s] unmarshal chunk error: %v, data: %s", fingerprint, err, string(data))
+			continue
+		}
+
+		if err := responseConn.WriteJSON(public.WSMessage{
+			Type:        public.MESSAGE_STREAM,
+			Content:     content,
+			FingerPrint: fingerprint,
+		}); err != nil {
+			log.Printf("[%s] send response error: %v", fingerprint, err)
+			return err
+		}
+	}
+
+	return responseConn.WriteJSON(public.WSMessage{
+		Type:        public.CLOSE,
+		Content:     nil,
+		FingerPrint: fingerprint,
+	})
+}
+
 // handleStreamWithRawSSE 直接处理 SSE 流以保留完整的 JSON 数据（包括 Kimi 的 usage）
 func (e *Engine) handleStreamWithRawSSE(ctx context.Context, fingerprint string,
-	request *openai.ChatCompletionRequest, responseConn *websocket.Conn) error {
+	request *public.ExtendedChatRequest, responseConn *websocket.Conn) error {
 
-	// 构造请求
-	reqBody, err := json.Marshal(request)
+	// 构造请求（叠加 go-openai 未覆盖的扩展字段，如 thinking）
+	reqBody, err := request.BuildRequestBody()
 	if err != nil {
 		return fmt.Errorf("marshal request error: %w", err)
 	}

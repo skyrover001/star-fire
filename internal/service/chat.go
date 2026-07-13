@@ -18,34 +18,32 @@ import (
 
 // handle user chat request
 func HandleChatRequest(c *gin.Context, server *models.Server) {
-	type ExtendedChatRequest struct {
-		openai.ChatCompletionRequest
-		EnableThink bool `json:"enable_thinking,omitempty"`
-	}
-
-	//扩展结构体
-	var extendedRequest ExtendedChatRequest
+	//扩展结构体（在 go-openai 标准请求之上承载 thinking / enable_thinking）
+	var extendedRequest public.ExtendedChatRequest
 	err := c.ShouldBindJSON(&extendedRequest)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
 
-	request := extendedRequest.ChatCompletionRequest
 	fingerPrint := uuid.NewString()
 
-	// 只在前端明确传了 enable_thinking 时才覆盖 reasoning_effort
-	// 否则保留请求中原有的 reasoning_effort 值（智能体客户端如 hermes/opencode 会自己设置）
+	// 仅在用户未显式提供 reasoning_effort 时才填充默认值，
+	// 避免覆盖调用方（如 hermes/opencode）自带的值。
 	// 注意：不要对空值强制设 "none"，因为某些后端（如 vLLM/GLM-5.1）不支持该参数，
-	// 强制设置可能导致模型输出混乱（think块和tool_call混杂）导致截断
-	if extendedRequest.EnableThink {
-		request.ReasoningEffort = "medium"
+	// 强制设置可能导致模型输出混乱（think块和tool_call混杂）导致截断。
+	if extendedRequest.ReasoningEffort == "" {
+		if extendedRequest.EnableThinking != nil && *extendedRequest.EnableThinking {
+			extendedRequest.ReasoningEffort = "medium"
+		}
+		// qwen 系列模型兼容 reasoning effort
+		modelLower := strings.ToLower(extendedRequest.Model)
+		if strings.Contains(modelLower, "qwen") && (strings.Contains(modelLower, "think") || strings.Contains(modelLower, "235b")) {
+			extendedRequest.ReasoningEffort = "low"
+		}
 	}
 
-	// qwen 系列模型兼容reasoning effort
-	if strings.Contains(strings.ToLower(request.Model), "qwen") && (strings.Contains(strings.ToLower(request.Model), "think") || strings.Contains(strings.ToLower(request.Model), "235b")) {
-		request.ReasoningEffort = "low"
-	}
+	request := extendedRequest.ChatCompletionRequest
 
 	// fmt.Println("request is ..............................", request.Metadata, request.ChatCompletionRequestExtensions, request.ReasoningEffort)
 	userID, _ := c.Get("user_id")
@@ -90,7 +88,7 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 
 	err = client.ControlConn.WriteJSON(public.WSMessage{
 		Type:        public.MESSAGE,
-		Content:     request,
+		Content:     extendedRequest,
 		FingerPrint: fingerPrint,
 	})
 	if err != nil {
