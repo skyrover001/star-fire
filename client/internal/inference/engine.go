@@ -16,7 +16,7 @@ type Engine interface {
 	ListModels(ctx context.Context, conf *config.Config) ([]*public.Model, error)
 	SupportsModel(modelName string, conf *config.Config) bool
 	HandleChat(ctx context.Context, fingerprint string,
-		request *openai.ChatCompletionRequest,
+		request *public.ExtendedChatRequest,
 		responseConn *websocket.Conn) error
 	// 添加embedding支持
 	HandleEmbedding(ctx context.Context, fingerprint string,

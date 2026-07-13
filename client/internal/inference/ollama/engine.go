@@ -343,7 +343,7 @@ func convertOpenAIToolToOllama(openaiTool openai.Tool) (api.Tool, error) {
 }
 
 func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
-	request *openai.ChatCompletionRequest, responseConn *websocket.Conn) error {
+	request *public.ExtendedChatRequest, responseConn *websocket.Conn) error {
 	// think 开关
 	think := &api.ThinkValue{}
 	if strings.Index(request.Model, "qwen") >= 0 || strings.Index(request.Model, "DeepSeek v3.1") >= 0 || strings.Index(request.Model, "DeepSeek v3.2-exp") >= 0 {
@@ -353,6 +353,10 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		} else {
 			think.Value = true
 		}
+	}
+	// 前端显式传了 enable_thinking 时以其为准
+	if request.EnableThinking != nil {
+		think.Value = *request.EnableThinking
 	}
 	if strings.Contains(request.Model, "Doubao-seed-1-6") || strings.Contains(request.Model, "gpt-5.1") {
 		think.Value = request.ReasoningEffort
