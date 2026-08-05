@@ -3,7 +3,7 @@ import type { VbenFormSchema } from '@vben/common-ui';
 import type { Recordable } from '@vben/types';
 
 import { computed, ref, reactive } from 'vue';
-import { message } from 'ant-design-vue';
+import { message, Modal as AModal, Button as AButton } from 'ant-design-vue';
 import { useRouter } from 'vue-router';
 
 import { AuthenticationRegister, z } from '@vben/common-ui';
@@ -15,6 +15,23 @@ defineOptions({ name: 'Register' });
 const router = useRouter();
 const loading = ref(false);
 const sendingCode = ref(false);
+const agreeTerms = ref(false);
+const agreePrivacy = ref(false);
+const showDisclaimer = ref(false);
+const showPrivacy = ref(false);
+const registerFormRef = ref<InstanceType<typeof AuthenticationRegister>>();
+
+// 从协议弹窗点击“同意并继续”时，同步勾选表单中的复选框
+const agreeFromModal = () => {
+  agreeTerms.value = true;
+  showDisclaimer.value = false;
+};
+
+// 从隐私政策弹窗点击“同意并继续”时，同步勾选表单中的复选框
+const agreePrivacyFromModal = () => {
+  agreePrivacy.value = true;
+  showPrivacy.value = false;
+};
 
 // 注册步骤状态：1-邮箱 2-密码和验证码
 const currentStep = ref(1);
@@ -35,7 +52,6 @@ const formSchema = computed((): VbenFormSchema[] => {
           componentProps: {
             placeholder: $t('page.auth.email'),
             type: 'email',
-            size: 'large',
             class: 'h-12',
           },
           fieldName: 'email',
@@ -51,7 +67,6 @@ const formSchema = computed((): VbenFormSchema[] => {
           componentProps: {
             passwordStrength: true,
             placeholder: $t('page.auth.password'),
-            size: 'large',
             class: 'h-12',
           },
           fieldName: 'password',
@@ -67,7 +82,6 @@ const formSchema = computed((): VbenFormSchema[] => {
           component: 'VbenInputPassword',
           componentProps: {
             placeholder: $t('page.auth.confirmPassword'),
-            size: 'large',
             class: 'h-12',
           },
           dependencies: {
@@ -89,7 +103,6 @@ const formSchema = computed((): VbenFormSchema[] => {
           component: 'VbenInput',
           componentProps: {
             placeholder: $t('page.auth.verificationCode'),
-            size: 'large',
             class: 'h-12',
             maxlength: 6,
           },
@@ -158,6 +171,10 @@ async function handleSubmit(values: Recordable<any>) {
   
   try {
     if (currentStep.value === 1) {
+      if (!agreeTerms.value || !agreePrivacy.value) {
+        message.warning($t('page.auth.agreeTermsRequired'));
+        return;
+      }
       // 步骤1：保存邮箱，发送验证码，进入密码和验证码设置
       registrationData.email = values.email;
       await sendEmailCode(registrationData.email);
@@ -165,6 +182,10 @@ async function handleSubmit(values: Recordable<any>) {
       message.success($t('page.auth.verificationCodeSentSetPassword'));
     } else if (currentStep.value === 2) {
       // 步骤2：验证码验证，完成注册
+      if (!agreeTerms.value || !agreePrivacy.value) {
+        message.warning($t('page.auth.agreeTermsRequired'));
+        return;
+      }
       await completeRegistration(values);
     }
   } catch (error: any) {
@@ -211,7 +232,9 @@ const goBack = () => {
 </script>
 
 <template>
-  <AuthenticationRegister
+  <div>
+    <AuthenticationRegister
+    ref="registerFormRef"
     :form-schema="formSchema"
     :loading="loading"
     :submit-button-text="buttonText"
@@ -274,23 +297,164 @@ const goBack = () => {
         </div>
       </div>
     </template>
+
+    <!-- 协议与隐私政策勾选 -->
+    <template #extra>
+      <div class="mt-4 space-y-3 text-sm">
+        <label class="flex cursor-pointer items-start gap-2">
+          <input
+            v-model="agreeTerms"
+            type="checkbox"
+            class="mt-0.5 size-4 shrink-0 accent-blue-600"
+          />
+          <span class="text-[var(--text-secondary)]">
+            {{ $t('page.auth.agreeTerms') }}
+            <a
+              class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline"
+              href="javascript:void(0)"
+              @click.prevent="showDisclaimer = true"
+            >
+              {{ $t('page.auth.viewTerms') }}
+            </a>
+          </span>
+        </label>
+        <label class="flex cursor-pointer items-start gap-2">
+          <input
+            v-model="agreePrivacy"
+            type="checkbox"
+            class="mt-0.5 size-4 shrink-0 accent-blue-600"
+          />
+          <span class="text-[var(--text-secondary)]">
+            {{ $t('page.auth.agreePrivacy') }}
+            <a
+              class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 underline"
+              href="javascript:void(0)"
+              @click.prevent="showPrivacy = true"
+            >
+              {{ $t('page.auth.viewPrivacy') }}
+            </a>
+          </span>
+        </label>
+      </div>
+    </template>
     
     <!-- 底部登录链接 -->
     <template #footer>
       <div class="text-center mt-6">
         <span class="text-[var(--text-secondary)]">{{ $t('page.auth.haveAccount') }}</span>
-        <a 
-          href="/auth/login" 
+        <RouterLink
+          :to="{ name: 'Login' }"
           class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 ml-1 font-medium"
-          @click.prevent="router.push('/auth/login')"
         >
           {{ $t('page.auth.signIn') }}
-        </a>
+        </RouterLink>
         
         <div class="mt-4 text-center">
           <span class="text-[var(--text-tertiary)]">{{ $t('page.auth.or') }}</span>
         </div>
       </div>
     </template>
-  </AuthenticationRegister>
+    </AuthenticationRegister>
+
+    <!-- 免责声明与用户协议弹窗 -->
+    <a-modal
+    :open="showDisclaimer"
+    :title="$t('page.auth.disclaimerTitle')"
+    :footer="null"
+    width="720px"
+    @cancel="showDisclaimer = false"
+  >
+    <div class="max-h-[60vh] overflow-y-auto pr-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+      <p class="mb-4">{{ $t('page.auth.disclaimerSections.intro') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.disclaimerSections.account.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.disclaimerSections.account.content') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.disclaimerSections.modelContributor.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.disclaimerSections.modelContributor.content') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.disclaimerSections.platformDisclaimer.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.disclaimerSections.platformDisclaimer.content') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.disclaimerSections.apiUsage.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.disclaimerSections.apiUsage.content') }}</p>
+
+      <p class="mt-4 font-medium text-[var(--text-primary)]">
+        {{ $t('page.auth.disclaimerSections.acceptance') }}
+      </p>
+    </div>
+    <div class="mt-6 flex justify-end gap-3">
+      <a-button @click="showDisclaimer = false">
+        {{ $t('page.auth.disclaimerClose') }}
+      </a-button>
+      <a-button
+        type="primary"
+        @click="agreeFromModal"
+      >
+        {{ $t('page.auth.disclaimerAgree') }}
+      </a-button>
+    </div>
+    </a-modal>
+
+    <!-- 隐私政策弹窗 -->
+    <a-modal
+    :open="showPrivacy"
+    :title="$t('page.auth.privacyTitle')"
+    :footer="null"
+    width="720px"
+    @cancel="showPrivacy = false"
+  >
+    <div class="max-h-[60vh] overflow-y-auto pr-2 text-sm leading-relaxed text-[var(--text-secondary)]">
+      <p class="mb-4">{{ $t('page.auth.privacySections.intro') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.privacySections.collection.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.privacySections.collection.content') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.privacySections.dataUsage.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.privacySections.dataUsage.content') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.privacySections.sharing.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.privacySections.sharing.content') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.privacySections.security.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.privacySections.security.content') }}</p>
+
+      <h3 class="mb-2 mt-4 font-semibold text-[var(--text-primary)]">
+        {{ $t('page.auth.privacySections.userRights.title') }}
+      </h3>
+      <p class="whitespace-pre-line">{{ $t('page.auth.privacySections.userRights.content') }}</p>
+
+      <p class="mt-4 font-medium text-[var(--text-primary)]">
+        {{ $t('page.auth.privacySections.acceptance') }}
+      </p>
+    </div>
+    <div class="mt-6 flex justify-end gap-3">
+      <a-button @click="showPrivacy = false">
+        {{ $t('page.auth.disclaimerClose') }}
+      </a-button>
+      <a-button
+        type="primary"
+        @click="agreePrivacyFromModal"
+      >
+        {{ $t('page.auth.disclaimerAgree') }}
+      </a-button>
+    </div>
+    </a-modal>
+  </div>
 </template>

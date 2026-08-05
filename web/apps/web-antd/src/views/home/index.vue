@@ -688,8 +688,10 @@ watch(currentLang, () => {
       <div class="container nav-inner">
         <a class="nav-brand" href="#" @click.prevent>
           <span class="logo">✦</span>
-          <span class="brand-name">{{ $t('page.home.brand') }}</span>
-          <span class="brand-suffix">{{ $t('page.home.brandSuffix') }}</span>
+          <span class="brand-text">
+            <span class="brand-name">{{ $t('page.home.brand') }}</span>
+            <span class="brand-suffix">{{ $t('page.home.brandSuffix') }}</span>
+          </span>
         </a>
         <ul class="nav-links" :class="{ open: navOpen }">
           <li><a href="#models" @click.prevent="scrollTo('models')">{{ $t('page.home.navModels') }}</a></li>
@@ -897,8 +899,10 @@ watch(currentLang, () => {
         <div class="col">
           <div class="brand">
             <span class="logo">✦</span>
-            <span class="brand-name">{{ $t('page.home.brand') }}</span>
-            <span class="brand-suffix">{{ $t('page.home.brandSuffix') }}</span>
+            <span class="brand-text">
+              <span class="brand-name">{{ $t('page.home.brand') }}</span>
+              <span class="brand-suffix">{{ $t('page.home.brandSuffix') }}</span>
+            </span>
           </div>
           <p class="footer-tagline">{{ $t('page.home.footerTagline') }}</p>
         </div>
@@ -986,7 +990,9 @@ watch(currentLang, () => {
 .navbar.scrolled { padding: 8px 0; background: rgba(7, 7, 13, 0.95); }
 .nav-inner { display: flex; align-items: center; justify-content: space-between; }
 .nav-brand { display: flex; align-items: center; gap: 10px; font-size: 1.2rem; font-weight: 700; letter-spacing: -0.02em; }
-.nav-brand .brand-suffix { font-size: 0.7rem; font-weight: 400; color: var(--text-sec); letter-spacing: 0; }
+.nav-brand .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.nav-brand .brand-name { font-size: 1.2rem; font-weight: 700; }
+.nav-brand .brand-suffix { font-size: 0.62rem; font-weight: 400; color: var(--text-sec); letter-spacing: 0; }
 .nav-brand .logo {
   width: 30px; height: 30px; background: var(--grad); border-radius: 8px;
   display: flex; align-items: center; justify-content: center; font-size: 0.9rem; color: #fff;
@@ -1103,7 +1109,9 @@ watch(currentLang, () => {
 .footer { border-top: 1px solid var(--border); padding: 40px 0 28px; background: var(--bg); }
 .footer-inner { display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 32px; }
 .footer .brand { font-weight: 600; color: var(--text); font-size: 1.1rem; display: flex; align-items: center; gap: 8px; }
-.footer .brand .brand-suffix { font-size: 0.65rem; font-weight: 400; color: var(--text-sec); letter-spacing: 0; }
+.footer .brand .brand-text { display: flex; flex-direction: column; line-height: 1.15; }
+.footer .brand .brand-name { font-size: 1.1rem; font-weight: 600; }
+.footer .brand .brand-suffix { font-size: 0.6rem; font-weight: 400; color: var(--text-sec); letter-spacing: 0; }
 .footer .brand .logo { width: 24px; height: 24px; background: var(--grad); border-radius: 6px; display: flex; align-items: center; justify-content: center; font-size: 0.7rem; color: #fff; }
 .footer .col h4 { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); margin-bottom: 10px; }
 .footer .col p, .footer .col a { font-size: 0.85rem; color: var(--text-sec); line-height: 1.8; display: block; }

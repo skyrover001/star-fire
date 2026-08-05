@@ -44,8 +44,7 @@ const props = withDefaults(defineProps<Props>(), {
       class="hover:text-primary-hover mx-1"
       target="_blank"
     >
-      <!-- {{ companyName }} -->
-        TH-Star-Fire
+      {{ props.companyName }}
     </a>
   </div>
 </template>

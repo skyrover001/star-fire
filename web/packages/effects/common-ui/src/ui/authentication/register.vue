@@ -98,6 +98,8 @@ defineExpose({
     </Title>
     <Form />
 
+    <slot name="extra" />
+
     <VbenButton
       :class="{
         'cursor-wait': loading,
@@ -111,11 +113,13 @@ defineExpose({
         {{ submitButtonText || $t('authentication.signUp') }}
       </slot>
     </VbenButton>
-    <div class="mt-4 text-center text-sm">
-      {{ $t('authentication.alreadyHaveAccount') }}
-      <span class="vben-link text-sm font-normal" @click="goToLogin()">
-        {{ $t('authentication.goToLogin') }}
-      </span>
-    </div>
+    <slot name="footer">
+      <div class="mt-4 text-center text-sm">
+        {{ $t('authentication.alreadyHaveAccount') }}
+        <span class="vben-link text-sm font-normal" @click="goToLogin()">
+          {{ $t('authentication.goToLogin') }}
+        </span>
+      </div>
+    </slot>
   </div>
 </template>

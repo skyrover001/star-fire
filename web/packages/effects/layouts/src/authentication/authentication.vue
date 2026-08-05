@@ -81,11 +81,13 @@ const { authPanelCenter, authPanelLeft, authPanelRight, isDark } =
         >
           ✦
         </span>
-        <p v-if="appName" class="m-0 text-xl font-medium">
-          {{ appName }}
+        <p v-if="appName" class="m-0 flex flex-col leading-tight">
+          <span class="text-2xl font-semibold">
+            {{ appName }}
+          </span>
           <span
             v-if="appNameSuffix"
-            class="text-sm font-normal text-muted-foreground ml-1"
+            class="mt-1 text-xs font-medium text-primary"
           >
             {{ appNameSuffix }}
           </span>
