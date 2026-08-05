@@ -1,6 +1,7 @@
 package config
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/url"
@@ -12,6 +13,53 @@ import (
 const IPPM_MAX = 3.99
 const OPPM_MAX = 7.99
 const CIPPM_MAX = 1.99
+
+// ModelPrice 单个模型的价格配置
+// 价格字段在 JSON 中可能是字符串（如 "2.99"），因此使用自定义反序列化
+// 支持字符串或数字两种格式
+type ModelPrice struct {
+	Engine           string  `json:"engine"`
+	InputPrice       float64 `json:"-"`
+	OutputPrice      float64 `json:"-"`
+	CachedInputPrice float64 `json:"-"`
+}
+
+// UnmarshalJSON 支持字符串或数字格式的价格字段
+func (m *ModelPrice) UnmarshalJSON(data []byte) error {
+	type Alias struct {
+		Engine           string      `json:"engine"`
+		InputPrice       interface{} `json:"ippm"`
+		OutputPrice      interface{} `json:"oppm"`
+		CachedInputPrice interface{} `json:"cippm"`
+	}
+	var alias Alias
+	if err := json.Unmarshal(data, &alias); err != nil {
+		return err
+	}
+	m.Engine = alias.Engine
+	m.InputPrice = toFloat(alias.InputPrice)
+	m.OutputPrice = toFloat(alias.OutputPrice)
+	m.CachedInputPrice = toFloat(alias.CachedInputPrice)
+	return nil
+}
+
+// toFloat 将 interface{} 转换为 float64，支持字符串和数字
+func toFloat(v interface{}) float64 {
+	switch val := v.(type) {
+	case float64:
+		return val
+	case string:
+		var f float64
+		_, _ = fmt.Sscanf(val, "%f", &f)
+		return f
+	case int:
+		return float64(val)
+	case int64:
+		return float64(val)
+	default:
+		return 0
+	}
+}
 
 type Config struct {
 	StarFireHost                    string
@@ -29,6 +77,8 @@ type Config struct {
 	OPPMMax                         float64
 	CIPPMMax                        float64
 	OpenAIOnly                      bool // 仅使用 OpenAI 引擎，不包含本地引擎模型
+	ModelPrices                     map[string]ModelPrice
+	ConfigFile                      string
 }
 
 func LoadConfig() *Config {
@@ -40,6 +90,7 @@ func LoadConfig() *Config {
 		IPPMMax:                         10.0, // 平台输入价格上限
 		OPPMMax:                         20.0, // 平台输出价格上限
 		CIPPMMax:                        2.0,  // 平台缓存输入价格上限
+		ModelPrices:                     map[string]ModelPrice{},
 	}
 
 	var showHelp bool
@@ -57,6 +108,7 @@ func LoadConfig() *Config {
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 	flag.IntVar(&cfg.APPPort, "port", 19527, "服务端口 (默认:19527)")
 	flag.BoolVar(&cfg.OpenAIOnly, "openai-only", false, "仅使用 OpenAI 引擎，不注册本地引擎模型到服务器")
+	flag.StringVar(&cfg.ConfigFile, "config", "starfire_config.json", "配置文件路径 (默认: starfire_config.json)")
 
 	flag.Usage = func() {
 		_, _ = fmt.Fprintf(os.Stderr, "StarFire 客户端\n\n")
@@ -120,6 +172,9 @@ func LoadConfig() *Config {
 		}
 	}
 
+	// 读取配置文件（命令行参数优先级最高，配置文件作为兜底）
+	loadConfigFile(cfg)
+
 	if cfg.OpenAIBaseURL != "" {
 		cfg.OpenAIBaseURL = normalizeOpenAIURL(cfg.OpenAIBaseURL)
 	}
@@ -169,6 +224,46 @@ func ValidateConfig(cfg *Config) error {
 	}
 
 	return nil
+}
+
+// loadConfigFile 从配置文件读取设置（静默忽略缺失/格式错误）
+func loadConfigFile(cfg *Config) {
+	data, err := os.ReadFile(cfg.ConfigFile)
+	if err != nil {
+		return // 文件不存在，静默忽略
+	}
+
+	var fileCfg struct {
+		IPPM        string                `json:"ippm"`
+		OPPM        string                `json:"oppm"`
+		CIPPM       string                `json:"cippm"`
+		ModelPrices map[string]ModelPrice `json:"model_prices"`
+	}
+	if err := json.Unmarshal(data, &fileCfg); err != nil {
+		return // 格式错误，静默忽略
+	}
+
+	// 顶层默认价格（仅当命令行未显式指定时使用）
+	if fileCfg.IPPM != "" {
+		if p, err := strconv.ParseFloat(fileCfg.IPPM, 64); err == nil {
+			cfg.InputTokenPricePerMillion = p
+		}
+	}
+	if fileCfg.OPPM != "" {
+		if p, err := strconv.ParseFloat(fileCfg.OPPM, 64); err == nil {
+			cfg.OutputTokenPricePerMillion = p
+		}
+	}
+	if fileCfg.CIPPM != "" {
+		if p, err := strconv.ParseFloat(fileCfg.CIPPM, 64); err == nil {
+			cfg.CachedInputTokenPricePerMillion = p
+		}
+	}
+
+	// 每个模型的价格配置
+	if fileCfg.ModelPrices != nil {
+		cfg.ModelPrices = fileCfg.ModelPrices
+	}
 }
 
 func normalizeOpenAIURL(rawURL string) string {

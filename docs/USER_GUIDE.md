@@ -40,6 +40,25 @@ MaaS层个人算力服务平台
 
    (5) 可以在我的收益页面查看自己所有提供模型的收益情况
 
+   **通过配置文件设置每个模型的价格**
+
+   客户端默认读取当前目录下的 `starfire_config.json`，也可用 `-config` 指定路径。配置文件支持为每个模型单独设置价格：
+
+   ```json
+   {
+     "host": "http://your-server.com",
+     "token": "your-registration-token",
+     "ippm": "3.8",
+     "oppm": "8.3",
+     "model_prices": {
+       "DeepSeek-V4": { "engine": "openai", "ippm": "2.99", "oppm": "14.99", "cippm": "0.3" },
+       "GLM-5.2": { "engine": "openai", "ippm": "3.99", "oppm": "19.99", "cippm": "0.4" }
+     }
+   }
+   ```
+
+   价格优先级（从高到低）：命令行参数 > 环境变量 > 配置文件。未在 `model_prices` 中配置的模型使用顶层 `ippm/oppm` 或默认价格。
+
 #### 使用模型
 1. 在模型广场页面选择模型
 2. 在API密钥页面创建获取API密钥 

@@ -190,9 +190,12 @@
     "windowsApp": "Windows App",
     "windowsDescription": "Windows 10/11 archive (~45MB)",
     "macosDescription": "macOS 10.15+ executable (~52MB)",
+    "linuxApp": "Linux",
+    "linuxDescription": "Linux x86_64 archive (~50MB)",
     "download": "Download",
     "windowsPlatform": "Windows",
     "macosPlatform": "macOS",
+    "linuxPlatform": "Linux",
     "tokenGenerated": "Token generated successfully",
     "tokenGenerationFailed": "Failed to generate token",
     "tokenGenerationRetry": "Failed to generate token. Please try again later.",
@@ -206,7 +209,7 @@
     "registrationNetworkRetry": "Registration failed. Check your network connection and try again.",
     "downloadingClient": "Downloading {platform} client ({size})",
     "downloadFailed": "Failed to download the {platform} client. Please try again later.",
-    "downloadHint": "Windows: download and extract the RAR archive before running. macOS: download the executable and grant execution permission. Usage: starfire -host {host_ip:{port}} -token YOUR_TOKEN",
+    "downloadHint": "Windows: download and extract the RAR archive before running. macOS: download the executable and grant execution permission. Usage: starfire -host HOST:PORT -token YOUR_TOKEN",
     "usageGuideMarkdown": "# Client Registration Guide\n\n## 1. System Requirements\n\n### Windows\n- Windows 10 or later\n- At least 4GB of memory\n- 500MB of available disk space\n\n### macOS\n- macOS 10.15 (Catalina) or later\n- At least 4GB of memory\n- 500MB of available disk space\n\n## 2. Installation\n\n### Windows\n1. Download the `starfire.rar` archive\n2. Extract it to a destination directory\n3. Run the extracted starfire.exe\n4. Start the application\n\n### macOS\n1. Download the `starfire` application\n2. Move the downloaded file to the Applications folder\n3. Run chmod +x starfire in Terminal to grant execute permission\n4. Start the client from the Applications folder\n\n## 3. Client Configuration\n\n### Initial Setup\n1. Start the client and open Settings\n2. Configure the server address: `https://your-server.com/api`\n3. Enter your username and password\n4. Select \"Test Connection\" to verify the configuration\n\n### Registration Token Setup\n1. Generate a registration token on the Model Marketplace page\n2. Copy the token to the client's \"Token\" field\n3. Select \"Verify Token\" to confirm it is valid\n\n## 4. Model Registration\n\n### Preparation\n- Ensure the model files are complete and correctly formatted\n- Prepare the model description and related documentation\n- Confirm model compatibility requirements\n\n### Registration Steps\n1. Select \"Register New Model\" in the client\n2. Enter the model details:\n   - Model name\n   - Version\n   - Description\n   - Parameter size\n   - Model type\n3. Upload the model files (multiple formats supported)\n4. Configure model runtime parameters\n5. Submit the registration request\n\n### Status Tracking\n- **Pending review**: The model was submitted and is waiting for administrator review\n- **Approved**: The model passed review and is being deployed\n- **Deployed**: The model was deployed successfully and is ready to use\n- **Rejected**: The model did not pass review; update it and submit again\n\n## 5. FAQ\n\n### Q: Why cannot the client connect to the server?\nA: Check:\n- Your network connection\n- The server address\n- Whether firewall settings are blocking the connection\n\n### Q: Why does token verification fail?\nA: Confirm:\n- The token has not expired\n- The token was copied completely\n- Your account has registration permission\n\n### Q: Why does model upload fail?\nA: Possible reasons:\n- Unsupported file format\n- File size exceeds the limit\n- Network connection was interrupted\n\n### Q: How do I update the client?\nA: The client checks for updates automatically. You can also:\n- Select \"Check for Updates\" from the menu\n- Download and install the latest package again\n\n## 6. Technical Support\n\nIf you encounter a problem, get help through:\n\n- Email: support@example.com\n- Online support: weekdays 9:00-18:00\n- Documentation: https://docs.example.com\n- Issue tracker: https://github.com/example/issues\n\n---\n\n*Last updated: December 2024*"
   },
   "myModels": {

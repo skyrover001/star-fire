@@ -39,16 +39,16 @@ Star-fire provides a rich set of features:
 9. Revenue statistics: users can view earnings from shared models
 10. Usage statistics: users can track their own model usage
 11. Tools/function calling support
-12. Custom pricing (with min/max limits); currently supports unified custom pricing for all models, with platform-configurable client price bounds
+12. Custom pricing (with min/max limits); the platform can configure the price bounds clients may set
+13. CLI client supports per-model pricing via a configuration file
 
 ## TODO
 
 1. Support more inference engines: vllm, llama.cpp, sglang
-2. Client-side per-model granular pricing
-3. Model-price-based load balancing
-4. Client-load-based load balancing
-5. Real-time PC client revenue notifications
-6. QoS support
+2. Model-price-based load balancing
+3. Client-load-based load balancing
+4. Real-time PC client revenue notifications
+5. QoS support
 
 ## Supported Inference Engines
 
@@ -93,6 +93,25 @@ Run `make install` to compile and install. After completion, you will find execu
 
 4. Run a model locally with ollama; the client will automatically push model info to the server and begin serving
 5. Check the Revenue page to view earnings from all your shared models
+
+**Per-model pricing via configuration file**
+
+The client reads `starfire_config.json` from the current directory by default, or you can specify a path with `-config`. The config file supports setting a price for each model individually:
+
+```json
+{
+  "host": "http://your-server.com",
+  "token": "your-registration-token",
+  "ippm": "3.8",
+  "oppm": "8.3",
+  "model_prices": {
+    "DeepSeek-V4": { "engine": "openai", "ippm": "2.99", "oppm": "14.99", "cippm": "0.3" },
+    "GLM-5.2": { "engine": "openai", "ippm": "3.99", "oppm": "19.99", "cippm": "0.4" }
+  }
+}
+```
+
+Price priority (highest to lowest): command-line flags > environment variables > config file. Models not listed in `model_prices` use the top-level `ippm/oppm` or the default price.
 
 #### Using Models
 

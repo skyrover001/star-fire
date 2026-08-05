@@ -16,6 +16,7 @@
   },
   "type": "module",
   "scripts": {
+    "prebuild": "pnpm --filter @vben-core/shared run build",
     "build": "pnpm vite build --mode production",
     "build:analyze": "pnpm vite build --mode analyze",
     "dev": "pnpm vite --mode development",

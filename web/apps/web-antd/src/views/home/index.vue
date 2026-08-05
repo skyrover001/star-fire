@@ -153,16 +153,63 @@ function goRegister() {
   router.push('/auth/register');
 }
 
+// 客户端下载链接配置（与模型广场保持一致）
+const clientDownloadUrls: Record<string, { url: string; filename: string }> = {
+  windows: {
+    url: '/download/windows/starfire.rar',
+    filename: 'starfire.rar',
+  },
+  macos: {
+    url: '/download/macos/starfire.zip',
+    filename: 'starfire',
+  },
+  linux: {
+    url: '/download/linux/starfire.tar.gz',
+    filename: 'starfire.tar.gz',
+  },
+};
+
 function downloadClient(os?: string) {
-  const msg =
-    currentLang.value === 'zh-CN'
-      ? os
-        ? `⬇ 下载 ${os} 客户端`
-        : '⬇ 客户端下载中...'
-      : os
-        ? `⬇ Download ${os} client`
+  // 归一化平台名（兼容 'Windows'/'macOS'/'Linux' 与 'windows'/'macos'/'linux'）
+  const platform = (os || '').toLowerCase();
+  const clientInfo = clientDownloadUrls[platform];
+
+  if (!clientInfo) {
+    const msg =
+      currentLang.value === 'zh-CN'
+        ? '⬇ 客户端下载中...'
         : '⬇ Downloading client...';
-  showToast(msg, '⬇');
+    showToast(msg, '⬇');
+    return;
+  }
+
+  try {
+    // 使用同源相对路径构造下载链接（安装包与前端部署在同一 nginx 上），
+    // 并附带 filename 参数（匹配 nginx Content-Disposition 配置）。
+    // 不依赖 serverHost，确保 dev 与生产环境行为一致。
+    const downloadUrl = `${window.location.origin}${clientInfo.url}?filename=${encodeURIComponent(clientInfo.filename)}`;
+
+    const link = document.createElement('a');
+    link.href = downloadUrl;
+    link.download = clientInfo.filename;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+    const msg =
+      currentLang.value === 'zh-CN'
+        ? `⬇ 正在下载 ${os} 客户端`
+        : `⬇ Downloading ${os} client`;
+    showToast(msg, '⬇');
+  } catch (error) {
+    console.error('下载客户端失败:', error);
+    const msg =
+      currentLang.value === 'zh-CN'
+        ? '⬇ 下载失败，请稍后重试'
+        : '⬇ Download failed, please try again';
+    showToast(msg, '⬇');
+  }
 }
 
 // ---- hero canvas animation (faithful port from HTML) ----

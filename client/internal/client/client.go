@@ -202,9 +202,18 @@ func (c *Client) refreshModels() error {
 				model.OPPM = existingModel.OPPM
 				model.CIPPM = existingModel.CIPPM
 			} else {
-				// 新模型，使用默认价格
-				log.Printf("➕ New model discovered: %s/%s (default prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
-					model.Engine, model.Name, model.IPPM, model.OPPM, model.CIPPM)
+				// 新模型，检查是否有配置文件中的单独定价
+				if price, ok := c.cfg.ModelPrices[model.Name]; ok {
+					model.IPPM = price.InputPrice
+					model.OPPM = price.OutputPrice
+					model.CIPPM = price.CachedInputPrice
+					log.Printf("➕ New model discovered: %s/%s (config prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
+						model.Engine, model.Name, model.IPPM, model.OPPM, model.CIPPM)
+				} else {
+					// 新模型，使用默认价格
+					log.Printf("➕ New model discovered: %s/%s (default prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
+						model.Engine, model.Name, model.IPPM, model.OPPM, model.CIPPM)
+				}
 			}
 
 			newModels = append(newModels, model)
