@@ -348,10 +348,6 @@ const goBack = () => {
         >
           {{ $t('page.auth.signIn') }}
         </RouterLink>
-        
-        <div class="mt-4 text-center">
-          <span class="text-[var(--text-tertiary)]">{{ $t('page.auth.or') }}</span>
-        </div>
       </div>
     </template>
     </AuthenticationRegister>
