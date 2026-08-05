@@ -1,9 +1,11 @@
 package user_handlers
 
 import (
-	"github.com/gin-gonic/gin"
 	"star-fire/internal/models"
 	"strconv"
+	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 type MarketHandler struct {
@@ -21,6 +23,44 @@ func (h *MarketHandler) ModelsHandler(c *gin.Context) {
 	// For test: curl -X POST http://localhost:8080/api/market/models
 	allModels := h.server.GetAllModels()
 	c.JSON(200, allModels)
+}
+
+// PublicHomepageHandler returns public landing-page data without requiring authentication.
+func (h *MarketHandler) PublicHomepageHandler(c *gin.Context) {
+	stats, err := h.server.TokenUsageDB.GetPublicHomepageStats()
+	if err != nil {
+		c.JSON(500, gin.H{"error": "query public homepage stats failed"})
+		return
+	}
+	c.JSON(200, gin.H{
+		"stats":  stats,
+		"models": h.server.GetAllModels(),
+	})
+}
+
+// ModelStatsHandler returns global usage stats for all models (call volume, tokens, contributors)
+func (h *MarketHandler) ModelStatsHandler(c *gin.Context) {
+	// 默认统计最近 30 天
+	startTime := time.Now().AddDate(0, 0, -30)
+	endTime := time.Now()
+
+	if startDate := c.Query("start_date"); startDate != "" {
+		if t, err := time.Parse("2006-01-02", startDate); err == nil {
+			startTime = t
+		}
+	}
+	if endDate := c.Query("end_date"); endDate != "" {
+		if t, err := time.Parse("2006-01-02", endDate); err == nil {
+			endTime = t.Add(24*time.Hour - time.Second)
+		}
+	}
+
+	stats, err := h.server.TokenUsageDB.GetModelMarketStats(startTime, endTime)
+	if err != nil {
+		c.JSON(500, gin.H{"error": "query model stats failed"})
+		return
+	}
+	c.JSON(200, stats)
 }
 
 // get trends

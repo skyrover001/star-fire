@@ -1,6 +1,8 @@
 <script lang="ts" setup>
 import { ref, onMounted } from 'vue';
 
+import { $t } from '#/locales';
+
 interface ContributionModel {
   id: string;
   name: string;
@@ -82,13 +84,13 @@ const getStatusColor = (status: string) => {
 const getStatusText = (status: string) => {
   switch (status) {
     case 'online':
-      return '在线';
+      return $t('business.analyticsContributionModels.online');
     case 'offline':
-      return '离线';
+      return $t('business.analyticsContributionModels.offline');
     case 'maintenance':
-      return '维护中';
+      return $t('business.analyticsContributionModels.maintenance');
     default:
-      return '未知';
+      return $t('business.analyticsContributionModels.unknown');
   }
 };
 
@@ -139,25 +141,25 @@ onMounted(() => {
             </div>
           </div>
           <div class="text-right">
-            <div class="text-sm font-medium text-gray-900">{{ formatNumber(model.totalDownloads) }} 下载</div>
-            <div class="text-xs text-gray-500">{{ formatNumber(model.totalCalls) }} 调用</div>
+            <div class="text-sm font-medium text-gray-900">{{ formatNumber(model.totalDownloads) }} {{ $t('business.analyticsContributionModels.downloads') }}</div>
+            <div class="text-xs text-gray-500">{{ $t('business.analyticsContributionModels.calls', { count: formatNumber(model.totalCalls) }) }}</div>
           </div>
         </div>
         
         <div class="grid grid-cols-2 gap-4 mt-3 text-sm">
           <div>
-            <span class="text-gray-500">上传时间:</span>
+            <span class="text-gray-500">{{ $t('business.analyticsContributionModels.uploadedAt') }}:</span>
             <div class="font-medium">{{ model.uploadDate }}</div>
           </div>
           <div>
-            <span class="text-gray-500">活跃用户:</span>
-            <div class="font-medium">{{ model.activeUsers }} 人</div>
+            <span class="text-gray-500">{{ $t('business.analyticsContributionModels.activeUsers') }}:</span>
+            <div class="font-medium">{{ model.activeUsers }} {{ $t('business.analyticsContributionModels.people') }}</div>
           </div>
         </div>
         
         <div class="mt-3 flex items-center justify-between">
           <div class="flex items-center space-x-2">
-            <span class="text-xs text-gray-500">评分:</span>
+            <span class="text-xs text-gray-500">{{ $t('business.analyticsContributionModels.rating') }}:</span>
             <div class="flex items-center space-x-1">
               <template v-for="i in renderStars(model.rating).full" :key="`full-${i}`">
                 <svg class="w-3 h-3 text-yellow-400" fill="currentColor" viewBox="0 0 20 20">
@@ -180,17 +182,17 @@ onMounted(() => {
           
           <div class="flex space-x-2">
             <button class="text-xs text-blue-600 hover:text-blue-800 transition-colors">
-              管理
+              {{ $t('business.analyticsContributionModels.manage') }}
             </button>
             <button class="text-xs text-gray-500 hover:text-gray-700 transition-colors">
-              统计
+              {{ $t('business.analyticsContributionModels.statistics') }}
             </button>
           </div>
         </div>
       </div>
       
       <div v-if="contributionModels.length === 0" class="text-center py-8 text-gray-500">
-        暂无贡献记录
+        {{ $t('business.analyticsContributionModels.noContributions') }}
       </div>
     </div>
   </div>

@@ -1,0 +1,1663 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Starfire · 汇聚个人 Tokens，产生更多价值</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Inter:opsz,wght@14..32,300;14..32,400;14..32,500;14..32,600;14..32,700;14..32,800;14..32,900&display=swap" rel="stylesheet" />
+    <style>
+        /* ===== Reset & Base ===== */
+        *,
+        *::before,
+        *::after {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        :root {
+            --bg: #07070d;
+            --card: rgba(255, 255, 255, 0.04);
+            --border: rgba(255, 255, 255, 0.06);
+            --text: #f0f0f6;
+            --text-sec: #8989a0;
+            --text-muted: #4a4a5e;
+            --purple: #8b5cf6;
+            --cyan: #22d3ee;
+            --gold: #f59e0b;
+            --green: #34d399;
+            --grad: linear-gradient(135deg, #8b5cf6, #3b82f6);
+            --radius: 16px;
+            --radius-sm: 10px;
+        }
+        html {
+            scroll-behavior: smooth;
+        }
+        body {
+            font-family: 'Inter', -apple-system, sans-serif;
+            background: var(--bg);
+            color: var(--text);
+            line-height: 1.6;
+            overflow-x: hidden;
+            -webkit-font-smoothing: antialiased;
+        }
+        ::-webkit-scrollbar {
+            width: 4px;
+        }
+        ::-webkit-scrollbar-track {
+            background: var(--bg);
+        }
+        ::-webkit-scrollbar-thumb {
+            background: var(--purple);
+            border-radius: 2px;
+        }
+        a {
+            color: inherit;
+            text-decoration: none;
+        }
+        .container {
+            max-width: 1120px;
+            margin: 0 auto;
+            padding: 0 24px;
+        }
+        .section-padding {
+            padding: 60px 0;
+        }
+
+        /* ===== Buttons ===== */
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 28px;
+            border-radius: 100px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            border: none;
+            cursor: pointer;
+            transition: 0.25s;
+            font-family: inherit;
+            background: var(--card);
+            color: var(--text);
+            border: 1px solid var(--border);
+        }
+        .btn-primary {
+            background: var(--grad);
+            color: #fff;
+            border: none;
+            box-shadow: 0 4px 20px rgba(139, 92, 246, 0.25);
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 30px rgba(139, 92, 246, 0.35);
+        }
+        .btn-outline {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: var(--text-sec);
+        }
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        .btn-sm {
+            padding: 6px 18px;
+            font-size: 0.8rem;
+        }
+
+        /* ===== Navigation ===== */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 12px 0;
+            background: rgba(7, 7, 13, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border);
+            transition: 0.3s;
+        }
+        .navbar .container {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        .nav-brand {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .nav-brand .logo {
+            width: 30px;
+            height: 30px;
+            background: var(--grad);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.9rem;
+            color: #fff;
+        }
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 24px;
+            list-style: none;
+            font-size: 0.85rem;
+            font-weight: 500;
+        }
+        .nav-links a {
+            color: var(--text-sec);
+            transition: 0.25s;
+        }
+        .nav-links a:hover {
+            color: var(--text);
+        }
+        .nav-actions {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .nav-actions .btn {
+            padding: 6px 18px;
+            font-size: 0.8rem;
+        }
+        .lang-toggle {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            padding: 4px 8px;
+            display: flex;
+            gap: 4px;
+            font-size: 0.7rem;
+            font-weight: 600;
+        }
+        .lang-toggle button {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            cursor: pointer;
+            padding: 2px 10px;
+            border-radius: 100px;
+            transition: 0.25s;
+            font-weight: 600;
+            font-family: inherit;
+        }
+        .lang-toggle button.active {
+            background: var(--grad);
+            color: #fff;
+        }
+        .nav-toggle {
+            display: none;
+            flex-direction: column;
+            gap: 4px;
+            background: none;
+            border: none;
+            cursor: pointer;
+            padding: 4px;
+        }
+        .nav-toggle span {
+            width: 22px;
+            height: 2px;
+            background: var(--text);
+            border-radius: 2px;
+            transition: 0.3s;
+        }
+
+        /* ===== Hero Banner ===== */
+        .hero {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding-top: 72px;
+            overflow: hidden;
+        }
+        #heroCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 0;
+            pointer-events: none;
+            display: block;
+        }
+        .hero .container {
+            position: relative;
+            z-index: 1;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 50px;
+            align-items: center;
+        }
+        .hero-content {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+        }
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(139, 92, 246, 0.10);
+            border: 1px solid rgba(139, 92, 246, 0.12);
+            border-radius: 100px;
+            padding: 4px 14px 4px 6px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--purple);
+            width: fit-content;
+        }
+        .hero-badge .dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: var(--green);
+            animation: pulse-dot 2s infinite;
+        }
+        @keyframes pulse-dot {
+            0%,
+            100% {
+                opacity: 1;
+            }
+            50% {
+                opacity: 0.3;
+            }
+        }
+        .hero h1 {
+            font-size: clamp(2.4rem, 5.5vw, 4.2rem);
+            font-weight: 800;
+            letter-spacing: -0.03em;
+            line-height: 1.08;
+        }
+        .hero h1 .highlight {
+            background: var(--grad);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        .hero p {
+            font-size: 1rem;
+            color: var(--text-sec);
+            max-width: 440px;
+            line-height: 1.8;
+        }
+        .hero-actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 4px;
+        }
+        .hero-stats {
+            display: flex;
+            gap: 32px;
+            padding-top: 16px;
+            border-top: 1px solid var(--border);
+        }
+        .hero-stats .stat .num {
+            font-size: 1.3rem;
+            font-weight: 700;
+        }
+        .hero-stats .stat .label {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+
+        /* ===== Sections ===== */
+        .section-label {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--purple);
+            background: rgba(139, 92, 246, 0.08);
+            padding: 4px 14px;
+            border-radius: 100px;
+            display: inline-block;
+            border: 1px solid rgba(139, 92, 246, 0.08);
+            margin-bottom: 8px;
+        }
+        .section-title {
+            font-size: clamp(1.6rem, 3vw, 2.4rem);
+            font-weight: 700;
+            letter-spacing: -0.02em;
+            margin-bottom: 4px;
+        }
+        .section-desc {
+            color: var(--text-sec);
+            font-size: 0.95rem;
+            max-width: 700px;
+            margin: 0 auto;
+            line-height: 1.7;
+        }
+
+        /* Models */
+        .models-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+            gap: 16px;
+            margin-top: 24px;
+        }
+        .model-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 18px 16px 14px;
+            transition: 0.3s;
+            cursor: default;
+        }
+        .model-card:hover {
+            border-color: rgba(255, 255, 255, 0.08);
+            background: rgba(255, 255, 255, 0.04);
+        }
+        .model-card .model-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .model-card .name {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        .model-card .type-badge {
+            font-size: 0.6rem;
+            font-weight: 500;
+            color: var(--cyan);
+            background: rgba(34, 211, 238, 0.08);
+            padding: 2px 10px;
+            border-radius: 100px;
+            border: 1px solid rgba(34, 211, 238, 0.08);
+        }
+        .model-card .provider {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+            margin: 2px 0 10px;
+        }
+        .model-card .metrics {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+            margin: 8px 0 10px;
+        }
+        .model-card .metric {
+            background: var(--bg);
+            border-radius: 6px;
+            padding: 6px 4px;
+            text-align: center;
+            border: 1px solid var(--border);
+        }
+        .model-card .metric .icon {
+            font-size: 0.7rem;
+            display: block;
+            opacity: 0.6;
+        }
+        .model-card .metric .value {
+            font-weight: 700;
+            font-size: 0.9rem;
+            display: block;
+            transition: color 0.3s;
+            color: var(--text);
+        }
+        .model-card .metric .value.update {
+            color: var(--gold);
+        }
+        .model-card .metric .label {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            display: block;
+        }
+        .model-card .status {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.7rem;
+            color: var(--green);
+            margin-top: 2px;
+        }
+        .model-card .status .dot {
+            width: 5px;
+            height: 5px;
+            border-radius: 50%;
+            background: var(--green);
+            display: inline-block;
+        }
+
+        /* Client */
+        .client-features {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+            justify-content: center;
+            margin: 16px 0 24px;
+        }
+        .feature-tag {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: 100px;
+            padding: 4px 16px;
+            font-size: 0.75rem;
+            font-weight: 500;
+            color: var(--text-sec);
+            white-space: nowrap;
+        }
+        .client-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 20px;
+            margin-top: 24px;
+            justify-content: center;
+        }
+        .client-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 24px 32px;
+            text-align: center;
+            min-width: 160px;
+            transition: 0.3s;
+        }
+        .client-card:hover {
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+        .client-card .icon {
+            font-size: 2rem;
+        }
+        .client-card .os {
+            font-weight: 600;
+            margin: 6px 0 2px;
+        }
+        .client-card .ver {
+            font-size: 0.7rem;
+            color: var(--text-muted);
+        }
+        .client-card .btn {
+            margin-top: 10px;
+            padding: 6px 20px;
+            font-size: 0.8rem;
+        }
+
+        /* Tokens Dashboard */
+        .tokens-grid {
+            display: grid;
+            grid-template-columns: 2fr 1fr;
+            gap: 24px;
+            margin-top: 24px;
+        }
+        .dash-card {
+            background: var(--card);
+            border: 1px solid var(--border);
+            border-radius: var(--radius);
+            padding: 24px;
+        }
+        .dash-card .head {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 0.8rem;
+            font-weight: 600;
+            color: var(--text-sec);
+            margin-bottom: 16px;
+        }
+        .stat-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .stat-box {
+            background: var(--bg);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 14px;
+            text-align: center;
+        }
+        .stat-box .num {
+            font-size: 1.4rem;
+            font-weight: 700;
+        }
+        .stat-box .lbl {
+            font-size: 0.65rem;
+            text-transform: uppercase;
+            color: var(--text-muted);
+            letter-spacing: 0.04em;
+        }
+
+        #trendCanvas {
+            width: 100%;
+            height: 100px;
+            border-radius: var(--radius-sm);
+            background: var(--bg);
+            margin-top: 8px;
+        }
+
+        .bar-chart {
+            display: flex;
+            align-items: flex-end;
+            height: 120px;
+            gap: 8px;
+            padding: 8px 0;
+            justify-content: space-around;
+        }
+        .bar-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex: 1;
+        }
+        .bar-item .bar {
+            width: 100%;
+            max-width: 30px;
+            background: var(--purple);
+            border-radius: 2px 2px 0 0;
+            min-height: 8px;
+            transition: 0.3s;
+            opacity: 0.7;
+        }
+        .bar-item .bar.highlight {
+            background: var(--cyan);
+            opacity: 1;
+        }
+        .bar-item .label {
+            font-size: 0.55rem;
+            color: var(--text-muted);
+            margin-top: 4px;
+            text-align: center;
+            word-break: break-all;
+        }
+
+        .rank-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        .rank-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 8px 12px;
+            background: var(--bg);
+            border-radius: var(--radius-sm);
+            border: 1px solid var(--border);
+            font-size: 0.85rem;
+        }
+        .rank-item .left {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .rank-item .left .idx {
+            font-weight: 600;
+            color: var(--text-muted);
+            font-size: 0.7rem;
+            width: 20px;
+        }
+        .rank-item .value {
+            font-weight: 600;
+            color: var(--cyan);
+        }
+
+        /* ===== Footer ===== */
+        .footer {
+            border-top: 1px solid var(--border);
+            padding: 40px 0 28px;
+            background: var(--bg);
+        }
+        .footer .container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            flex-wrap: wrap;
+            gap: 32px;
+        }
+        .footer .brand {
+            font-weight: 600;
+            color: var(--text);
+            font-size: 1.1rem;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .footer .brand .logo {
+            width: 24px;
+            height: 24px;
+            background: var(--grad);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 0.7rem;
+            color: #fff;
+        }
+        .footer .col h4 {
+            font-size: 0.7rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.06em;
+            color: var(--text-muted);
+            margin-bottom: 10px;
+        }
+        .footer .col p,
+        .footer .col a {
+            font-size: 0.85rem;
+            color: var(--text-sec);
+            line-height: 1.8;
+            display: block;
+        }
+        .footer .col a:hover {
+            color: var(--text);
+        }
+        .footer .col .email {
+            color: var(--purple);
+        }
+        .footer-bottom {
+            border-top: 1px solid var(--border);
+            padding-top: 20px;
+            margin-top: 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 12px;
+            font-size: 0.75rem;
+            color: var(--text-muted);
+        }
+        .footer-bottom .copyright {
+            color: var(--text-muted);
+        }
+
+        /* ===== Toast ===== */
+        .toast-container {
+            position: fixed;
+            bottom: 24px;
+            right: 24px;
+            z-index: 9999;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            max-width: 300px;
+            width: 100%;
+        }
+        .toast {
+            background: var(--card);
+            backdrop-filter: blur(16px);
+            border: 1px solid var(--border);
+            border-radius: var(--radius-sm);
+            padding: 10px 16px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
+            animation: slideIn 0.35s ease;
+            font-size: 0.85rem;
+        }
+        .toast .msg {
+            color: var(--text-sec);
+        }
+        @keyframes slideIn {
+            from {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateX(0);
+            }
+        }
+        .toast.out {
+            animation: slideOut 0.3s ease forwards;
+        }
+        @keyframes slideOut {
+            to {
+                opacity: 0;
+                transform: translateX(30px);
+            }
+        }
+
+        /* ===== Responsive ===== */
+        @media (max-width: 1024px) {
+            .hero .container {
+                grid-template-columns: 1fr;
+                gap: 30px;
+                text-align: center;
+            }
+            .hero-content {
+                align-items: center;
+            }
+            .hero p {
+                max-width: 100%;
+            }
+            .hero-stats {
+                justify-content: center;
+            }
+            .tokens-grid {
+                grid-template-columns: 1fr;
+            }
+            .models-grid {
+                grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+            }
+            .footer .container {
+                flex-direction: column;
+                gap: 24px;
+            }
+            .footer-bottom {
+                flex-direction: column;
+                text-align: center;
+            }
+        }
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+                flex-direction: column;
+                background: var(--bg);
+                padding: 20px;
+                border-radius: var(--radius);
+                border: 1px solid var(--border);
+                position: absolute;
+                top: 56px;
+                left: 16px;
+                right: 16px;
+                gap: 12px;
+            }
+            .nav-links.open {
+                display: flex;
+            }
+            .nav-toggle {
+                display: flex;
+            }
+            .nav-actions .btn {
+                padding: 4px 14px;
+                font-size: 0.7rem;
+            }
+            .hero h1 {
+                font-size: 2rem;
+            }
+            .models-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .model-card .metrics {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .stat-row {
+                grid-template-columns: 1fr;
+            }
+            .client-grid {
+                flex-direction: column;
+                align-items: center;
+            }
+            .footer .container {
+                flex-direction: column;
+                text-align: center;
+            }
+            .footer .col {
+                width: 100%;
+            }
+            .client-features {
+                gap: 8px;
+            }
+            .feature-tag {
+                font-size: 0.7rem;
+                padding: 3px 12px;
+            }
+        }
+        @media (max-width: 480px) {
+            .models-grid {
+                grid-template-columns: 1fr;
+            }
+            .model-card .metrics {
+                grid-template-columns: 1fr 1fr 1fr;
+            }
+            .hero-actions .btn {
+                width: 100%;
+                justify-content: center;
+            }
+            .stat-row {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+
+    <!-- ===== Navigation ===== -->
+    <nav class="navbar" id="navbar">
+        <div class="container">
+            <a href="#" class="nav-brand">
+                <span class="logo">✦</span>
+                <span data-en="Starfire" data-zh="Starfire">Starfire</span>
+            </a>
+            <ul class="nav-links" id="navLinks">
+                <li><a href="#models" data-en="Models" data-zh="模型">Models</a></li>
+                <li><a href="#client" data-en="Client" data-zh="客户端">Client</a></li>
+                <li><a href="#tokens" data-en="Tokens" data-zh="Tokens">Tokens</a></li>
+            </ul>
+            <div class="nav-actions">
+                <div class="lang-toggle">
+                    <button class="active" data-lang="en" id="langEn">EN</button>
+                    <button data-lang="zh" id="langZh">中</button>
+                </div>
+                <button class="btn btn-outline btn-sm" id="loginBtn" data-en="Log in" data-zh="登录">Log in</button>
+                <button class="btn btn-primary btn-sm" id="signupBtn" data-en="Sign up" data-zh="注册">Sign up</button>
+                <button class="nav-toggle" id="navToggle"><span></span><span></span><span></span></button>
+            </div>
+        </div>
+    </nav>
+
+    <!-- ===== Hero Banner ===== -->
+    <section class="hero" id="hero">
+        <canvas id="heroCanvas"></canvas>
+        <div class="container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <span class="dot"></span>
+                    <span data-en="Live Network" data-zh="实时网络">Live Network</span>
+                </div>
+                <h1>
+                    <span data-en="Pool Personal Tokens," data-zh="汇聚个人 Tokens，">Pool Personal Tokens,</span><br />
+                    <span class="highlight" data-en="Create More Value" data-zh="产生更多价值">Create More Value</span>
+                </h1>
+                <p data-en="Starfire empowers everyone to pool compute, share models, and exchange tokens. Join the network and turn your personal contributions into real value." data-zh="Starfire 让每个人都能汇聚算力、分享模型、流通 Token。加入网络，将你的个人贡献转化为真实价值。">
+                    Starfire empowers everyone to pool compute, share models, and exchange tokens. Join the network and turn your personal contributions into real value.
+                </p>
+                <div class="hero-actions">
+                    <button class="btn btn-primary" id="heroDownload" data-en="Download Client" data-zh="下载客户端">Download Client</button>
+                    <button class="btn btn-outline" id="heroLearn" data-en="Learn More" data-zh="了解更多">Learn More</button>
+                </div>
+                <div class="hero-stats">
+                    <div class="stat"><span class="num" id="statTotalTokens">2.4M</span><span class="label" data-en="Total Tokens" data-zh="总 Token">Total Tokens</span></div>
+                    <div class="stat"><span class="num" id="statTotalValue">$18.7K</span><span class="label" data-en="Total Value" data-zh="总价值">Total Value</span></div>
+                    <div class="stat"><span class="num" id="statActiveUsers">1.2K</span><span class="label" data-en="Active Users" data-zh="活跃用户">Active Users</span></div>
+                </div>
+            </div>
+            <!-- 右侧平台由 Canvas 绘制 -->
+        </div>
+    </section>
+
+    <!-- ===== Models ===== -->
+    <section class="section-padding" id="models">
+        <div class="container">
+            <span class="section-label" data-en="🤖 Models" data-zh="🤖 模型">🤖 Models</span>
+            <h2 class="section-title" data-en="Available <span class='highlight'>Models</span>" data-zh="可用 <span class='highlight'>模型</span>">
+                Available <span class="highlight">Models</span>
+            </h2>
+            <p class="section-desc" data-en="All models currently online on the platform." data-zh="本平台目前所有在线模型。">
+                All models currently online on the platform.
+            </p>
+            <div class="models-grid" id="modelsGrid"></div>
+        </div>
+    </section>
+
+    <!-- ===== Client ===== -->
+    <section class="section-padding" id="client" style="background:var(--card);border-top:1px solid var(--border);border-bottom:1px solid var(--border);">
+        <div class="container" style="text-align:center;">
+            <span class="section-label" data-en="⬇ Download" data-zh="⬇ 下载">⬇ Download</span>
+            <h2 class="section-title" data-en="Get the <span class='highlight'>Starfire Client</span>" data-zh="获取 <span class='highlight'>Starfire 客户端</span>">
+                Get the <span class="highlight">Starfire Client</span>
+            </h2>
+            <p class="section-desc" data-en="Ultra-lightweight client with zero GPU and storage footprint. One-click to register and share your models, earn token rewards in real time. Available for Windows, macOS, and Linux." data-zh="超轻量化客户端，不占用GPU和存储资源。一键注册分享模型，实时获取Token调用收益。支持 Windows、macOS 和 Linux。">
+                Ultra-lightweight client with zero GPU and storage footprint. One-click to register and share your models, earn token rewards in real time. Available for Windows, macOS, and Linux.
+            </p>
+            <div class="client-features">
+                <span class="feature-tag" data-en="⚡ Zero GPU" data-zh="⚡ 零GPU占用">⚡ Zero GPU</span>
+                <span class="feature-tag" data-en="💾 Minimal Storage" data-zh="💾 极低存储">💾 Minimal Storage</span>
+                <span class="feature-tag" data-en="🚀 One-click Share" data-zh="🚀 一键分享模型">🚀 One-click Share</span>
+                <span class="feature-tag" data-en="💰 Real-time Rewards" data-zh="💰 实时收益">💰 Real-time Rewards</span>
+            </div>
+            <div class="client-grid">
+                <div class="client-card">
+                    <div class="icon">🪟</div>
+                    <div class="os" data-en="Windows" data-zh="Windows">Windows</div>
+                    <div class="ver" data-en="v2.1.0 · x64" data-zh="v2.1.0 · x64">v2.1.0 · x64</div>
+                    <button class="btn btn-primary btn-sm" data-en="Download" data-zh="下载">Download</button>
+                </div>
+                <div class="client-card">
+                    <div class="icon">🍏</div>
+                    <div class="os" data-en="macOS" data-zh="macOS">macOS</div>
+                    <div class="ver" data-en="v2.1.0 · Apple Silicon" data-zh="v2.1.0 · Apple Silicon">v2.1.0 · Apple Silicon</div>
+                    <button class="btn btn-primary btn-sm" data-en="Download" data-zh="下载">Download</button>
+                </div>
+                <div class="client-card">
+                    <div class="icon">🐧</div>
+                    <div class="os" data-en="Linux" data-zh="Linux">Linux</div>
+                    <div class="ver" data-en="v2.1.0 · x64" data-zh="v2.1.0 · x64">v2.1.0 · x64</div>
+                    <button class="btn btn-primary btn-sm" data-en="Download" data-zh="下载">Download</button>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== Tokens Dashboard ===== -->
+    <section class="section-padding" id="tokens">
+        <div class="container">
+            <span class="section-label" data-en="📊 Value Analytics" data-zh="📊 价值分析">📊 Value Analytics</span>
+            <h2 class="section-title" data-en="Token <span class='highlight'>Value &amp; Distribution</span>" data-zh="Token <span class='highlight'>价值与分布</span>">
+                Token <span class="highlight">Value &amp; Distribution</span>
+            </h2>
+            <div class="tokens-grid">
+                <div class="dash-card">
+                    <div class="head">
+                        <span data-en="📈 Total Volume &amp; Trend" data-zh="📈 总交易量与趋势">📈 Total Volume &amp; Trend</span>
+                        <span class="badge" style="font-size:0.65rem;color:var(--text-muted);background:var(--bg);padding:2px 12px;border-radius:100px;border:1px solid var(--border);" data-en="last 7d" data-zh="近7日">last 7d</span>
+                    </div>
+                    <div class="stat-row">
+                        <div class="stat-box"><div class="num" id="totalVolume">2.4M</div><div class="lbl" data-en="Tokens Traded" data-zh="交易 Token">Tokens Traded</div></div>
+                        <div class="stat-box"><div class="num" id="totalValue">$18.7K</div><div class="lbl" data-en="Value (USD)" data-zh="价值 (USD)">Value (USD)</div></div>
+                    </div>
+                    <canvas id="trendCanvas"></canvas>
+                    <div style="display:flex;justify-content:space-between;font-size:0.65rem;color:var(--text-muted);padding:0 4px;margin-top:4px;">
+                        <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
+                    </div>
+                </div>
+                <div class="dash-card">
+                    <div class="head">
+                        <span data-en="📊 Model Call Distribution" data-zh="📊 模型调用分布">📊 Model Call Distribution</span>
+                    </div>
+                    <div class="bar-chart" id="barChart"></div>
+                </div>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:24px;margin-top:24px;">
+                <div class="dash-card">
+                    <div class="head"><span data-en="🏆 Model Call Rankings" data-zh="🏆 模型调用排名">🏆 Model Call Rankings</span></div>
+                    <div class="rank-list" id="modelRank"></div>
+                </div>
+                <div class="dash-card">
+                    <div class="head"><span data-en="🏆 Contributor Reward Rankings" data-zh="🏆 贡献者收益排名">🏆 Contributor Reward Rankings</span></div>
+                    <div class="rank-list" id="contributorRank"></div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- ===== Footer ===== -->
+    <footer class="footer" id="footer">
+        <div class="container">
+            <div class="col">
+                <div class="brand">
+                    <span class="logo">✦</span>
+                    <span data-en="Starfire" data-zh="Starfire">Starfire</span>
+                </div>
+                <p style="color:var(--text-muted);font-size:0.85rem;margin-top:6px;max-width:260px;" data-en="Pool compute, share models, create value." data-zh="汇聚算力，分享模型，创造价值。">
+                    Pool compute, share models, create value.
+                </p>
+            </div>
+            <div class="col">
+                <h4 data-en="Contact" data-zh="联系我们">Contact</h4>
+                <a href="mailto:hello@starfire.network" class="email">hello@starfire.network</a>
+                <p style="color:var(--text-muted);font-size:0.75rem;margin-top:4px;" data-en="Response within 24h" data-zh="24小时内回复">Response within 24h</p>
+            </div>
+            <div class="col">
+                <h4 data-en="Legal" data-zh="法律">Legal</h4>
+                <a href="#" data-en="Privacy Policy" data-zh="隐私政策">Privacy Policy</a>
+                <a href="#" data-en="Terms of Service" data-zh="服务条款">Terms of Service</a>
+            </div>
+        </div>
+        <div class="container footer-bottom">
+            <span class="copyright" data-en="© 2026 Starfire Network. All rights reserved." data-zh="© 2026 Starfire Network. 版权所有。">
+                © 2026 Starfire Network. All rights reserved.
+            </span>
+            <span data-en="Built with ❤️" data-zh="用 ❤️ 构建">Built with ❤️</span>
+        </div>
+    </footer>
+
+    <!-- ===== Toast ===== -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script>
+        // ================================================================
+        // 1. Canvas 动画
+        // ================================================================
+
+        (function initBanner() {
+            const canvas = document.getElementById('heroCanvas');
+            const ctx = canvas.getContext('2d');
+            let W, H, dpr;
+
+            function resize() {
+                const rect = canvas.parentElement.getBoundingClientRect();
+                dpr = window.devicePixelRatio || 1;
+                W = canvas.width = rect.width * dpr;
+                H = canvas.height = rect.height * dpr;
+                canvas.style.width = rect.width + 'px';
+                canvas.style.height = rect.height + 'px';
+                ctx.scale(dpr, dpr);
+            }
+            window.addEventListener('resize', resize);
+
+            const bannerModels = [
+                { id: 'DeepSeek-V4', calls: 284, color: '#8b5cf6' },
+                { id: 'GLM-5.2', calls: 212, color: '#3b82f6' },
+                { id: 'Kimi-K3', calls: 187, color: '#22d3ee' },
+                { id: 'Qwen-3.6', calls: 156, color: '#ec4899' },
+                { id: 'MiniMax-2.7', calls: 123, color: '#34d399' },
+                { id: 'Claude', calls: 98, color: '#f59e0b' },
+                { id: 'GPT', calls: 72, color: '#f472b6' }
+            ];
+            const maxCalls = Math.max(...bannerModels.map(d => d.calls));
+
+            const centerX = 0.70,
+                centerY = 0.50;
+            const spreadX = 0.18,
+                spreadY = 0.16;
+            let modelPositions = [];
+
+            function initModelPositions() {
+                const count = bannerModels.length;
+                const positions = [];
+                const baseSize = 0.028;
+                for (let i = 0; i < count; i++) {
+                    let attempts = 0;
+                    let placed = false;
+                    let pos;
+                    while (!placed && attempts < 200) {
+                        const angle = Math.random() * Math.PI * 2;
+                        const r = Math.random() * 0.85;
+                        const x = centerX + Math.cos(angle) * spreadX * r;
+                        const y = centerY + Math.sin(angle) * spreadY * r;
+                        pos = { x, y };
+                        let overlap = false;
+                        for (let j = 0; j < positions.length; j++) {
+                            const dx = pos.x - positions[j].x;
+                            const dy = pos.y - positions[j].y;
+                            const dist = Math.sqrt(dx * dx + dy * dy);
+                            const sizeRatioI = bannerModels[i].calls / maxCalls;
+                            const sizeRatioJ = bannerModels[positions[j].idx].calls / maxCalls;
+                            const fontSizeI = baseSize * (0.45 + 0.75 * sizeRatioI);
+                            const fontSizeJ = baseSize * (0.45 + 0.75 * sizeRatioJ);
+                            const threshold = (fontSizeI + fontSizeJ) * 0.7;
+                            if (dist < threshold * 1.1) {
+                                overlap = true;
+                                break;
+                            }
+                        }
+                        if (!overlap) {
+                            placed = true;
+                        }
+                        attempts++;
+                    }
+                    if (placed) {
+                        positions.push({ x: pos.x, y: pos.y, idx: i });
+                    } else {
+                        const angle = Math.random() * Math.PI * 2;
+                        const r = Math.random() * 0.8;
+                        positions.push({
+                            x: centerX + Math.cos(angle) * spreadX * r,
+                            y: centerY + Math.sin(angle) * spreadY * r,
+                            idx: i
+                        });
+                    }
+                }
+                modelPositions = positions;
+            }
+            initModelPositions();
+
+            const contributorCount = 5;
+            let contributors = [];
+            for (let i = 0; i < contributorCount; i++) {
+                contributors.push({
+                    x: 0.88 + Math.random() * 0.08,
+                    y: 0.12 + Math.random() * 0.76,
+                    vx: (Math.random() - 0.5) * 0.0005,
+                    vy: (Math.random() - 0.5) * 0.0005,
+                    phase: Math.random() * 100
+                });
+            }
+            const consumerCount = 5;
+            let consumers = [];
+            for (let i = 0; i < consumerCount; i++) {
+                consumers.push({
+                    x: 0.04 + Math.random() * 0.08,
+                    y: 0.12 + Math.random() * 0.76,
+                    vx: (Math.random() - 0.5) * 0.0005,
+                    vy: (Math.random() - 0.5) * 0.0005,
+                    phase: Math.random() * 100
+                });
+            }
+
+            let particles = [];
+            const paths = [];
+            for (let ci = 0; ci < contributorCount; ci++) {
+                paths.push({ from: 'contributor', fromIdx: ci, to: 'center', toIdx: 0 });
+            }
+            for (let ci = 0; ci < consumerCount; ci++) {
+                paths.push({ from: 'center', fromIdx: 0, to: 'consumer', toIdx: ci });
+            }
+
+            function getNode(type, idx) {
+                if (type === 'contributor') return contributors[idx % contributors.length] || contributors[0];
+                if (type === 'consumer') return consumers[idx % consumers.length] || consumers[0];
+                return { x: centerX, y: centerY };
+            }
+
+            function initParticles() {
+                particles = [];
+                for (const p of paths) {
+                    const count = p.from === 'contributor' ? 16 : 14;
+                    for (let i = 0; i < count; i++) {
+                        const t = i / count;
+                        const speed = 0.001 + Math.random() * 0.0015;
+                        let color = '#8b5cf6';
+                        if (p.from === 'contributor' && p.to === 'center') color = '#8b5cf6';
+                        else if (p.from === 'center' && p.to === 'consumer') color = '#f59e0b';
+                        particles.push({
+                            path: p,
+                            progress: t,
+                            speed: speed,
+                            size: 2 + Math.random() * 3,
+                            color: color,
+                            phase: Math.random() * 100
+                        });
+                    }
+                }
+                particles.sort(() => Math.random() - 0.5);
+            }
+            initParticles();
+
+            function getPointOnPath(path, t) {
+                const from = getNode(path.from, path.fromIdx);
+                const to = getNode(path.to, path.toIdx);
+                const mx = (from.x + to.x) / 2;
+                const my = (from.y + to.y) / 2 - 0.03;
+                const t1 = 1 - t;
+                const x = t1 * t1 * from.x + 2 * t1 * t * mx + t * t * to.x;
+                const y = t1 * t1 * from.y + 2 * t1 * t * my + t * t * to.y;
+                return { x, y };
+            }
+
+            let time = 0;
+
+            function draw() {
+                time += 0.005;
+                const w = W / dpr;
+                const h = H / dpr;
+                ctx.clearRect(0, 0, w, h);
+
+                const grad = ctx.createRadialGradient(w * 0.5, h * 0.5, 0, w * 0.5, h * 0.5, w * 0.7);
+                grad.addColorStop(0, '#12121e');
+                grad.addColorStop(1, '#07070d');
+                ctx.fillStyle = grad;
+                ctx.fillRect(0, 0, w, h);
+
+                ctx.globalAlpha = 0.04;
+                ctx.lineWidth = 0.5;
+                for (const c of contributors) {
+                    ctx.beginPath();
+                    ctx.moveTo(c.x * w, c.y * h);
+                    ctx.lineTo(centerX * w, centerY * h);
+                    ctx.strokeStyle = '#8b5cf6';
+                    ctx.stroke();
+                }
+                for (const c of consumers) {
+                    ctx.beginPath();
+                    ctx.moveTo(c.x * w, c.y * h);
+                    ctx.lineTo(centerX * w, centerY * h);
+                    ctx.strokeStyle = '#f59e0b';
+                    ctx.stroke();
+                }
+                ctx.globalAlpha = 1;
+
+                const glow = ctx.createRadialGradient(centerX * w, centerY * h, 0, centerX * w, centerY * h, Math.min(w, h) *
+                    0.22);
+                glow.addColorStop(0, 'rgba(139,92,246,0.06)');
+                glow.addColorStop(1, 'rgba(0,0,0,0)');
+                ctx.fillStyle = glow;
+                ctx.beginPath();
+                ctx.arc(centerX * w, centerY * h, Math.min(w, h) * 0.22, 0, Math.PI * 2);
+                ctx.fill();
+
+                const baseSize = Math.min(w, h) * 0.028;
+                for (let i = 0; i < modelPositions.length; i++) {
+                    const mp = modelPositions[i];
+                    const data = bannerModels[i];
+                    const sizeRatio = data.calls / maxCalls;
+                    const fontSize = baseSize * (0.45 + 0.75 * sizeRatio);
+                    const px = mp.x * w;
+                    const py = mp.y * h;
+                    const r = fontSize * 0.45;
+                    const dotGrad = ctx.createRadialGradient(px - r * 0.2, py - r * 0.2, 0, px, py, r);
+                    dotGrad.addColorStop(0, data.color + '55');
+                    dotGrad.addColorStop(1, data.color + '08');
+                    ctx.shadowColor = data.color;
+                    ctx.shadowBlur = 20;
+                    ctx.beginPath();
+                    ctx.arc(px, py, r, 0, Math.PI * 2);
+                    ctx.fillStyle = dotGrad;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = '#fff';
+                    ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'middle';
+                    ctx.shadowColor = 'rgba(0,0,0,0.5)';
+                    ctx.shadowBlur = 4;
+                    ctx.fillText(data.id, px, py);
+                    ctx.shadowBlur = 0;
+                }
+
+                ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                ctx.font = `600 ${Math.min(w,h) * 0.016}px Inter, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                ctx.fillText('✦ Starfire', centerX * w, (centerY - 0.22) * h);
+
+                for (const c of contributors) {
+                    const r = Math.min(w, h) * 0.016;
+                    const g = ctx.createRadialGradient(c.x * w - r * 0.3, c.y * h - r * 0.3, 0, c.x * w, c.y * h, r);
+                    g.addColorStop(0, '#a78bfa');
+                    g.addColorStop(1, '#6d28d9');
+                    ctx.shadowColor = '#8b5cf6';
+                    ctx.shadowBlur = 25;
+                    ctx.beginPath();
+                    ctx.arc(c.x * w, c.y * h, r, 0, Math.PI * 2);
+                    ctx.fillStyle = g;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+                    ctx.font = `${Math.min(w,h) * 0.012}px Inter, sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('⚡ Contributors', c.x * w, c.y * h - r - 6);
+                }
+
+                for (const c of consumers) {
+                    const r = Math.min(w, h) * 0.016;
+                    const g = ctx.createRadialGradient(c.x * w - r * 0.3, c.y * h - r * 0.3, 0, c.x * w, c.y * h, r);
+                    g.addColorStop(0, '#fcd34d');
+                    g.addColorStop(1, '#b45309');
+                    ctx.shadowColor = '#f59e0b';
+                    ctx.shadowBlur = 25;
+                    ctx.beginPath();
+                    ctx.arc(c.x * w, c.y * h, r, 0, Math.PI * 2);
+                    ctx.fillStyle = g;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.fillStyle = 'rgba(255,255,255,0.12)';
+                    ctx.font = `${Math.min(w,h) * 0.012}px Inter, sans-serif`;
+                    ctx.textAlign = 'center';
+                    ctx.textBaseline = 'bottom';
+                    ctx.fillText('👤 Consumers', c.x * w, c.y * h - r - 6);
+                }
+
+                for (const p of particles) {
+                    const pos = getPointOnPath(p.path, p.progress);
+                    const px = pos.x * w;
+                    const py = pos.y * h;
+                    const alpha = 0.5 + 0.5 * (1 - Math.abs(p.progress - 0.5) * 2);
+                    const size = p.size * (0.7 + 0.3 * (1 - Math.abs(p.progress - 0.5) * 2));
+                    ctx.globalAlpha = alpha * 0.85;
+                    ctx.shadowColor = p.color;
+                    ctx.shadowBlur = 16;
+                    ctx.beginPath();
+                    ctx.arc(px, py, size * 0.5, 0, Math.PI * 2);
+                    ctx.fillStyle = p.color;
+                    ctx.fill();
+                    ctx.shadowBlur = 0;
+                    ctx.globalAlpha = alpha * 0.15;
+                    ctx.beginPath();
+                    ctx.arc(px - size * 0.15, py - size * 0.15, size * 0.15, 0, Math.PI * 2);
+                    ctx.fillStyle = '#fff';
+                    ctx.fill();
+                }
+                ctx.globalAlpha = 1;
+                ctx.shadowBlur = 0;
+
+                ctx.fillStyle = 'rgba(255,255,255,0.03)';
+                ctx.fillRect(0, h - 28, w, 28);
+                ctx.fillStyle = 'rgba(255,255,255,0.06)';
+                ctx.font = `10px Inter, sans-serif`;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                const label = window.currentLang === 'zh' ?
+                    '← Token 流入 · 价值流出 →  |  贡献者 → 平台 → 消费者' :
+                    '← Tokens in · Value out →  |  Contributors → Platform → Consumers';
+                ctx.fillText(label, w / 2, h - 14);
+            }
+
+            function updateNodes() {
+                for (const c of contributors) {
+                    c.x += c.vx * 0.4;
+                    c.y += c.vy * 0.4;
+                    if (c.x < 0.82 || c.x > 0.96) c.vx *= -1;
+                    if (c.y < 0.10 || c.y > 0.90) c.vy *= -1;
+                    c.vx += (Math.random() - 0.5) * 0.00015;
+                    c.vy += (Math.random() - 0.5) * 0.00015;
+                    c.vx = Math.max(-0.0008, Math.min(0.0008, c.vx));
+                    c.vy = Math.max(-0.0008, Math.min(0.0008, c.vy));
+                }
+                for (const c of consumers) {
+                    c.x += c.vx * 0.4;
+                    c.y += c.vy * 0.4;
+                    if (c.x < 0.04 || c.x > 0.18) c.vx *= -1;
+                    if (c.y < 0.10 || c.y > 0.90) c.vy *= -1;
+                    c.vx += (Math.random() - 0.5) * 0.00015;
+                    c.vy += (Math.random() - 0.5) * 0.00015;
+                    c.vx = Math.max(-0.0008, Math.min(0.0008, c.vx));
+                    c.vy = Math.max(-0.0008, Math.min(0.0008, c.vy));
+                }
+            }
+
+            function updateParticles() {
+                for (const p of particles) {
+                    p.progress += p.speed * (0.7 + 0.3 * Math.sin(p.phase + Date.now() * 0.0003));
+                    if (p.progress > 1) {
+                        p.progress = 0;
+                        const pathIdx = Math.floor(Math.random() * paths.length);
+                        p.path = paths[pathIdx];
+                        p.speed = 0.001 + Math.random() * 0.0015;
+                        p.color = p.path.from === 'contributor' ? '#8b5cf6' : '#f59e0b';
+                    }
+                }
+            }
+
+            function animate() {
+                updateNodes();
+                updateParticles();
+                draw();
+                requestAnimationFrame(animate);
+            }
+
+            resize();
+            animate();
+            window.addEventListener('resize', resize);
+            window.currentLang = 'en';
+        })();
+
+
+        // ================================================================
+        // 2. 业务逻辑
+        // ================================================================
+
+        let currentLang = 'en';
+
+        function setLanguage(lang) {
+            currentLang = lang;
+            document.querySelectorAll('[data-en][data-zh]').forEach(el => {
+                const text = el.getAttribute(`data-${lang}`);
+                if (text) {
+                    if (el.tagName === 'H1' || el.tagName === 'H2' || el.tagName === 'H3' || el.tagName === 'P' || el
+                        .tagName === 'SPAN' || el.tagName === 'DIV') {
+                        el.innerHTML = text;
+                    } else {
+                        el.textContent = text;
+                    }
+                }
+            });
+            document.querySelectorAll('.lang-toggle button').forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.lang === lang);
+            });
+            window.currentLang = lang;
+        }
+
+        document.getElementById('langEn').addEventListener('click', () => setLanguage('en'));
+        document.getElementById('langZh').addEventListener('click', () => setLanguage('zh'));
+
+        const modelData = [
+            { name: 'DeepSeek-V4', provider: 'DeepSeek', type: '理解', tokens: 284000, calls: 1200000, value: 18700 },
+            { name: 'GLM-5.2', provider: 'Zhipu', type: '理解', tokens: 212000, calls: 980000, value: 15200 },
+            { name: 'Kimi-K3', provider: 'Moonshot', type: '理解', tokens: 187000, calls: 820000, value: 12800 },
+            { name: 'Qwen-3.6', provider: 'Alibaba', type: '理解', tokens: 156000, calls: 710000, value: 10500 },
+            { name: 'MiniMax-2.7', provider: 'MiniMax', type: '理解', tokens: 123000, calls: 560000, value: 8300 },
+            { name: 'Claude', provider: 'Anthropic', type: '理解', tokens: 98000, calls: 430000, value: 6700 },
+            { name: 'GPT', provider: 'OpenAI', type: '理解', tokens: 72000, calls: 320000, value: 5100 }
+        ];
+
+        function formatNumber(n) {
+            if (n >= 1000000) return (n / 1000000).toFixed(1) + 'M';
+            if (n >= 1000) return (n / 1000).toFixed(0) + 'K';
+            return n.toString();
+        }
+
+        function formatCurrency(n) {
+            if (n >= 1000) return '$' + (n / 1000).toFixed(1) + 'K';
+            return '$' + n.toString();
+        }
+
+        const modelsGrid = document.getElementById('modelsGrid');
+
+        function renderModels() {
+            modelsGrid.innerHTML = modelData.map((m, i) => `
+                    <div class="model-card" data-index="${i}">
+                        <div class="model-header">
+                            <span class="name">${m.name}</span>
+                            <span class="type-badge">${m.type}</span>
+                        </div>
+                        <div class="provider">${m.provider}</div>
+                        <div class="metrics">
+                            <div class="metric">
+                                <span class="icon">🔄</span>
+                                <span class="value" id="tokens-${i}">${formatNumber(m.tokens)}</span>
+                                <span class="label">Tokens</span>
+                            </div>
+                            <div class="metric">
+                                <span class="icon">📞</span>
+                                <span class="value" id="calls-${i}">${formatNumber(m.calls)}</span>
+                                <span class="label">Calls</span>
+                            </div>
+                            <div class="metric">
+                                <span class="icon">💰</span>
+                                <span class="value" id="value-${i}">${formatCurrency(m.value)}</span>
+                                <span class="label">Value</span>
+                            </div>
+                        </div>
+                        <div class="status"><span class="dot"></span> Online</div>
+                    </div>
+                `).join('');
+        }
+        renderModels();
+
+        function updateModelMetrics() {
+            for (let i = 0; i < modelData.length; i++) {
+                const deltaTokens = (Math.random() - 0.5) * 0.08;
+                const deltaCalls = (Math.random() - 0.5) * 0.08;
+                const deltaValue = (Math.random() - 0.5) * 0.08;
+
+                modelData[i].tokens = Math.max(1000, Math.round(modelData[i].tokens * (1 + deltaTokens)));
+                modelData[i].calls = Math.max(1000, Math.round(modelData[i].calls * (1 + deltaCalls)));
+                modelData[i].value = Math.max(100, Math.round(modelData[i].value * (1 + deltaValue)));
+
+                const tokensEl = document.getElementById(`tokens-${i}`);
+                const callsEl = document.getElementById(`calls-${i}`);
+                const valueEl = document.getElementById(`value-${i}`);
+
+                if (tokensEl) {
+                    tokensEl.textContent = formatNumber(modelData[i].tokens);
+                    tokensEl.classList.add('update');
+                    setTimeout(() => tokensEl.classList.remove('update'), 600);
+                }
+                if (callsEl) {
+                    callsEl.textContent = formatNumber(modelData[i].calls);
+                    callsEl.classList.add('update');
+                    setTimeout(() => callsEl.classList.remove('update'), 600);
+                }
+                if (valueEl) {
+                    valueEl.textContent = formatCurrency(modelData[i].value);
+                    valueEl.classList.add('update');
+                    setTimeout(() => valueEl.classList.remove('update'), 600);
+                }
+            }
+
+            const totalTokens = modelData.reduce((s, m) => s + m.tokens, 0);
+            const totalValue = modelData.reduce((s, m) => s + m.value, 0);
+
+            document.getElementById('statTotalTokens').textContent = formatNumber(totalTokens);
+            document.getElementById('statTotalValue').textContent = formatCurrency(totalValue);
+            document.getElementById('totalVolume').textContent = formatNumber(totalTokens);
+            document.getElementById('totalValue').textContent = formatCurrency(totalValue);
+
+            const users = 1200 + Math.round((Math.random() - 0.5) * 60);
+            document.getElementById('statActiveUsers').textContent = (users / 1000).toFixed(1) + 'K';
+        }
+
+        setInterval(updateModelMetrics, 3500 + Math.random() * 2000);
+
+        // ---- 排名数据：模型调用排名 & 贡献者收益排名（美元） ----
+        const modelRankData = [
+            { name: 'DeepSeek-V4', calls: '284K' },
+            { name: 'GLM-5.2', calls: '212K' },
+            { name: 'Kimi-K3', calls: '187K' },
+            { name: 'Qwen-3.6', calls: '156K' },
+            { name: 'MiniMax-2.7', calls: '123K' }
+        ];
+        const contributorRankData = [
+            { name: '0x7f3a...b2c1', rewards: '$1,280' },
+            { name: '0x1d8e...9f4a', rewards: '$1,040' },
+            { name: '0x3b9a...e7f2', rewards: '$870' },
+            { name: '0x9c4f...d3a7', rewards: '$650' },
+            { name: '0x2e8b...6c1d', rewards: '$520' }
+        ];
+
+        const modelRankEl = document.getElementById('modelRank');
+        const contributorRankEl = document.getElementById('contributorRank');
+
+        function renderRanks() {
+            modelRankEl.innerHTML = modelRankData.map((item, i) => `
+                    <div class="rank-item">
+                        <div class="left"><span class="idx">#${i+1}</span> ${item.name}</div>
+                        <span class="value">${item.calls}</span>
+                    </div>
+                `).join('');
+            contributorRankEl.innerHTML = contributorRankData.map((item, i) => `
+                    <div class="rank-item">
+                        <div class="left"><span class="idx">#${i+1}</span> ${item.name}</div>
+                        <span class="value">${item.rewards}</span>
+                    </div>
+                `).join('');
+        }
+        renderRanks();
+
+        const barChartData = [
+            { label: 'DS-V4', value: 284 },
+            { label: 'GLM-5.2', value: 212 },
+            { label: 'Kimi-K3', value: 187 },
+            { label: 'Qwen-3.6', value: 156 },
+            { label: 'MM-2.7', value: 123 },
+            { label: 'Claude', value: 98 },
+            { label: 'GPT', value: 72 }
+        ];
+        const barChartEl = document.getElementById('barChart');
+
+        function renderBarChart() {
+            const max = Math.max(...barChartData.map(d => d.value));
+            barChartEl.innerHTML = barChartData.map(d => {
+                const height = (d.value / max) * 100;
+                const isHighlight = d.value >= 200;
+                return `
+                        <div class="bar-item">
+                            <div class="bar ${isHighlight ? 'highlight' : ''}" style="height:${height}%;"></div>
+                            <div class="label">${d.label}</div>
+                        </div>
+                    `;
+            }).join('');
+        }
+        renderBarChart();
+
+        (function drawTrend() {
+            const canvas = document.getElementById('trendCanvas');
+            const ctx = canvas.getContext('2d');
+            const width = canvas.parentElement.clientWidth - 32;
+            const height = 100;
+            canvas.width = width * window.devicePixelRatio;
+            canvas.height = height * window.devicePixelRatio;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+
+            const data = [1.8, 2.0, 1.9, 2.2, 2.1, 2.3, 2.4];
+            const max = Math.max(...data) * 1.1;
+            const min = Math.min(...data) * 0.9;
+            const padding = { top: 10, bottom: 10, left: 10, right: 10 };
+            const chartWidth = width - padding.left - padding.right;
+            const chartHeight = height - padding.top - padding.bottom;
+
+            ctx.clearRect(0, 0, width, height);
+            ctx.beginPath();
+            ctx.moveTo(padding.left, padding.top + chartHeight - ((data[0] - min) / (max - min)) * chartHeight);
+            for (let i = 1; i < data.length; i++) {
+                const x = padding.left + (i / (data.length - 1)) * chartWidth;
+                const y = padding.top + chartHeight - ((data[i] - min) / (max - min)) * chartHeight;
+                ctx.lineTo(x, y);
+            }
+            ctx.strokeStyle = '#8b5cf6';
+            ctx.lineWidth = 2;
+            ctx.stroke();
+
+            ctx.lineTo(padding.left + chartWidth, padding.top + chartHeight);
+            ctx.lineTo(padding.left, padding.top + chartHeight);
+            ctx.closePath();
+            const grad = ctx.createLinearGradient(0, padding.top, 0, padding.top + chartHeight);
+            grad.addColorStop(0, 'rgba(139,92,246,0.2)');
+            grad.addColorStop(1, 'rgba(139,92,246,0)');
+            ctx.fillStyle = grad;
+            ctx.fill();
+
+            for (let i = 0; i < data.length; i++) {
+                const x = padding.left + (i / (data.length - 1)) * chartWidth;
+                const y = padding.top + chartHeight - ((data[i] - min) / (max - min)) * chartHeight;
+                ctx.beginPath();
+                ctx.arc(x, y, 3, 0, Math.PI * 2);
+                ctx.fillStyle = '#8b5cf6';
+                ctx.fill();
+            }
+        })();
+
+        const toastContainer = document.getElementById('toastContainer');
+
+        function showToast(msg, icon = '✨') {
+            const el = document.createElement('div');
+            el.className = 'toast';
+            el.innerHTML = `<span>${icon}</span><span class="msg">${msg}</span>`;
+            toastContainer.appendChild(el);
+            setTimeout(() => {
+                el.classList.add('out');
+                setTimeout(() => el.remove(), 300);
+            }, 2800);
+        }
+
+        document.getElementById('heroDownload').addEventListener('click', () => {
+            const msg = currentLang === 'zh' ? '⬇ 客户端下载中...' : '⬇ Downloading client...';
+            showToast(msg, '⬇');
+        });
+        document.getElementById('heroLearn').addEventListener('click', () => {
+            const msg = currentLang === 'zh' ? '📖 了解更多' : '📖 Learn more';
+            showToast(msg, '📖');
+        });
+        document.getElementById('loginBtn').addEventListener('click', () => {
+            const msg = currentLang === 'zh' ? '🔐 登录页面' : '🔐 Login page';
+            showToast(msg, '🔐');
+        });
+        document.getElementById('signupBtn').addEventListener('click', () => {
+            const msg = currentLang === 'zh' ? '📝 注册页面' : '📝 Sign up page';
+            showToast(msg, '📝');
+        });
+
+        document.querySelectorAll('.client-card .btn').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const os = btn.closest('.client-card').querySelector('.os').textContent;
+                const msg = currentLang === 'zh' ? `⬇ 下载 ${os} 客户端` : `⬇ Download ${os} client`;
+                showToast(msg, '⬇');
+            });
+        });
+
+        const navToggle = document.getElementById('navToggle');
+        const navLinks = document.getElementById('navLinks');
+        navToggle.addEventListener('click', () => navLinks.classList.toggle('open'));
+        navLinks.querySelectorAll('a').forEach(a => a.addEventListener('click', () => navLinks.classList.remove('open')));
+
+        const navbar = document.getElementById('navbar');
+        window.addEventListener('scroll', () => {
+            navbar.classList.toggle('scrolled', window.scrollY > 20);
+        });
+
+        setLanguage('en');
+        setTimeout(updateModelMetrics, 500);
+        console.log('Starfire · 汇聚个人 Tokens，产生更多价值');
+    </script>
+</body>
+</html>

@@ -4,6 +4,7 @@ import type { EchartsUIType } from '@vben/plugins/echarts';
 import { onMounted, ref, watch, inject } from 'vue';
 import type { Ref } from 'vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 
@@ -58,7 +59,7 @@ const renderChart = () => {
   if (modelStats.value.length === 0) {
     renderEcharts({
       title: {
-        text: '暂无调用数据',
+        text: $t('business.analytics.noCallData'),
         left: 'center',
         top: 'center',
         textStyle: {
@@ -76,7 +77,7 @@ const renderChart = () => {
 
   renderEcharts({
     title: {
-      text: '模型调用统计',
+      text: $t('business.analytics.modelCallStatistics'),
       left: 'center',
       textStyle: {
         fontSize: 16,
@@ -92,7 +93,7 @@ const renderChart = () => {
     },
     series: [
       {
-        name: '调用次数',
+        name: $t('business.analytics.calls'),
         barMaxWidth: 60,
         data: calls.map((value, index) => ({
           value,
@@ -116,9 +117,9 @@ const renderChart = () => {
         return `
           <div style="padding: 8px;">
             <div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>
-            <div>调用次数: ${data.value.toLocaleString()}</div>
-            <div>总Token: ${t.toLocaleString()}</div>
-            <div>平均Token: ${avgTokens.toLocaleString()}</div>
+            <div>${$t('business.analytics.calls')}: ${data.value.toLocaleString()}</div>
+            <div>${$t('business.analytics.totalTokens')}: ${t.toLocaleString()}</div>
+            <div>${$t('business.analytics.averageTokens')}: ${avgTokens.toLocaleString()}</div>
           </div>
         `;
       }
@@ -133,7 +134,7 @@ const renderChart = () => {
       }
     },
     yAxis: {
-      name: '调用次数',
+      name: $t('business.analytics.calls'),
       splitNumber: 5,
       type: 'value',
       axisLabel: {

@@ -91,7 +91,7 @@ make install 进行编译安装，完成后，可在build目录下找到server�
    (3) 注册客户端： 
 
        （windows）starfire.exe -host (host) -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0}
-
+       
        （macos）： starfire -host {host} -token {register token} -ippm {input prices per million tokens, default 4.0} -oppm {output prices per million tokens, default 8.0} 
 
    (4) 本地使用ollama 运行模型，客户端会自动将模型信息推送到server端，准备提供服务 

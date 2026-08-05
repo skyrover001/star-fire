@@ -663,3 +663,109 @@ func (tdb *TokenUsageDB) GetUserTokenUsageByModelPaged(userID, model string, sta
 
 	return usages, total, nil
 }
+
+// ModelMarketStat 模型广场展示的全局使用统计（跨所有用户）
+type ModelMarketStat struct {
+	Model        string `json:"model"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	CachedTokens int64  `json:"cached_tokens"`
+	TotalTokens  int64  `json:"total_tokens"`
+	Calls        int64  `json:"calls"`
+	ClientCount  int64  `json:"client_count"`
+	UserCount    int64  `json:"user_count"`
+	LastUsed     string `json:"last_used"`
+}
+
+// PublicHomepageStats is the read-only aggregate displayed on the public landing page.
+type PublicHomepageStats struct {
+	TotalTokens int64              `json:"total_tokens"`
+	TotalCalls  int64              `json:"total_calls"`
+	TotalValue  float64            `json:"total_value"`
+	ActiveUsers int64              `json:"active_users"`
+	ModelStats  []ModelMarketStat  `json:"model_stats"`
+	DailyTrend  []PublicDailyTrend `json:"daily_trend"`
+}
+
+type PublicDailyTrend struct {
+	Date        string  `json:"date"`
+	TotalTokens int64   `json:"total_tokens"`
+	TotalValue  float64 `json:"total_value"`
+}
+
+// GetPublicHomepageStats aggregates all recorded usage without exposing user or client details.
+func (tdb *TokenUsageDB) GetPublicHomepageStats() (*PublicHomepageStats, error) {
+	endTime := time.Now()
+	startTime := endTime.AddDate(0, 0, -6)
+
+	var totals struct {
+		TotalTokens int64
+		TotalCalls  int64
+		TotalValue  float64
+		ActiveUsers int64
+	}
+	if err := tdb.db.Model(&TokenUsage{}).
+		Select(`
+			COALESCE(SUM(total_tokens), 0) as total_tokens,
+			COUNT(*) as total_calls,
+			COALESCE(SUM(cost), 0) as total_value,
+			COUNT(DISTINCT user_id) as active_users
+		`).
+		Scan(&totals).Error; err != nil {
+		return nil, err
+	}
+
+	modelStats, err := tdb.GetModelMarketStats(startTime, endTime)
+	if err != nil {
+		return nil, err
+	}
+
+	var dailyTrend []PublicDailyTrend
+	if err := tdb.db.Model(&TokenUsage{}).
+		Select(`
+			DATE(timestamp) as date,
+			COALESCE(SUM(total_tokens), 0) as total_tokens,
+			COALESCE(SUM(cost), 0) as total_value
+		`).
+		Where("timestamp BETWEEN ? AND ?", startTime, endTime).
+		Group("DATE(timestamp)").
+		Order("DATE(timestamp)").
+		Scan(&dailyTrend).Error; err != nil {
+		return nil, err
+	}
+
+	return &PublicHomepageStats{
+		TotalTokens: totals.TotalTokens,
+		TotalCalls:  totals.TotalCalls,
+		TotalValue:  totals.TotalValue,
+		ActiveUsers: totals.ActiveUsers,
+		ModelStats:  modelStats,
+		DailyTrend:  dailyTrend,
+	}, nil
+}
+
+// GetModelMarketStats 获取所有模型在指定时间段的全局使用统计（跨所有用户）
+func (tdb *TokenUsageDB) GetModelMarketStats(startTime, endTime time.Time) ([]ModelMarketStat, error) {
+	var stats []ModelMarketStat
+	err := tdb.db.Model(&TokenUsage{}).
+		Select(`
+			model,
+			SUM(input_tokens) as input_tokens,
+			SUM(output_tokens) as output_tokens,
+			SUM(cached_tokens) as cached_tokens,
+			SUM(total_tokens) as total_tokens,
+			COUNT(*) as calls,
+			COUNT(DISTINCT client_id) as client_count,
+			COUNT(DISTINCT user_id) as user_count,
+			MAX(timestamp) as last_used
+		`).
+		Where("timestamp BETWEEN ? AND ?", startTime, endTime).
+		Group("model").
+		Scan(&stats).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	return stats, nil
+}

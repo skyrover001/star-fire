@@ -13,6 +13,7 @@ import {
   SvgCardIcon,
   SvgDownloadIcon,
 } from '@vben/icons';
+import { $t } from '#/locales';
 
 import AnalyticsTrends from './components/analytics-trends.vue';
 import AnalyticsVisitsData from './components/analytics-visits-data.vue';
@@ -24,29 +25,29 @@ import TokenUsage from './components/token-usage.vue';
 const overviewItems: AnalysisOverviewItem[] = [
   {
     icon: SvgCardIcon,
-    title: '用户量',
-    totalTitle: '总用户量',
+    title: $t('business.analytics.overviewUsers'),
+    totalTitle: $t('business.analytics.overviewTotalUsers'),
     totalValue: 120_000,
     value: 2000,
   },
   {
     icon: SvgCakeIcon,
-    title: '访问量',
-    totalTitle: '总访问量',
+    title: $t('business.analytics.overviewVisits'),
+    totalTitle: $t('business.analytics.overviewTotalVisits'),
     totalValue: 500_000,
     value: 20_000,
   },
   {
     icon: SvgDownloadIcon,
-    title: '下载量',
-    totalTitle: '总下载量',
+    title: $t('business.analytics.overviewDownloads'),
+    totalTitle: $t('business.analytics.overviewTotalDownloads'),
     totalValue: 120_000,
     value: 8000,
   },
   {
     icon: SvgBellIcon,
-    title: 'Token使用',
-    totalTitle: '总Token使用',
+    title: $t('business.analytics.overviewTokenUsage'),
+    totalTitle: $t('business.analytics.overviewTotalTokenUsage'),
     totalValue: 180_000,
     value: 12000,
   },
@@ -54,15 +55,15 @@ const overviewItems: AnalysisOverviewItem[] = [
 
 const chartTabs: TabOption[] = [
   {
-    label: 'Token使用分析',
+    label: $t('business.analytics.tokenUsageAnalysis'),
     value: 'token-usage',
   },
   {
-    label: '流量趋势',
+    label: $t('business.analytics.trafficTrend'),
     value: 'trends',
   },
   {
-    label: '月访问量',
+    label: $t('business.analytics.monthlyVisits'),
     value: 'visits',
   },
 ];
@@ -85,13 +86,13 @@ const chartTabs: TabOption[] = [
     </AnalysisChartsTabs>
 
     <div class="mt-5 w-full md:flex">
-      <AnalysisChartCard class="mt-5 md:mr-4 md:mt-0 md:w-1/3" title="访问数量">
+      <AnalysisChartCard class="mt-5 md:mr-4 md:mt-0 md:w-1/3" :title="$t('business.analytics.visitVolume')">
         <AnalyticsVisitsData />
       </AnalysisChartCard>
-      <AnalysisChartCard class="mt-5 md:mr-4 md:mt-0 md:w-1/3" title="访问来源">
+      <AnalysisChartCard class="mt-5 md:mr-4 md:mt-0 md:w-1/3" :title="$t('business.analytics.visitSource')">
         <AnalyticsVisitsSource />
       </AnalysisChartCard>
-      <AnalysisChartCard class="mt-5 md:mt-0 md:w-1/3" title="访问来源">
+      <AnalysisChartCard class="mt-5 md:mt-0 md:w-1/3" :title="$t('business.analytics.businessShare')">
         <AnalyticsVisitsSales />
       </AnalysisChartCard>
     </div>

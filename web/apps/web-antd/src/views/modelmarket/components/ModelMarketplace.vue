@@ -7,7 +7,7 @@
         <div class="text-3xl font-bold text-green-500 group-hover:scale-110 transition-transform duration-300">
           {{ modelStats.serving }}
         </div>
-        <div class="text-sm text-green-600 dark:text-green-400 font-medium">服务中</div>
+        <div class="text-sm text-green-600 dark:text-green-400 font-medium">{{ $t('business.marketplace.online') }}</div>
         <div class="mt-2 w-full bg-green-500/20 rounded-full h-1">
           <div class="bg-green-500 h-1 rounded-full transition-all duration-500" :style="{ width: `${(modelStats.serving / modelStats.total) * 100}%` }"></div>
         </div>
@@ -16,7 +16,7 @@
         <div class="text-3xl font-bold text-yellow-500 group-hover:scale-110 transition-transform duration-300">
           {{ modelStats.restricted }}
         </div>
-        <div class="text-sm text-yellow-600 dark:text-yellow-400 font-medium">限制访问</div>
+        <div class="text-sm text-yellow-600 dark:text-yellow-400 font-medium">{{ $t('business.marketplace.restricted') }}</div>
         <div class="mt-2 w-full bg-yellow-500/20 rounded-full h-1">
           <div class="bg-yellow-500 h-1 rounded-full transition-all duration-500" :style="{ width: `${(modelStats.restricted / modelStats.total) * 100}%` }"></div>
         </div>
@@ -25,7 +25,7 @@
         <div class="text-3xl font-bold text-blue-500 group-hover:scale-110 transition-transform duration-300">
           {{ modelStats.maintenance }}
         </div>
-        <div class="text-sm text-blue-600 dark:text-blue-400 font-medium">维护中</div>
+        <div class="text-sm text-blue-600 dark:text-blue-400 font-medium">{{ $t('business.marketplace.maintenance') }}</div>
         <div class="mt-2 w-full bg-blue-500/20 rounded-full h-1">
           <div class="bg-blue-500 h-1 rounded-full transition-all duration-500" :style="{ width: `${(modelStats.maintenance / modelStats.total) * 100}%` }"></div>
         </div>
@@ -34,7 +34,7 @@
         <div class="text-3xl font-bold text-gray-500 group-hover:scale-110 transition-transform duration-300">
           {{ modelStats.total }}
         </div>
-        <div class="text-sm text-gray-600 dark:text-gray-400 font-medium">总数</div>
+        <div class="text-sm text-gray-600 dark:text-gray-400 font-medium">{{ $t('business.marketplace.total') }}</div>
         <div class="mt-2 w-full bg-gray-500/20 rounded-full h-1">
           <div class="bg-gray-500 h-1 rounded-full transition-all duration-500" style="width: 100%"></div>
         </div>
@@ -47,10 +47,10 @@
         <div class="flex items-center space-x-4">
           <div>
             <h3 class="text-2xl font-bold text-[var(--text-primary)]">
-              模型列表
+              {{ $t('business.marketplace.modelList') }}
             </h3>
             <p class="mt-1 text-[var(--text-secondary)]">
-              {{ allModels.length > 0 ? `共找到 ${allModels.length} 个模型` : '暂无模型' }}
+              {{ allModels.length > 0 ? `${allModels.length} ${$t('business.marketplace.modelList')}` : $t('business.marketplace.noModels') }}
             </p>
           </div>
         </div>
@@ -67,7 +67,7 @@
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover-bg)]'
           ]"
           @click="viewMode = 'grid'"
-          title="网格视图"
+          :title="$t('business.marketplace.gridView')"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/>
@@ -82,7 +82,7 @@
               : 'text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--hover-bg)]'
           ]"
           @click="viewMode = 'list'"
-          title="列表视图"
+          :title="$t('business.marketplace.listView')"
         >
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"/>
@@ -96,7 +96,7 @@
       <!-- 搜索栏 -->
       <div class="mb-4">
         <label class="block text-sm font-medium text-[var(--text-primary)] mb-2">
-          模型搜索
+          {{ $t('business.marketplace.modelSearch') }}
         </label>
         <div class="relative">
           <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
@@ -108,7 +108,7 @@
             :value="props.searchKeyword"
             @input="handleSearchInput"
             type="text"
-            placeholder="搜索模型名称、创建者、类型、量化方式..."
+            :placeholder="$t('business.marketplace.searchPlaceholder')"
             class="w-full pl-10 pr-4 py-3 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--content-bg)] text-[var(--text-primary)] placeholder-[var(--text-tertiary)] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-colors"
           >
           <div v-if="props.searchKeyword" class="absolute inset-y-0 right-0 pr-3 flex items-center">
@@ -128,17 +128,17 @@
       <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 xl:grid-cols-5 gap-4 mb-4">
         <!-- 状态筛选 -->
         <div class="space-y-2">
-          <label class="block text-sm font-medium text-[var(--text-primary)]">状态</label>
+          <label class="block text-sm font-medium text-[var(--text-primary)]">{{ $t('business.marketplace.status') }}</label>
           <div class="relative">
             <select 
               v-model="statusFilter" 
               class="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--content-bg)] text-[var(--text-primary)] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-colors appearance-none cursor-pointer"
             >
-              <option value="">全部状态</option>
-              <option value="serving">🟢 服务中</option>
-              <option value="restricted">🟡 限制访问</option>
-              <option value="maintenance">🔵 维护中</option>
-              <option value="offline">⚫ 离线</option>
+              <option value="">{{ $t('business.marketplace.allStatuses') }}</option>
+              <option value="serving">🟢 {{ $t('business.marketplace.serving') }}</option>
+              <option value="restricted">🟡 {{ $t('business.marketplace.restricted') }}</option>
+              <option value="maintenance">🔵 {{ $t('business.marketplace.maintenance') }}</option>
+              <option value="offline">⚫ {{ $t('business.marketplace.offline') }}</option>
             </select>
             <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
               <svg class="w-4 h-4 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -150,13 +150,13 @@
         
         <!-- 类型筛选 -->
         <div class="space-y-2">
-          <label class="block text-sm font-medium text-[var(--text-primary)]">模型类型</label>
+          <label class="block text-sm font-medium text-[var(--text-primary)]">{{ $t('business.marketplace.modelType') }}</label>
           <div class="relative">
             <select 
               v-model="typeFilter" 
               class="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--content-bg)] text-[var(--text-primary)] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-colors appearance-none cursor-pointer"
             >
-              <option value="">全部类型</option>
+              <option value="">{{ $t('business.marketplace.allTypes') }}</option>
               <option value="OLLAMA">🦙 Ollama</option>
               <option value="HUGGINGFACE">🤗 HuggingFace</option>
               <option value="OPENAI">🤖 OpenAI</option>
@@ -173,17 +173,17 @@
         
         <!-- 参数大小筛选 -->
         <div class="space-y-2">
-          <label class="block text-sm font-medium text-[var(--text-primary)]">参数规模</label>
+          <label class="block text-sm font-medium text-[var(--text-primary)]">{{ $t('business.marketplace.parameterSize') }}</label>
           <div class="relative">
             <select 
               v-model="parameterSizeFilter" 
               class="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--content-bg)] text-[var(--text-primary)] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-colors appearance-none cursor-pointer"
             >
-              <option value="">全部规模</option>
-              <option value="small">📱 小型 (< 7B)</option>
-              <option value="medium">💻 中型 (7B - 20B)</option>
-              <option value="large">🖥️ 大型 (20B - 70B)</option>
-              <option value="xlarge">🏢 超大型 (> 70B)</option>
+              <option value="">{{ $t('business.marketplace.allSizes') }}</option>
+              <option value="small">📱 {{ $t('business.marketplace.small') }}</option>
+              <option value="medium">💻 {{ $t('business.marketplace.medium') }}</option>
+              <option value="large">🖥️ {{ $t('business.marketplace.large') }}</option>
+              <option value="xlarge">🏢 {{ $t('business.marketplace.extraLarge') }}</option>
             </select>
             <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
               <svg class="w-4 h-4 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -195,17 +195,17 @@
         
         <!-- 排序字段 -->
         <div class="space-y-2">
-          <label class="block text-sm font-medium text-[var(--text-primary)]">排序依据</label>
+          <label class="block text-sm font-medium text-[var(--text-primary)]">{{ $t('business.marketplace.sortBy') }}</label>
           <div class="relative">
             <select 
               v-model="sortBy" 
               class="w-full px-3 py-2 text-sm rounded-lg border border-[var(--border-color)] bg-[var(--content-bg)] text-[var(--text-primary)] focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 focus:outline-none transition-colors appearance-none cursor-pointer"
             >
-              <option value="name">📝 名称</option>
+              <option value="name">📝 {{ $t('business.marketplace.name') }}</option>
 
-              <option value="createDate">� 创建时间</option>
-              <option value="parameterSize">� 参数大小</option>
-              <option value="clientCount">� 贡献人数</option>
+              <option value="createDate">{{ $t('business.marketplace.createdAt') }}</option>
+              <option value="parameterSize">{{ $t('business.marketplace.parameterSize') }}</option>
+              <option value="clientCount">{{ $t('business.marketplace.contributorCount') }}</option>
             </select>
             <div class="absolute inset-y-0 right-0 pr-3 flex items-center pointer-events-none">
               <svg class="w-4 h-4 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -217,24 +217,24 @@
         
         <!-- 排序方向和操作 -->
         <div class="space-y-2">
-          <label class="block text-sm font-medium text-[var(--text-primary)]">操作</label>
+          <label class="block text-sm font-medium text-[var(--text-primary)]">{{ $t('business.marketplace.actions') }}</label>
           <div class="flex items-center space-x-2">
             <button
               class="flex-1 px-3 py-2 rounded-lg border border-[var(--border-color)] hover:bg-[var(--hover-bg)] transition-colors text-sm font-medium text-[var(--text-primary)]"
               @click="sortOrder = sortOrder === 'asc' ? 'desc' : 'asc'"
-              :title="sortOrder === 'asc' ? '点击切换为降序' : '点击切换为升序'"
+              :title="sortOrder === 'asc' ? $t('business.marketplace.switchToDescending') : $t('business.marketplace.switchToAscending')"
             >
               <div class="flex items-center justify-center space-x-1">
                 <svg class="w-4 h-4 transition-transform" :class="{ 'rotate-180': sortOrder === 'desc' }" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4h13M3 8h9m-9 4h6m4 0l4-4m0 0l4 4m-4-4v12"/>
                 </svg>
-                <span>{{ sortOrder === 'asc' ? '升序' : '降序' }}</span>
+                <span>{{ sortOrder === 'asc' ? $t('business.marketplace.ascending') : $t('business.marketplace.descending') }}</span>
               </div>
             </button>
             <button
               class="px-3 py-2 rounded-lg bg-gray-500/10 hover:bg-gray-500/20 transition-colors text-sm font-medium text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               @click="resetFilters"
-              title="重置所有筛选条件"
+              :title="$t('business.marketplace.resetFilters')"
             >
               <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
@@ -246,9 +246,9 @@
       
       <!-- 活动筛选器显示 -->
       <div v-if="hasActiveFilters" class="flex flex-wrap items-center gap-2">
-        <span class="text-sm text-[var(--text-secondary)]">活动筛选器:</span>
+        <span class="text-sm text-[var(--text-secondary)]">{{ $t('business.marketplace.activeFilters') }}</span>
         <span v-if="statusFilter" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-green-500/10 text-green-500 border border-green-500/20">
-          状态: {{ getStatusText(statusFilter as any) }}
+          {{ $t('business.marketplace.status') }}: {{ getStatusText(statusFilter as any) }}
           <button @click="statusFilter = ''" class="ml-1 hover:text-green-700">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -256,7 +256,7 @@
           </button>
         </span>
         <span v-if="typeFilter" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
-          类型: {{ typeFilter }}
+          {{ $t('business.marketplace.type') }}: {{ typeFilter }}
           <button @click="typeFilter = ''" class="ml-1 hover:text-blue-700">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -264,7 +264,7 @@
           </button>
         </span>
         <span v-if="parameterSizeFilter" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-500 border border-purple-500/20">
-          规模: {{ getParameterSizeText(parameterSizeFilter) }}
+          {{ $t('business.marketplace.parameterSize') }}: {{ getParameterSizeText(parameterSizeFilter) }}
           <button @click="parameterSizeFilter = ''" class="ml-1 hover:text-purple-700">
             <svg class="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/>
@@ -272,7 +272,7 @@
           </button>
         </span>
         <button @click="resetFilters" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-gray-500/10 text-gray-500 hover:bg-gray-500/20 transition-colors">
-          清除全部
+          {{ $t('business.marketplace.clearAll') }}
           <svg class="w-3 h-3 ml-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/>
           </svg>
@@ -284,7 +284,7 @@
     <div v-if="loading" class="flex justify-center py-12">
       <div class="flex items-center space-x-3 text-[var(--text-secondary)]">
         <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-        <span class="font-medium">加载中...</span>
+        <span class="font-medium">{{ $t('business.marketplace.loading') }}</span>
       </div>
     </div>
     
@@ -295,19 +295,20 @@
         <div
           v-for="model in displayedModels"
           :key="model.id"
-          class="group relative overflow-hidden cursor-pointer rounded-2xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6 transition-all duration-300 hover:shadow-xl hover:scale-[1.02] hover:border-blue-500/50"
+          class="group relative flex min-h-[360px] cursor-pointer flex-col overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--content-bg)] p-5 transition-all duration-300 hover:border-blue-500/50 hover:shadow-lg"
           @click="handleModelClick(model)"
         >
           <!-- 悬浮效果背景 -->
           <div class="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
           
-          <div class="relative z-10">
+          <div class="relative z-10 flex h-full flex-1 flex-col">
             <!-- 模型图标和状态 -->
-            <div class="flex items-start justify-between mb-4">
-              <div
-                :style="{ background: `linear-gradient(135deg, ${model.color}, ${model.color}dd)` }"
-                class="flex h-12 w-12 items-center justify-center rounded-xl text-white shadow-lg group-hover:scale-110 transition-transform duration-300"
-              >
+            <div class="mb-4 flex items-start justify-between gap-3">
+              <div class="flex min-w-0 items-center gap-3">
+                <div
+                  :style="{ background: `linear-gradient(135deg, ${model.color}, ${model.color}dd)` }"
+                  class="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-white shadow-sm transition-transform duration-300 group-hover:scale-105"
+                >
                 <svg class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
                   <path v-if="model.icon === 'lucide:brain-circuit'" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2zm0 2a8 8 0 100 16 8 8 0 000-16zm0 3a5 5 0 110 10 5 5 0 010-10zm0 2a3 3 0 100 6 3 3 0 000-6z"/>
                   <path v-else-if="model.icon === 'lucide:cpu'" d="M4 6h16v12H4V6zm2 2v8h12V8H6zm2 2h8v4H8v-4z"/>
@@ -316,30 +317,35 @@
                   <path v-else-if="model.icon === 'lucide:code'" d="M8.293 6.293a1 1 0 011.414 0L12 8.586l2.293-2.293a1 1 0 111.414 1.414L13.414 10l2.293 2.293a1 1 0 01-1.414 1.414L12 11.414l-2.293 2.293a1 1 0 01-1.414-1.414L10.586 10 8.293 7.707a1 1 0 010-1.414z"/>
                   <path v-else d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/>
                 </svg>
+                </div>
+                <div class="min-w-0">
+                  <h4 class="truncate text-sm font-semibold text-[var(--text-primary)]" :title="model.name">{{ model.name }}</h4>
+                  <p class="mt-0.5 text-xs text-[var(--text-secondary)]">{{ model.clientCount || 0 }} {{ $t('business.marketplace.availableClients') }}</p>
+                </div>
               </div>
               <span
                 :class="getStatusClass(model.status)"
-                class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium border"
+                class="inline-flex shrink-0 items-center rounded-full border px-2 py-1 text-xs font-medium"
               >
                 {{ getStatusText(model.status) }}
               </span>
             </div>
             
             <!-- 模型ID - 紧凑显示并支持复制 -->
-            <div class="mb-3 p-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-lg">
+            <div class="mb-3 flex h-9 items-center rounded-lg border border-[var(--border-color)] bg-[var(--hover-bg)] px-2.5">
               <div class="flex items-center justify-between">
                 <div class="flex items-center gap-2 min-w-0 flex-1">
-                  <span class="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide flex-shrink-0">ID:</span>
-                  <code class="text-xs font-mono font-bold text-gray-800 dark:text-gray-200 truncate cursor-pointer hover:text-blue-600 transition-colors" 
+                  <span class="shrink-0 text-xs font-medium text-[var(--text-secondary)]">ID</span>
+                  <code class="truncate font-mono text-xs font-medium text-[var(--text-primary)] transition-colors hover:text-blue-600" 
                         @click.stop="copyToClipboard(model.id)"
-                        :title="'点击复制: ' + model.id">
+                        :title="$t('business.marketplace.copyModelIdWithValue', { id: model.id })">
                     {{ model.id }}
                   </code>
                 </div>
                 <button 
                   @click.stop="copyToClipboard(model.id)"
                   class="p-1 rounded hover:bg-blue-200 dark:hover:bg-blue-800 transition-colors group/copy flex-shrink-0"
-                  title="复制模型ID"
+                  :title="$t('business.marketplace.copyModelId')"
                 >
                   <svg class="w-3 h-3 text-blue-500 group-hover/copy:scale-110 transition-transform" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
@@ -349,74 +355,84 @@
             </div>
             
             <!-- 模型标签 -->
-            <div class="flex flex-wrap gap-2 mb-3">
+            <div class="mb-4 flex h-7 flex-nowrap items-center gap-1.5 overflow-hidden">
               <!-- Embedding模型特殊标识 -->
-              <span v-if="isEmbeddingModel(model)" class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-amber-500/10 text-amber-600 border border-amber-500/20">
+              <span v-if="isEmbeddingModel(model)" class="inline-flex shrink-0 items-center rounded-md border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-xs font-medium text-amber-600">
                 <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v6a2 2 0 002 2h6a2 2 0 002-2V9a2 2 0 00-2-2h-2m-4 0V3a2 2 0 012-2h2a2 2 0 012 2v2m-4 0v2m0 0v4"/>
                 </svg>
-                Embedding模型
+                {{ $t('business.marketplace.embedding') }}
               </span>
-              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                {{ model.parameterSize }}
-              </span>
-              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-purple-500/10 text-purple-500 border border-purple-500/20">
+              <!-- 模型类型 -->
+              <span class="inline-flex shrink-0 items-center rounded-md border border-purple-500/20 bg-purple-500/10 px-2 py-1 text-xs font-medium text-purple-500">
                 {{ model.modelType }}
               </span>
-              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-green-500/10 text-green-500 border border-green-500/20">
-                {{ model.quantization }}
+              <!-- 参数量（如果有） -->
+              <span v-if="model.parameterSize && model.parameterSize !== 'Unknown'" class="inline-flex shrink-0 items-center rounded-md border border-blue-500/20 bg-blue-500/10 px-2 py-1 text-xs font-medium text-blue-500">
+                {{ model.parameterSize }}
               </span>
-              <span class="inline-flex items-center px-2 py-1 rounded-md text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
-                {{ getModelSeries(model.id) }}
+              <!-- 贡献者报价区间 -->
+              <span v-if="model.priceRange" class="inline-flex shrink-0 items-center rounded-md border border-emerald-500/20 bg-emerald-500/10 px-2 py-1 text-xs font-medium text-emerald-600">
+                <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                </svg>
+                {{ $t('business.marketplace.pricing') }} ￥{{ formatPriceRange(model.priceRange.input) }}/{{ formatPriceRange(model.priceRange.output) }}
               </span>
-              <!-- 定价标签 - 显示最低价格和提供商 -->
-              <div class="space-y-2">
-                <!-- 输入Token最低价格 -->
-                <div class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                  <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M13 10l3 4M9 12l4-4"/>
+              <span v-else class="inline-flex shrink-0 items-center rounded-md border border-gray-500/20 bg-gray-500/10 px-2 py-1 text-xs font-medium text-gray-500">
+                {{ $t('business.marketplace.noQuotes') }}
+              </span>
+            </div>
+            
+            <!-- 模型运行统计 -->
+            <div class="mb-4 grid grid-cols-2 gap-2">
+              <div class="min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--hover-bg)] p-2.5">
+                <div class="flex items-center text-[var(--text-secondary)] text-xs mb-1">
+                  <svg class="w-3.5 h-3.5 mr-1 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                   </svg>
-                  <span>输入￥{{ model.inputPPM?.toFixed(1) || '10.0' }}/百万</span>
-                  <span v-if="model.inputClientInfo" class="ml-2 text-xs opacity-75">
-                    by {{ model.inputClientInfo.username }}
-                  </span>
+                  {{ $t('business.marketplace.calls') }}
                 </div>
-                
-                <!-- 输出Token最低价格 -->
-                <div class="inline-flex items-center px-3 py-1.5 rounded-md text-xs font-medium bg-blue-500/10 text-blue-600 border border-blue-500/20">
-                  <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8a3 3 0 016 0m-6 0v10c0 3.314 2.686 6 6 6s6-2.686 6-6V8m-6 0V5a2 2 0 012-2h2a2 2 0 012 2v3"/>
+                <div class="truncate text-base font-semibold text-[var(--text-primary)]">{{ formatNumber(model.totalCalls) }}</div>
+                <div class="truncate text-[11px] text-[var(--text-tertiary)]">{{ formatTokens(model.totalTokens) }} tokens</div>
+              </div>
+              <div class="min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--hover-bg)] p-2.5">
+                <div class="flex items-center text-[var(--text-secondary)] text-xs mb-1">
+                  <svg class="w-3.5 h-3.5 mr-1 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"/>
                   </svg>
-                  <span>输出￥{{ model.outputPPM?.toFixed(1) || '20.0' }}/百万</span>
-                  <span v-if="model.outputClientInfo" class="ml-2 text-xs opacity-75">
-                    by {{ model.outputClientInfo.username }}
-                  </span>
+                  {{ $t('business.marketplace.contributors') }}
                 </div>
+                <div class="truncate text-base font-semibold text-[var(--text-primary)]">{{ model.contributorCount || 0 }}</div>
+                <div class="truncate text-[11px] text-[var(--text-tertiary)]">{{ model.onlineClients || 0 }}/{{ model.clientCount || 0 }} {{ $t('business.marketplace.online') }}</div>
+              </div>
+              <div class="min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--hover-bg)] p-2.5">
+                <div class="flex items-center text-[var(--text-secondary)] text-xs mb-1">
+                  <svg class="w-3.5 h-3.5 mr-1 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                  </svg>
+                  {{ $t('business.marketplace.onlineTime') }}
+                </div>
+                <div class="truncate text-base font-semibold text-[var(--text-primary)]">{{ formatDuration(model.onlineTime) }}</div>
+                <div class="truncate text-[11px] text-[var(--text-tertiary)]">{{ $t('business.marketplace.uptimeDescription') }}</div>
+              </div>
+              <div class="min-w-0 rounded-lg border border-[var(--border-color)] bg-[var(--hover-bg)] p-2.5">
+                <div class="flex items-center text-[var(--text-secondary)] text-xs mb-1">
+                  <svg class="w-3.5 h-3.5 mr-1 text-amber-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 12a9 9 0 0118 0 9 9 0 01-18 0zm9-4v4l2.5 2.5"/>
+                  </svg>
+                  {{ $t('business.marketplace.averageLatency') }}
+                </div>
+                <div class="truncate text-base font-semibold text-[var(--text-primary)]">{{ model.avgLatency || 0 }}ms</div>
+                <div class="truncate text-[11px] text-[var(--text-tertiary)]">{{ $t('business.marketplace.latencyDescription') }}</div>
               </div>
             </div>
             
-            <!-- 模型规格信息 -->
-            <div class="space-y-1 mb-4 text-xs text-[var(--text-secondary)]">
-              <div class="flex justify-between">
-                <span>模型名称:</span>
-                <span class="font-medium text-[var(--text-primary)]">{{ model.name }}</span>
-              </div>
-              <div class="flex justify-between">
-                <span>创建者:</span>
-                <span class="font-medium text-[var(--text-primary)]">{{ model.creator || '未知' }}</span>
-              </div>
-              <div class="flex justify-between items-center">
-                <span>可用客户端:</span>
-                <span class="font-bold text-blue-600 bg-blue-50 dark:bg-blue-900/20 px-2 py-1 rounded">{{ model.clientCount || 0 }}个</span>
-              </div>
-            </div>
-
             <!-- 快速操作 -->
-            <div class="mt-4 flex items-center justify-between">
-              <div class="flex items-center space-x-2">
+            <div class="mt-auto flex items-center justify-end gap-2 border-t border-[var(--border-color)] pt-4">
+              <div class="flex items-center gap-2">
                 <button
                   class="p-2 rounded-lg bg-blue-500/10 text-blue-500 hover:bg-blue-500/20 transition-colors duration-200"
-                  title="收藏"
+                  :title="$t('business.marketplace.favorite')"
                   @click.stop="toggleFavorite(model)"
                 >
                   <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -428,8 +444,8 @@
               <div class="flex items-center space-x-2">
                 <button
                   :disabled="isEmbeddingModel(model)"
-                  :title="isEmbeddingModel(model) ? 'Embedding模型不支持对话功能' : '开始对话'"
-                  class="inline-flex items-center px-3 py-1.5 text-xs font-semibold rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5 hover:scale-105 border relative overflow-hidden group disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                  :title="isEmbeddingModel(model) ? $t('business.marketplace.embeddingChatUnavailable') : $t('business.marketplace.startChat')"
+                  class="inline-flex h-8 items-center rounded-lg border px-3 text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                   :class="isEmbeddingModel(model) 
                     ? 'bg-gray-500/20 text-gray-500 border-gray-500/30 hover:from-gray-500/20 hover:to-gray-500/20' 
                     : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white border-green-400/20'"
@@ -441,13 +457,13 @@
                     <path v-if="isEmbeddingModel(model)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18 21l-1.636-.636m1.636-1.636a9 9 0 01-12.728 0"/>
                     <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                   </svg>
-                  <span class="relative z-10">{{ isEmbeddingModel(model) ? '不支持对话' : '对话' }}</span>
+                  <span class="relative z-10">{{ isEmbeddingModel(model) ? $t('business.marketplace.unsupportedChat') : $t('business.marketplace.chat') }}</span>
                 </button>
                 <button
-                  class="opacity-0 group-hover:opacity-100 inline-flex items-center px-3 py-1 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-xs font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                  class="inline-flex h-8 items-center rounded-lg bg-blue-500 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-600"
                   @click.stop="handleViewDetails(model)"
                 >
-                  查看详情
+                  {{ $t('business.marketplace.details') }}
                   <svg class="ml-1 h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                   </svg>
@@ -463,20 +479,20 @@
         <div
           v-for="model in displayedModels"
           :key="model.id"
-          class="group relative overflow-hidden cursor-pointer rounded-2xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6 transition-all duration-300 hover:shadow-xl hover:scale-[1.01] hover:border-blue-500/50"
+          class="group relative cursor-pointer overflow-hidden rounded-xl border border-[var(--border-color)] bg-[var(--content-bg)] p-5 transition-all duration-300 hover:border-blue-500/50 hover:shadow-lg"
           @click="handleModelClick(model)"
         >
           <!-- 悬浮效果背景 -->
           <div class="absolute inset-0 bg-gradient-to-r from-blue-500/5 to-indigo-500/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
           
-          <div class="relative z-10 flex items-start space-x-6">
+          <div class="relative z-10 grid grid-cols-[auto_minmax(0,1fr)_auto] items-start gap-4">
             <!-- 模型图标 -->
             <div class="flex-shrink-0">
               <div
                 :style="{ background: `linear-gradient(135deg, ${model.color}, ${model.color}dd)` }"
-                class="flex h-16 w-16 items-center justify-center rounded-2xl text-white shadow-lg group-hover:scale-110 transition-transform duration-300"
+                class="flex h-12 w-12 items-center justify-center rounded-lg text-white shadow-sm transition-transform duration-300 group-hover:scale-105"
               >
-                <svg class="h-8 w-8" fill="currentColor" viewBox="0 0 24 24">
+                <svg class="h-6 w-6" fill="currentColor" viewBox="0 0 24 24">
                   <path v-if="model.icon === 'lucide:brain-circuit'" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2zm0 2a8 8 0 100 16 8 8 0 000-16zm0 3a5 5 0 110 10 5 5 0 010-10zm0 2a3 3 0 100 6 3 3 0 000-6z"/>
                   <path v-else-if="model.icon === 'lucide:cpu'" d="M4 6h16v12H4V6zm2 2v8h12V8H6zm2 2h8v4H8v-4z"/>
                   <path v-else-if="model.icon === 'lucide:message-circle'" d="M12 2C6.477 2 2 6.477 2 12c0 1.89.525 3.66 1.438 5.168L2.546 20.2a1 1 0 001.254 1.254l3.032-.892A9.958 9.958 0 0012 22c5.523 0 10-4.477 10-10S17.523 2 12 2z"/>
@@ -489,14 +505,14 @@
             
             <!-- 模型信息 -->
             <div class="flex-1 min-w-0">
-              <div class="flex items-start justify-between">
-                <div class="flex-1">
+              <div>
+                <div>
                   <!-- 模型ID显示区域 -->
-                  <div class="flex items-center gap-3 mb-3">
-                    <div class="inline-flex items-center gap-2 p-2 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-900/20 border border-blue-200 dark:border-blue-700 rounded-lg max-w-md">
+                  <div class="mb-3 flex items-center gap-3">
+                    <div class="flex h-9 min-w-0 max-w-full items-center gap-2 rounded-lg border border-[var(--border-color)] bg-[var(--hover-bg)] px-2.5">
                       <div class="flex items-center gap-2">
                         <span class="text-xs font-medium text-blue-600 dark:text-blue-400 uppercase tracking-wide">ID:</span>
-                        <code class="text-sm font-mono font-bold text-gray-800 dark:text-gray-200" :title="model.id">
+                        <code class="truncate font-mono text-sm font-medium text-[var(--text-primary)]" :title="model.id">
                           {{ model.id }}
                         </code>
                         <button 
@@ -512,7 +528,7 @@
                     </div>
                   </div>
                   
-                  <div class="mt-3 flex flex-wrap items-center gap-2 text-sm">
+                  <div class="flex flex-wrap items-center gap-1.5 text-sm">
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-[var(--text-primary)] border border-gray-200 dark:border-gray-700">
                       <span class="text-xs text-gray-500 mr-1">名称:</span>{{ model.name }}
                     </span>
@@ -523,71 +539,53 @@
                       </svg>
                       Embedding模型
                     </span>
-                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                      {{ model.parameterSize }}
-                    </span>
+                    <!-- 模型类型 -->
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-purple-500/10 text-purple-500 border border-purple-500/20">
                       {{ model.modelType }}
                     </span>
-                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
-                      {{ model.quantization }}
+                    <!-- 参数量（如果有） -->
+                    <span v-if="model.parameterSize && model.parameterSize !== 'Unknown'" class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
+                      {{ model.parameterSize }}
                     </span>
+                    <!-- 贡献者数量标签 -->
+                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-purple-500/10 text-purple-500 border border-purple-500/20">
+                      <span class="text-xs mr-1">贡献者:</span>{{ model.contributorCount || 0 }}
+                    </span>
+                    <!-- 调用量标签 -->
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-orange-500/10 text-orange-500 border border-orange-500/20">
-                      {{ getModelSeries(model.id) }}
+                      <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                      </svg>
+                      <span class="text-xs">调用 {{ formatNumber(model.totalCalls) }} 次 · {{ formatTokens(model.totalTokens) }}</span>
                     </span>
-                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400 border border-gray-200 dark:border-gray-700">
-                      <span class="text-xs mr-1">创建者:</span>{{ model.creator || '未知' }}
+                    <!-- 稳定在线时长标签 -->
+                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
+                      <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                      </svg>
+                      <span class="text-xs">{{ $t('business.marketplace.onlineFor', { duration: formatDuration(model.onlineTime) }) }}</span>
                     </span>
-                    <!-- 客户端数量标签 -->
-                    <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                      <span class="text-xs mr-1">客户端:</span>{{ model.clientCount || 0 }}个
+                    <!-- 贡献者报价区间 -->
+                    <span v-if="model.priceRange" class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                      <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                      </svg>
+                      <span class="text-xs">价格 ￥{{ formatPriceRange(model.priceRange.input) }}/{{ formatPriceRange(model.priceRange.output) }}</span>
                     </span>
-                    <!-- 定价标签 - 列表视图显示最低价格 -->
-                    <div class="inline-flex items-center space-x-2">
-                      <!-- 输入Token最低价格 -->
-                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
-                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M13 10l3 4M9 12l4-4"/>
-                        </svg>
-                        <span class="text-xs">输入￥{{ model.inputPPM?.toFixed(1) || '10.0' }}/百万</span>
-                        <span v-if="model.inputClientInfo" class="ml-1 text-xs opacity-75">
-                          ({{ model.inputClientInfo.username }})
-                        </span>
-                      </span>
-                      
-                      <!-- 输出Token最低价格 -->
-                      <span class="inline-flex items-center px-3 py-1 rounded-full bg-blue-500/10 text-blue-600 border border-blue-500/20">
-                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 8a3 3 0 016 0m-6 0v10c0 3.314 2.686 6 6 6s6-2.686 6-6V8m-6 0V5a2 2 0 012-2h2a2 2 0 012 2v3"/>
-                        </svg>
-                        <span class="text-xs">输出￥{{ model.outputPPM?.toFixed(1) || '20.0' }}/百万</span>
-                        <span v-if="model.outputClientInfo" class="ml-1 text-xs opacity-75">
-                          ({{ model.outputClientInfo.username }})
-                        </span>
-                      </span>
-                    </div>
-                  </div>
-                </div>
-                
-                <!-- 状态 -->
-                <div class="flex flex-col items-end space-y-2 ml-4">
-                  <span
-                    :class="getStatusClass(model.status)"
-                    class="inline-flex items-center px-3 py-1 rounded-full text-xs font-medium border"
-                  >
-                    {{ getStatusText(model.status) }}
-                  </span>
+                    <span v-else class="inline-flex items-center px-3 py-1 rounded-full bg-gray-500/10 text-gray-500 border border-gray-500/20">
+                      <span class="text-xs">暂无报价</span>
+                    </span>
                 </div>
               </div>
               
               <!-- TODO: 模型详细信息 - 暂时注释，后续需要时再启用 -->
 
               <!-- 快速操作按钮 -->
-              <div class="mt-4 flex items-center justify-end space-x-3">
+              <div class="mt-4 flex items-center gap-2 border-t border-[var(--border-color)] pt-4">
                 <button
                   :disabled="isEmbeddingModel(model)"
                   :title="isEmbeddingModel(model) ? 'Embedding模型不支持对话功能' : '开始对话'"
-                  class="inline-flex items-center px-5 py-2.5 text-sm font-semibold rounded-xl transition-all duration-200 shadow-lg hover:shadow-xl transform hover:-translate-y-1 hover:scale-105 border relative overflow-hidden group disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
+                  class="inline-flex h-9 items-center rounded-lg border px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                   :class="isEmbeddingModel(model) 
                     ? 'bg-gray-500/20 text-gray-500 border-gray-500/30' 
                     : 'bg-gradient-to-r from-green-500 to-emerald-600 hover:from-green-600 hover:to-emerald-700 text-white border-green-400/20'"
@@ -602,7 +600,7 @@
                   <span class="relative z-10">{{ isEmbeddingModel(model) ? '不支持对话' : '立即对话' }}</span>
                 </button>
                 <button
-                  class="inline-flex items-center px-4 py-2 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white text-sm font-medium rounded-lg transition-all duration-200 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                  class="inline-flex h-9 items-center rounded-lg bg-blue-500 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-600"
                   @click.stop="handleViewDetails(model)"
                 >
                   查看详情
@@ -612,6 +610,12 @@
                 </button>
               </div>
             </div>
+            <span
+              :class="getStatusClass(model.status)"
+              class="inline-flex items-center rounded-full border px-2.5 py-1 text-xs font-medium"
+            >
+              {{ getStatusText(model.status) }}
+            </span>
           </div>
         </div>
       </div>
@@ -681,6 +685,7 @@
       </div>
     </div>
   </div>
+  </div>
 </template>
 
 <script lang="ts" setup>
@@ -690,6 +695,7 @@ import { computed, ref, watch, onMounted, onActivated } from 'vue';
 import { useRouter } from 'vue-router';
 // 导入请求工具
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 // 定义API返回的原始模型数据类型
 interface ClientModel {
@@ -759,28 +765,26 @@ interface ModelItem {
   name: string;
   parameterSize: string;
   modelType: string;
-  creator: string;
   status: 'serving' | 'restricted' | 'offline' | 'maintenance';
   description: string;
   icon: string;
   color: string;
   createDate: string;
   size: string;
-  quantization: string; // 量化方式
   type: string;
-  clientCount?: number; // 新增可用客户端数量
-  inputPPM?: number; // 输入定价 (每百万Token)
-  outputPPM?: number; // 输出定价 (每百万Token)
-  inputClientInfo?: { // 最低输入价格的客户端信息
-    clientId: string;
-    username: string;
-    price: number;
+  clientCount?: number; // 可用客户端数量
+  onlineClients?: number; // 在线客户端数量
+  offlineClients?: number; // 离线客户端数量
+  contributorCount?: number; // 贡献者（贡献用户）数量
+  totalTokens?: number; // 累计调用 tokens
+  totalCalls?: number; // 累计调用次数
+  avgLatency?: number; // 平均延迟 (ms)
+  onlineTime?: number; // 稳定在线时长（秒）
+  priceRange?: {
+    input: [number, number];
+    output: [number, number];
   } | null;
-  outputClientInfo?: { // 最低输出价格的客户端信息
-    clientId: string;
-    username: string;
-    price: number;
-  } | null;
+  modalities?: string[];
 }
 
 // 定义Props
@@ -816,6 +820,35 @@ const sortOrder = ref<'asc' | 'desc'>('asc');
 const allModels = ref<ModelItem[]>([]); // 已加载的所有模型数据
 const totalModels = ref(0); // 服务器端总数量
 
+// 模型广场全局使用统计（调用量/tokens），用于合并展示
+const marketStats = ref<Record<string, any>>({});
+
+// 获取模型广场全局使用统计（跨所有用户）
+const fetchMarketStats = async () => {
+  try {
+    const response = await requestClient.get('/market/models/stats');
+    if (!response) return;
+    const statsArr = Array.isArray(response) ? response : (response.data && Array.isArray(response.data) ? response.data : []);
+    const map: Record<string, any> = {};
+    statsArr.forEach((s: any) => {
+      if (s?.model) map[s.model] = s;
+    });
+    marketStats.value = map;
+  } catch (error) {
+    console.warn('获取模型使用统计失败:', error);
+  }
+};
+
+// 将全局使用统计合并到模型数据中
+const mergeMarketStats = (model: ModelItem): ModelItem => {
+  const stat = marketStats.value[model.id];
+  return {
+    ...model,
+    totalTokens: stat?.total_tokens ?? model.totalTokens ?? 0,
+    totalCalls: stat?.calls ?? model.totalCalls ?? 0,
+  };
+};
+
 // 数据转换函数：将API数据转换为显示用的模型数据
 const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
   // 验证必要字段
@@ -827,55 +860,6 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
   try {
     // 从模型名称解析信息
     const modelName = apiModel.name || 'Unknown Model';
-    
-    // 计算所有客户端中的最低价格
-    const getLowestPricing = () => {
-      if (!apiModel.client_models || apiModel.client_models.length === 0) {
-        return {
-          minInputPPM: 10,
-          minOutputPPM: 20,
-          inputClientInfo: null,
-          outputClientInfo: null
-        };
-      }
-
-      let minInputPPM = Number.MAX_VALUE;
-      let minOutputPPM = Number.MAX_VALUE;
-      let inputClientInfo = null;
-      let outputClientInfo = null;
-
-      apiModel.client_models.forEach(clientModel => {
-        const model = clientModel.model;
-        const client = clientModel.client;
-        
-        if (model?.ippm !== undefined && model.ippm < minInputPPM) {
-          minInputPPM = model.ippm;
-          inputClientInfo = {
-            clientId: client?.id?.substring(0, 8) + '...',
-            username: client?.user?.username || '匿名用户',
-            price: model.ippm
-          };
-        }
-        
-        if (model?.oppm !== undefined && model.oppm < minOutputPPM) {
-          minOutputPPM = model.oppm;
-          outputClientInfo = {
-            clientId: client?.id?.substring(0, 8) + '...',
-            username: client?.user?.username || '匿名用户',
-            price: model.oppm
-          };
-        }
-      });
-
-      return {
-        minInputPPM: minInputPPM === Number.MAX_VALUE ? 10 : minInputPPM,
-        minOutputPPM: minOutputPPM === Number.MAX_VALUE ? 20 : minOutputPPM,
-        inputClientInfo,
-        outputClientInfo
-      };
-    };
-
-    const pricingInfo = getLowestPricing();
     
     // 获取第一个客户端模型的其他信息作为默认值
     const firstClientModel = apiModel.client_models?.[0];
@@ -918,9 +902,6 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
       return { icon: 'lucide:bot', color: '#13c2c2' };
     };
 
-    // 获取第一个客户端模型的信息作为默认值
-    const clientData = firstClientModel?.client;
-    
     // 确定模型状态：根据客户端状态来判断
     const getModelStatus = (): 'serving' | 'restricted' | 'offline' | 'maintenance' => {
       if (!apiModel.client_models || apiModel.client_models.length === 0) {
@@ -936,26 +917,65 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     };
 
     const { icon, color } = getModelIcon(apiModel.type || 'unknown', modelName);
-    
+
+    // 计算客户端统计：在线/离线数量、贡献者数量、平均延迟、稳定在线时长
+    const clientModels = apiModel.client_models || [];
+    const onlineClients = clientModels.filter(cm => cm.client?.status === 'online');
+    const offlineClients = clientModels.filter(cm => cm.client?.status !== 'online');
+    const contributorSet = new Set<string>();
+    clientModels.forEach(cm => {
+      if (cm.client?.user?.id) contributorSet.add(cm.client.user.id);
+    });
+    const avgLatency = clientModels.length > 0
+      ? Math.round(clientModels.reduce((sum, cm) => sum + (cm.client?.latency || 0), 0) / clientModels.length)
+      : 0;
+    const inputPrices = clientModels
+      .map(cm => cm.model?.ippm)
+      .filter((price): price is number => typeof price === 'number');
+    const outputPrices = clientModels
+      .map(cm => cm.model?.oppm)
+      .filter((price): price is number => typeof price === 'number');
+    const priceRange = inputPrices.length > 0 && outputPrices.length > 0
+      ? {
+          input: [Math.min(...inputPrices), Math.max(...inputPrices)] as [number, number],
+          output: [Math.min(...outputPrices), Math.max(...outputPrices)] as [number, number],
+        }
+      : null;
+    const modalities = isEmbeddingModelName(modelName, apiModel.type)
+      ? ['向量嵌入']
+      : ['文本输入', '文本输出'];
+    // 稳定在线时长：取在线客户端中最早注册时间到现在的时间差（秒）
+    let onlineTime = 0;
+    if (onlineClients.length > 0) {
+      const earliest = onlineClients.reduce((min, cm) => {
+        const t = cm.client?.register_time ? new Date(cm.client.register_time).getTime() : 0;
+        return min === 0 || (t > 0 && t < min) ? t : min;
+      }, 0);
+      if (earliest > 0) {
+        onlineTime = Math.max(0, Math.floor((Date.now() - earliest) / 1000));
+      }
+    }
+
     return {
       id: modelName,
       name: name || modelName,
       parameterSize: version || 'Unknown',
       modelType: (apiModel.type || 'unknown').toUpperCase(),
-      creator: clientData?.user?.username || modelData?.openai_model?.owned_by || 'Unknown',
       status: getModelStatus(),
-      description: `${apiModel.type || 'unknown'} 模型，量化：${modelData?.arch || 'N/A'}，大小：${formatSize(apiModel.size || '0')}，可用客户端：${apiModel.client_models?.length || 0}个`,
+      description: `${apiModel.type || 'unknown'} 模型，大小：${formatSize(apiModel.size || '0')}，可用客户端：${clientModels.length}个`,
       icon,
       color,
       createDate: modelData?.openai_model?.created ? new Date(modelData.openai_model.created * 1000).toLocaleDateString() : new Date().toLocaleDateString(),
       size: formatSize(apiModel.size || '0'),
-      quantization: modelData?.arch || 'N/A', // 使用量化方式
       type: apiModel.type || 'unknown',
-      clientCount: apiModel.client_models?.length || 0,
-      inputPPM: pricingInfo.minInputPPM,
-      outputPPM: pricingInfo.minOutputPPM,
-      inputClientInfo: pricingInfo.inputClientInfo,
-      outputClientInfo: pricingInfo.outputClientInfo
+      clientCount: clientModels.length,
+      onlineClients: onlineClients.length,
+      offlineClients: offlineClients.length,
+      contributorCount: contributorSet.size,
+      avgLatency,
+      onlineTime,
+      priceRange,
+      modalities,
     };
   } catch (error) {
     console.error('转换模型数据时出错:', error, apiModel);
@@ -970,29 +990,34 @@ const createDefaultModel = (): ModelItem => {
     name: 'Unknown Model',
     parameterSize: 'Unknown',
     modelType: 'UNKNOWN',
-    creator: 'Unknown',
     status: 'offline',
     description: '数据异常的模型',
     icon: 'lucide:alert-triangle',
     color: '#ff4d4f',
     createDate: new Date().toLocaleDateString(),
     size: '0B',
-    quantization: 'N/A',
     type: 'unknown',
     clientCount: 0,
-    inputPPM: 10,
-    outputPPM: 20,
-    inputClientInfo: null,
-    outputClientInfo: null
+    onlineClients: 0,
+    offlineClients: 0,
+    contributorCount: 0,
+    avgLatency: 0,
+    onlineTime: 0,
+    priceRange: null,
+    modalities: [],
   };
 };
 
 
 
 // API获取模型数据 - 真正的分页版本
-const fetchModels = async (page: number = 1, limit: number = pageSize) => {
+const fetchModels = async (
+  page: number = 1,
+  limit: number = pageSize,
+  showLoading = true,
+) => {
   try {
-    loading.value = true;
+    if (showLoading) loading.value = true;
     
     console.log(`获取模型数据：第 ${page} 页，每页 ${limit} 条`);
     
@@ -1027,7 +1052,7 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
     }
     
     // 转换数据格式
-    const transformedModels = apiModels.map(transformApiModel);
+    const transformedModels = apiModels.map(transformApiModel).map(mergeMarketStats);
     
     // 应用搜索和筛选
     let filteredModels = transformedModels;
@@ -1035,9 +1060,8 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
       const keyword = props.searchKeyword.toLowerCase();
       filteredModels = transformedModels.filter(model => 
         model.name.toLowerCase().includes(keyword) ||
-        model.creator.toLowerCase().includes(keyword) ||
+        model.id.toLowerCase().includes(keyword) ||
         model.modelType.toLowerCase().includes(keyword) ||
-        model.quantization.toLowerCase().includes(keyword) ||
         model.description.toLowerCase().includes(keyword)
       );
     }
@@ -1100,7 +1124,7 @@ const fetchModels = async (page: number = 1, limit: number = pageSize) => {
       hasMore: false
     };
   } finally {
-    loading.value = false;
+    if (showLoading) loading.value = false;
   }
 };
 
@@ -1110,7 +1134,8 @@ const initializeModels = async () => {
   currentPage.value = 1;
   allModels.value = [];
   
-  const result = await fetchModels(1);
+  // 并行获取模型列表和全局使用统计
+  const [result] = await Promise.all([fetchModels(1), fetchMarketStats()]);
   allModels.value = result.models;
   totalModels.value = result.total;
   console.log('模型数据加载完成:', result.models.length, '个模型，总计:', result.total);
@@ -1186,10 +1211,10 @@ const getStatusClass = (status: ModelItem['status']) => {
 // 获取状态文本
 const getStatusText = (status: ModelItem['status']) => {
   const texts = {
-    serving: '服务中',
-    restricted: '限制访问',
-    maintenance: '维护中',
-    offline: '离线',
+    serving: $t('business.marketplace.serving'),
+    restricted: $t('business.marketplace.restricted'),
+    maintenance: $t('business.marketplace.maintenance'),
+    offline: $t('business.marketplace.offline'),
   };
   return texts[status];
 };
@@ -1226,6 +1251,20 @@ const getParameterSizeCategory = (parameterSize: string): string => {
   return 'small';
 };
 
+const formatPriceRange = ([minimum, maximum]: [number, number]): string => {
+  if (!Number.isFinite(minimum) || !Number.isFinite(maximum)) return 'N/A';
+  return minimum === maximum ? minimum.toFixed(2) : `${minimum.toFixed(2)}-${maximum.toFixed(2)}`;
+};
+
+const isEmbeddingModelName = (name: string, type?: string): boolean => {
+  const normalizedName = name.toLowerCase();
+  const normalizedType = type?.toLowerCase();
+  return normalizedType === 'embedding' || normalizedType === 'embeddings' || [
+    'embedding', 'embed', 'bge-', 'text-embedding', 'sentence-transformer',
+    'all-minilm', 'e5-', 'gte-', 'multilingual-e5', 'text2vec',
+  ].some((keyword) => normalizedName.includes(keyword));
+};
+
 // 处理搜索输入
 const handleSearchInput = (event: Event) => {
   const target = event.target as HTMLInputElement;
@@ -1247,89 +1286,10 @@ const resetFilters = () => {
   emit('search', '');
 };
 
-// 生成模型系列名称
-const getModelSeries = (modelName: string): string => {
-  const name = modelName.toLowerCase();
-  if (name.includes('qwen3')) {
-    return 'Qwen3系列';
-  } else if (name.includes('qwen2.5')) {
-    return 'Qwen2.5系列';
-  } else if (name.includes('qwen2')) {
-    return 'Qwen2系列';
-  } else if (name.includes('qwen')) {
-    return 'Qwen系列';
-  } else if (name.includes('deepseek-r1')) {
-    return 'DeepSeek-R1系列';
-  } else if (name.includes('deepseek-v3')) {
-    return 'DeepSeek-V3系列';
-  } else if (name.includes('deepseek-v2')) {
-    return 'DeepSeek-V2系列';
-  } else if (name.includes('deepseek')) {
-    return 'DeepSeek系列';
-  } else if (name.includes('llama3.3')) {
-    return 'Llama 3.3系列';
-  } else if (name.includes('llama3.2')) {
-    return 'Llama 3.2系列';
-  } else if (name.includes('llama3.1')) {
-    return 'Llama 3.1系列';
-  } else if (name.includes('llama3')) {
-    return 'Llama 3系列';
-  } else if (name.includes('llama2')) {
-    return 'Llama 2系列';
-  } else if (name.includes('llama')) {
-    return 'Llama系列';
-  } else if (name.includes('chatglm4')) {
-    return 'ChatGLM4系列';
-  } else if (name.includes('chatglm3')) {
-    return 'ChatGLM3系列';
-  } else if (name.includes('chatglm')) {
-    return 'ChatGLM系列';
-  } else if (name.includes('gemma2')) {
-    return 'Gemma 2系列';
-  } else if (name.includes('gemma')) {
-    return 'Gemma系列';
-  } else if (name.includes('mistral')) {
-    return 'Mistral系列';
-  } else if (name.includes('phi')) {
-    return 'Phi系列';
-  } else {
-    // 提取模型基础名称作为系列
-    const baseName = modelName.split(':')[0];
-    return `${baseName}系列`;
-  }
-};
-
 // 检查是否为embedding模型
 const isEmbeddingModel = (model: ModelItem): boolean => {
   if (!model) return false;
-  
-  // 检查模型类型
-  const type = model.type?.toLowerCase();
-  if (type === 'embedding' || type === 'embeddings') {
-    return true;
-  }
-  
-  // 检查模型名称中的关键词
-  const name = model.name?.toLowerCase() || '';
-  const id = model.id?.toLowerCase() || '';
-  
-  // 常见的embedding模型名称关键词
-  const embeddingKeywords = [
-    'embedding',
-    'embed',
-    'bge-',
-    'text-embedding',
-    'sentence-transformer',
-    'all-minilm',
-    'e5-',
-    'gte-',
-    'multilingual-e5',
-    'text2vec'
-  ];
-  
-  return embeddingKeywords.some(keyword => 
-    name.includes(keyword) || id.includes(keyword)
-  );
+  return isEmbeddingModelName(model.name || model.id, model.type);
 };
 
 // 复制到剪贴板
@@ -1337,7 +1297,6 @@ const copyToClipboard = async (text: string) => {
   try {
     await navigator.clipboard.writeText(text);
     console.log('已复制模型ID:', text);
-    // 这里可以添加一个成功提示
   } catch (err) {
     // 降级方案：使用传统的复制方法
     const textArea = document.createElement('textarea');
@@ -1354,6 +1313,33 @@ const copyToClipboard = async (text: string) => {
   }
 };
 
+// 格式化大数字（如 12345 -> 1.2万）
+const formatNumber = (num?: number): string => {
+  const n = num || 0;
+  if (n >= 100000000) return `${(n / 100000000).toFixed(1)}亿`;
+  if (n >= 10000) return `${(n / 10000).toFixed(1)}万`;
+  return `${n}`;
+};
+
+// 格式化 tokens 数量
+const formatTokens = (num?: number): string => {
+  const n = num || 0;
+  if (n >= 1000000000) return `${(n / 1000000000).toFixed(1)}B`;
+  if (n >= 1000000) return `${(n / 1000000).toFixed(1)}M`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K`;
+  return `${n}`;
+};
+
+// 格式化时长（秒 -> 可读文本）
+const formatDuration = (seconds?: number): string => {
+  const s = seconds || 0;
+  if (s <= 0) return $t('business.marketplace.noUptime');
+  if (s < 60) return $t('business.marketplace.uptimeSeconds', { count: s });
+  if (s < 3600) return $t('business.marketplace.uptimeMinutes', { count: Math.floor(s / 60) });
+  if (s < 86400) return $t('business.marketplace.uptimeHours', { count: Math.floor(s / 3600) });
+  return $t('business.marketplace.uptimeDays', { count: Math.floor(s / 86400) });
+};
+
 // 切换收藏状态
 const toggleFavorite = (model: ModelItem) => {
   console.log('切换收藏状态:', model.name);
@@ -1366,7 +1352,7 @@ const handleModelClick = (model: ModelItem) => {
     color: model.color,
     content: model.description,
     date: model.createDate,
-    group: model.creator,
+    group: model.modelType,
     icon: model.icon,
     title: model.name,
     url: `/model-marketplace-detail?name=${model.id}`,
@@ -1405,13 +1391,6 @@ const openChatDialog = (model: ModelItem) => {
   });
 };
 
-// 监听搜索关键词变化，重置分页
-watch(() => props.searchKeyword, () => {
-  initializeModels();
-});
-
-
-
 // 组件挂载时初始化数据
 onMounted(() => {
   console.log('ModelMarketplace 组件挂载');
@@ -1429,9 +1408,45 @@ const refreshData = () => {
   initializeModels();
 };
 
+// 静默刷新：不显示全页 loading，不清空列表，只更新变化的数据，避免页面闪烁
+const silentRefresh = async () => {
+  try {
+    // 并行获取最新模型列表和全局统计
+    const [result] = await Promise.all([fetchModels(1, pageSize, false), fetchMarketStats()]);
+    const freshModels = result.models;
+
+    // 保留已有数组与卡片对象引用，仅更新发生变化的字段，避免整页重渲染。
+    const existingMap = new Map(allModels.value.map(m => [m.id, m]));
+    freshModels.forEach(fresh => {
+      const existing = existingMap.get(fresh.id);
+      if (!existing) {
+        allModels.value.push(fresh);
+        return;
+      }
+      // 仅更新可能变化的字段
+      existing.status = fresh.status;
+      existing.clientCount = fresh.clientCount;
+      existing.onlineClients = fresh.onlineClients;
+      existing.offlineClients = fresh.offlineClients;
+      existing.contributorCount = fresh.contributorCount;
+      existing.avgLatency = fresh.avgLatency;
+      existing.onlineTime = fresh.onlineTime;
+      existing.totalTokens = fresh.totalTokens;
+      existing.totalCalls = fresh.totalCalls;
+      existing.priceRange = fresh.priceRange;
+      existing.modalities = fresh.modalities;
+    });
+
+    totalModels.value = result.total;
+  } catch (error) {
+    console.warn('静默刷新失败:', error);
+  }
+};
+
 // 使用 defineExpose 暴露方法
 defineExpose({
   refreshData,
+  silentRefresh,
 });
 
 // 当组件被激活时（例如路由切换后显示）重新加载数据

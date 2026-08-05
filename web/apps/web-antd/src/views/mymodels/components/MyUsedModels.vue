@@ -5,12 +5,12 @@
       <!-- 表头 -->
       <div class="px-6 py-4 bg-[var(--bg-color-secondary)] border-b border-[var(--border-color)]">
         <div class="grid grid-cols-12 gap-4 text-sm font-medium text-[var(--text-secondary)]">
-          <div class="col-span-3">模型名称</div>
-          <div class="col-span-2">提供者</div>
-          <div class="col-span-2">添加时间</div>
-          <div class="col-span-2">使用次数</div>
-          <div class="col-span-2">状态</div>
-          <div class="col-span-1">操作</div>
+          <div class="col-span-3">{{ $t('business.myModels.modelName') }}</div>
+          <div class="col-span-2">{{ $t('business.myModels.provider') }}</div>
+          <div class="col-span-2">{{ $t('business.myModels.addedAt') }}</div>
+          <div class="col-span-2">{{ $t('business.myModels.usageCount') }}</div>
+          <div class="col-span-2">{{ $t('business.myModels.status') }}</div>
+          <div class="col-span-1">{{ $t('business.myModels.actions') }}</div>
         </div>
       </div>
 
@@ -21,7 +21,7 @@
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          加载中...
+          {{ $t('business.myModels.loading') }}
         </div>
       </div>
 
@@ -82,16 +82,16 @@
                 <button
                   class="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 text-sm"
                   @click="viewModelDetails(model)"
-                  title="查看详情"
+                  :title="$t('business.myModels.viewDetails')"
                 >
-                  详情
+                  {{ $t('business.myModels.details') }}
                 </button>
                 <button
                   class="text-red-600 hover:text-red-700 dark:text-red-400 dark:hover:text-red-300 text-sm"
                   @click="removeModel(model)"
-                  title="移除"
+                  :title="$t('business.myModels.removeTitle')"
                 >
-                  移除
+                  {{ $t('business.myModels.remove') }}
                 </button>
               </div>
             </div>
@@ -104,8 +104,8 @@
         <svg class="mx-auto h-12 w-12 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
         </svg>
-        <h3 class="mt-2 text-sm font-medium text-[var(--text-primary)]">暂无使用的模型</h3>
-        <p class="mt-1 text-sm text-[var(--text-secondary)]">前往模型广场探索更多模型</p>
+        <h3 class="mt-2 text-sm font-medium text-[var(--text-primary)]">{{ $t('business.myModels.noUsedModels') }}</h3>
+        <p class="mt-1 text-sm text-[var(--text-secondary)]">{{ $t('business.marketplace.noModels') }}</p>
         <div class="mt-6">
           <button
             class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -114,7 +114,7 @@
             <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/>
             </svg>
-            探索模型
+            {{ $t('business.myModels.exploreModels') }}
           </button>
         </div>
       </div>
@@ -127,6 +127,7 @@ import { ref, onMounted } from 'vue';
 import { useRouter } from 'vue-router';
 import { message } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 // 接口类型定义
 interface UsedModel {
@@ -154,7 +155,7 @@ const loadUsedModels = async () => {
     usedModels.value = response.data || [];
   } catch (error) {
     console.error('加载使用的模型失败:', error);
-    message.error('加载模型列表失败');
+    message.error($t('business.myModels.loadModelsFailed'));
   } finally {
     loading.value = false;
   }
@@ -184,34 +185,34 @@ const getStatusClass = (status: string) => {
 const getStatusText = (status: string) => {
   switch (status) {
     case 'active':
-      return '正常';
+      return $t('business.myModels.active');
     case 'inactive':
-      return '未激活';
+      return $t('business.myModels.inactive');
     case 'error':
-      return '错误';
+      return $t('business.myModels.error');
     default:
-      return '未知';
+      return $t('business.myModels.unknown');
   }
 };
 
 // 查看模型详情
 const viewModelDetails = (model: UsedModel) => {
-  message.info(`查看模型 "${model.name}" 详情`);
+  message.info($t('business.myModels.viewModelDetails', { model: model.name }));
 };
 
 // 移除模型
 const removeModel = async (model: UsedModel) => {
-  if (!confirm(`确定要移除模型 "${model.name}" 吗？`)) {
+  if (!confirm($t('business.myModels.removeConfirm', { model: model.name }))) {
     return;
   }
 
   try {
     await requestClient.delete(`/user/used-models/${model.id}`);
-    message.success('模型移除成功');
+    message.success($t('business.myModels.modelRemoved'));
     await loadUsedModels();
   } catch (error) {
     console.error('移除模型失败:', error);
-    message.error('移除模型失败');
+    message.error($t('business.myModels.removeFailed'));
   }
 };
 

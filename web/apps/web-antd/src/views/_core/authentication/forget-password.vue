@@ -8,6 +8,7 @@ import { useRouter } from 'vue-router';
 
 import { AuthenticationForgetPassword, z } from '@vben/common-ui';
 import { sendEmailCodeApi, resetPasswordApi } from '#/api/core/auth';
+import { $t } from '#/locales';
 
 defineOptions({ name: 'ForgetPassword' });
 
@@ -31,13 +32,13 @@ const formSchema = computed((): VbenFormSchema[] => {
       {
         component: 'VbenInput',
         componentProps: {
-          placeholder: '请输入您的邮箱地址',
+          placeholder: $t('page.auth.email'),
           type: 'email',
           size: 'large',
         },
         fieldName: 'email',
-        label: '邮箱地址',
-        rules: z.string().email({ message: '请输入正确的邮箱格式' }),
+        label: $t('page.auth.email'),
+        rules: z.string().email({ message: $t('page.auth.emailFormatInvalid') }),
       },
     ];
   } else {
@@ -46,29 +47,29 @@ const formSchema = computed((): VbenFormSchema[] => {
       {
         component: 'VbenInput',
         componentProps: {
-          placeholder: '请输入6位验证码',
+          placeholder: $t('page.auth.verificationCode'),
           size: 'large',
           maxlength: 6,
         },
         fieldName: 'code',
-        label: '验证码',
-        rules: z.string().min(6, { message: '请输入6位验证码' }).max(6, { message: '验证码为6位数字' }),
+        label: $t('page.auth.verificationCode'),
+        rules: z.string().min(6, { message: $t('page.auth.verificationCodeRequired') }).max(6, { message: $t('page.auth.verificationCodeLength') }),
       },
       {
         component: 'VbenInputPassword',
         componentProps: {
           passwordStrength: true,
-          placeholder: '请输入新密码',
+          placeholder: $t('page.auth.enterNewPassword'),
           size: 'large',
         },
         fieldName: 'newPassword',
-        label: '新密码',
+        label: $t('page.auth.newPassword'),
         renderComponentContent() {
           return {
-            strengthText: () => '密码强度',
+            strengthText: () => $t('page.auth.passwordStrength'),
           };
         },
-        rules: z.string().min(8, { message: '密码至少8个字符' }),
+        rules: z.string().min(8, { message: $t('page.auth.passwordMinimumEight') }),
       },
     ];
   }
@@ -79,15 +80,15 @@ const sendEmailCode = async (email: string) => {
   sendingCode.value = true;
   try {
     const response = await sendEmailCodeApi({ email });
-    message.success('验证码已发送到您的邮箱');
+    message.success($t('page.auth.verificationCodeSent'));
     
     // 开发环境可能会返回验证码，便于测试
     if (import.meta.env.DEV && response.code) {
       console.log('验证码:', response.code);
-      message.info(`验证码: ${response.code}`);
+      message.info(`${$t('page.auth.verificationCode')}: ${response.code}`);
     }
   } catch (error: any) {
-    message.error(error.message || '发送验证码失败，请稍后重试');
+    message.error(error.message || $t('page.auth.sendCodeFailed'));
     throw error;
   } finally {
     sendingCode.value = false;
@@ -104,7 +105,7 @@ async function handleSubmit(values: Recordable<any>) {
       resetData.email = values.email;
       await sendEmailCode(resetData.email);
       currentStep.value = 2;
-      message.success('验证码已发送，请查收邮件');
+      message.success($t('page.auth.verificationCodeSentNotice'));
     } else {
       // 步骤2：重置密码
       await resetPasswordApi({
@@ -113,7 +114,7 @@ async function handleSubmit(values: Recordable<any>) {
         newPassword: values.newPassword,
       });
       
-      message.success('密码重置成功！即将跳转到登录页面');
+      message.success($t('page.auth.passwordResetSuccess'));
       
       // 重置成功后跳转到登录页面
       setTimeout(() => {
@@ -121,7 +122,7 @@ async function handleSubmit(values: Recordable<any>) {
       }, 2000);
     }
   } catch (error: any) {
-    message.error(error.message || '操作失败，请稍后重试');
+    message.error(error.message || $t('page.auth.operationFailed'));
   } finally {
     loading.value = false;
   }
@@ -136,17 +137,17 @@ const goBack = () => {
 
 // 获取当前步骤的标题和副标题
 const stepTitle = computed(() => {
-  return currentStep.value === 1 ? '重置密码' : '设置新密码';
+  return currentStep.value === 1 ? $t('page.auth.resetPassword') : $t('page.auth.setNewPassword');
 });
 
 const stepSubtitle = computed(() => {
   return currentStep.value === 1 
-    ? '输入您的邮箱地址，我们将发送验证码'
-    : `验证码已发送到 ${resetData.email}`;
+    ? $t('page.auth.enterEmailToSendCode')
+    : $t('page.auth.codeSentTo', { email: resetData.email });
 });
 
 const buttonText = computed(() => {
-  return currentStep.value === 1 ? '发送验证码' : '重置密码';
+  return currentStep.value === 1 ? $t('page.auth.sendVerificationCode') : $t('page.auth.resetPassword');
 });
 </script>
 
@@ -184,20 +185,20 @@ const buttonText = computed(() => {
             class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
             type="button"
           >
-            更改邮箱
+            {{ $t('page.auth.changeEmail') }}
           </button>
         </div>
       </div>
       
       <!-- 密码设置提示（步骤2） -->
       <div v-if="currentStep === 2" class="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-        <p class="text-sm font-medium text-[var(--text-primary)] mb-2">新密码要求:</p>
+        <p class="text-sm font-medium text-[var(--text-primary)] mb-2">{{ $t('page.auth.newPasswordRequirements') }}</p>
         <ul class="space-y-1 text-sm text-[var(--text-secondary)]">
           <li class="flex items-center space-x-2">
             <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
-            <span>至少 8 个字符</span>
+            <span>{{ $t('page.auth.passwordMinimumEight') }}</span>
           </li>
         </ul>
       </div>

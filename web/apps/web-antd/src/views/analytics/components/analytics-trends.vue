@@ -5,6 +5,7 @@ import { onMounted, ref, watch } from 'vue';
 import { requestClient } from '#/api/request';
 import { RangePicker as ARangePicker } from 'ant-design-vue';
 import dayjs, { type Dayjs } from 'dayjs';
+import { $t } from '#/locales';
 
 import { EchartsUI, useEcharts } from '@vben/plugins/echarts';
 
@@ -72,7 +73,7 @@ const renderChart = () => {
   if (trendPoints.value.length === 0) {
     renderEcharts({
       title: {
-        text: '暂无使用数据',
+        text: $t('business.analytics.noUsageData'),
         left: 'center',
         top: 'center',
         textStyle: {
@@ -86,7 +87,7 @@ const renderChart = () => {
 
   renderEcharts({
     title: {
-      text: 'Token使用趋势',
+      text: $t('business.analytics.tokenUsageTrend'),
       left: 'center',
       textStyle: {
         fontSize: 16,
@@ -94,7 +95,7 @@ const renderChart = () => {
       }
     },
     legend: {
-      data: ['输入Token', '输出Token', '总Token'],
+      data: [$t('business.analytics.inputTokens'), $t('business.analytics.outputTokens'), $t('business.analytics.totalTokens')],
       top: 30
     },
     grid: {
@@ -106,7 +107,7 @@ const renderChart = () => {
     },
     series: [
       {
-        name: '输入Token',
+        name: $t('business.analytics.inputTokens'),
         areaStyle: {
           opacity: 0.3
         },
@@ -118,7 +119,7 @@ const renderChart = () => {
         type: 'line',
       },
       {
-        name: '输出Token',
+        name: $t('business.analytics.outputTokens'),
         areaStyle: {
           opacity: 0.3
         },
@@ -130,7 +131,7 @@ const renderChart = () => {
         type: 'line',
       },
       {
-        name: '总Token',
+        name: $t('business.analytics.totalTokens'),
         areaStyle: {
           opacity: 0.2
         },
@@ -183,7 +184,7 @@ const renderChart = () => {
         axisTick: {
           show: false,
         },
-        name: 'Token数量',
+        name: $t('business.analytics.tokenQuantity'),
         splitArea: {
           show: true,
         },

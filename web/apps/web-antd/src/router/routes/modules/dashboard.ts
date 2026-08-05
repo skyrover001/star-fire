@@ -1,5 +1,7 @@
 import type { RouteRecordRaw } from 'vue-router';
 
+import { $t } from '#/locales';
+
 const routes: RouteRecordRaw[] = [
   // 模型广场（原控制台）
   {
@@ -7,7 +9,7 @@ const routes: RouteRecordRaw[] = [
       affixTab: true,
       icon: 'lucide:shopping-cart',
       order: 0,
-      title: '模型广场',
+      title: $t('business.navigation.marketplace'),
     },
     name: 'ModelMarketplace',
     path: '/model-marketplace',
@@ -17,7 +19,7 @@ const routes: RouteRecordRaw[] = [
   {
     meta: {
       hideInMenu: true,
-      title: '模型详情',
+      title: $t('business.navigation.modelDetail'),
     },
     name: 'ModelMarketplaceDetail',
     path: '/model-marketplace-detail',
@@ -27,7 +29,7 @@ const routes: RouteRecordRaw[] = [
   {
     meta: {
       hideInMenu: true,
-      title: 'AI 对话',
+      title: $t('business.navigation.chat'),
     },
     name: 'Chat',
     path: '/chat',
@@ -49,7 +51,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       icon: 'lucide:trending-up',
       order: 1,
-      title: '模型收益',
+      title: $t('business.navigation.modelIncome'),
     },
     name: 'ModelIncome',
     path: '/model-income',
@@ -57,7 +59,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         meta: {
-          title: '收益总览',
+          title: $t('business.navigation.incomeOverview'),
         },
         name: 'IncomeOverview',
         path: '/model-income/overview',
@@ -65,7 +67,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         meta: {
-          title: '价格配置',
+          title: $t('business.navigation.modelPrices'),
         },
         name: 'ModelPrices',
         path: '/model-income/model-prices',
@@ -78,7 +80,7 @@ const routes: RouteRecordRaw[] = [
     meta: {
       icon: 'lucide:area-chart',
       order: 2,
-      title: '模型使用',
+      title: $t('business.navigation.modelUsage'),
     },
     name: 'ModelUsage',
     path: '/model-usage',
@@ -86,7 +88,7 @@ const routes: RouteRecordRaw[] = [
     children: [
       {
         meta: {
-          title: '使用总览',
+          title: $t('business.navigation.usageOverview'),
         },
         name: 'UsageOverview',
         path: '/model-usage/overview',
@@ -94,7 +96,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         meta: {
-          title: '消费限额',
+          title: $t('business.navigation.priceCaps'),
         },
         name: 'PriceCaps',
         path: '/model-usage/price-caps',
@@ -102,7 +104,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         meta: {
-          title: 'API Key 管理',
+          title: $t('business.navigation.apiKeys'),
         },
         name: 'MyKeys',
         path: '/model-usage/api-keys',
@@ -110,7 +112,7 @@ const routes: RouteRecordRaw[] = [
       },
       {
         meta: {
-          title: '账户充值',
+          title: $t('business.navigation.recharge'),
         },
         name: 'Recharge',
         path: '/model-usage/recharge',

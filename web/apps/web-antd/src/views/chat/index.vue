@@ -26,7 +26,7 @@
               </div>
               <div>
                 <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ modelName || modelId }}</h2>
-                <p class="text-sm text-gray-500 dark:text-gray-400">AI 对话助手</p>
+                <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('business.chat.assistant') }}</p>
               </div>
             </div>
           </div>
@@ -36,7 +36,7 @@
             <button
               @click="clearChat"
               class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-              title="清空对话"
+              :title="$t('business.chat.clearChat')"
             >
               <svg class="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1-1H8a1 1 0 00-1 1v3M4 7h16"/>
@@ -46,7 +46,7 @@
               @click="showSettings = !showSettings"
               class="p-2 hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
               :class="{ 'bg-gray-100 dark:bg-gray-700': showSettings }"
-              title="设置"
+              :title="$t('business.chat.settings')"
             >
               <svg class="w-5 h-5 text-gray-500 dark:text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/>
@@ -65,9 +65,9 @@
           <svg class="w-16 h-16 mx-auto mb-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 7a2 2 0 012 2m4 0a6 6 0 01-7.743 5.743L11 17H9v2H7v2H4a1 1 0 01-1-1v-2.586a1 1 0 01.293-.707l5.964-5.964A6 6 0 1121 9z"/>
           </svg>
-          <h3 class="text-2xl font-bold text-gray-900 dark:text-white mb-3">配置 API Key</h3>
+          <h3 class="text-2xl font-bold text-gray-900 dark:text-white mb-3">{{ $t('business.chat.configureKey') }}</h3>
           <p class="text-gray-600 dark:text-gray-400 max-w-md mx-auto">
-            为了使用 AI 对话功能，请先配置您的 API Key。系统会自动获取可用的 API Key，或您可以手动输入。
+            {{ $t('business.chat.configureDescription') }}
           </p>
         </div>
         
@@ -83,9 +83,9 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
                 </svg>
               </div>
-              <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">自动获取</h4>
+              <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ $t('business.chat.autoFetch') }}</h4>
               <p class="text-sm text-gray-500 dark:text-gray-400">
-                系统将自动从您的账户获取可用的 API Key
+                {{ $t('business.chat.autoFetchDescription') }}
               </p>
             </div>
           </button>
@@ -101,9 +101,9 @@
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
                 </svg>
               </div>
-              <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">手动输入</h4>
+              <h4 class="text-lg font-semibold text-gray-900 dark:text-white mb-2">{{ $t('business.chat.manualInput') }}</h4>
               <p class="text-sm text-gray-500 dark:text-gray-400">
-                手动输入您的 API Key
+                {{ $t('business.chat.manualInputDescription') }}
               </p>
             </div>
           </button>
@@ -111,7 +111,7 @@
         
         <div class="mt-6 text-center">
           <p class="text-sm text-gray-500 dark:text-gray-400">
-            API Key 将安全保存在本地，不会上传到服务器
+            {{ $t('business.chat.localStorage') }}
           </p>
         </div>
       </div>
@@ -126,9 +126,9 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
           </div>
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">自动获取 API Key</h3>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">{{ $t('business.chat.autoFetchTitle') }}</h3>
           <p class="text-gray-600 dark:text-gray-400">
-            系统将从您的账户中自动选择一个有效的 API Key
+            {{ $t('business.chat.autoFetchPrompt') }}
           </p>
         </div>
         
@@ -137,7 +137,7 @@
             @click="closeAutoFetchDialog"
             class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
-            取消
+            {{ $t('business.chat.cancel') }}
           </button>
           <button
             @click="confirmAutoFetch"
@@ -147,7 +147,7 @@
             <svg v-if="fetchingApiKey" class="w-4 h-4 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
-            <span>{{ fetchingApiKey ? '获取中...' : '确认' }}</span>
+            <span>{{ fetchingApiKey ? $t('business.chat.fetching') : $t('business.chat.confirm') }}</span>
           </button>
         </div>
       </div>
@@ -162,9 +162,9 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z"/>
             </svg>
           </div>
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">手动输入 API Key</h3>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">{{ $t('business.chat.manualInputTitle') }}</h3>
           <p class="text-gray-600 dark:text-gray-400">
-            请输入您的 API Key
+            {{ $t('business.chat.enterKey') }}
           </p>
         </div>
         
@@ -172,7 +172,7 @@
           <input
             v-model="apiKeyInput"
             type="password"
-            placeholder="请输入 API Key..."
+            :placeholder="$t('business.chat.keyPlaceholder')"
             class="w-full px-4 py-3 border border-gray-300 dark:border-gray-600 rounded-lg focus:ring-2 focus:ring-green-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white"
             @keypress.enter="confirmManualInput"
           />
@@ -183,14 +183,14 @@
             @click="closeManualInputDialog"
             class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
-            取消
+            {{ $t('business.chat.cancel') }}
           </button>
           <button
             @click="confirmManualInput"
             :disabled="!apiKeyInput.trim()"
             class="flex-1 px-4 py-2 bg-green-500 hover:bg-green-600 disabled:bg-gray-300 disabled:cursor-not-allowed text-white rounded-lg transition-colors"
           >
-            确认
+            {{ $t('business.chat.confirm') }}
           </button>
         </div>
       </div>
@@ -205,9 +205,9 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z"/>
             </svg>
           </div>
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">未找到可用的 API Key</h3>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-2">{{ $t('business.chat.noKeyTitle') }}</h3>
           <p class="text-gray-600 dark:text-gray-400">
-            系统未找到有效的 API Key，请前往管理页面创建或检查您的 API Key 配置。
+            {{ $t('business.chat.noKeyDescription') }}
           </p>
         </div>
         
@@ -216,13 +216,13 @@
             @click="closeNoKeysDialog"
             class="flex-1 px-4 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-gray-300 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700 transition-colors"
           >
-            取消
+            {{ $t('business.chat.cancel') }}
           </button>
           <button
             @click="goToApiKeyManagement"
             class="flex-1 px-4 py-2 bg-yellow-500 hover:bg-yellow-600 text-white rounded-lg transition-colors"
           >
-            前往管理
+            {{ $t('business.chat.goToManagement') }}
           </button>
         </div>
       </div>
@@ -245,9 +245,9 @@
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                   </svg>
                 </div>
-                <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-3">开始与 AI 对话</h3>
+                <h3 class="text-xl font-semibold text-gray-900 dark:text-white mb-3">{{ $t('business.chat.startChat') }}</h3>
                 <p class="text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-                  您正在与 <span class="font-medium text-blue-600">{{ modelName || modelId }}</span> 对话。请在下方输入您的问题。
+                  {{ $t('business.chat.welcome', { model: modelName || modelId }) }}
                 </p>
               </div>
             
@@ -262,11 +262,11 @@
                           <div class="relative">
                             <div class="w-5 h-5 rounded-full border-2 border-blue-400 border-t-transparent animate-spin"></div>
                           </div>
-                          <span class="text-sm font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">思考过程</span>
+                          <span class="text-sm font-semibold text-blue-700 dark:text-blue-300 uppercase tracking-wide">{{ $t('business.chat.thinking') }}</span>
                         </div>
                         <!-- 思考时长显示 -->
                         <div v-if="message.thinkingDuration" class="text-xs text-blue-600 dark:text-blue-400 bg-blue-100 dark:bg-blue-800/50 px-2 py-1 rounded-full">
-                          思考时长: {{ formatThinkingDuration(message.thinkingDuration) }}
+                          {{ $t('business.chat.thinkingDuration', { duration: formatThinkingDuration(message.thinkingDuration) }) }}
                         </div>
                       </div>
                       <div class="text-sm text-blue-800 dark:text-blue-200 leading-relaxed whitespace-pre-wrap font-mono bg-blue-100/50 dark:bg-blue-800/30 rounded-lg p-3 border border-blue-200/50 dark:border-blue-600/30">
@@ -315,7 +315,7 @@
                           @click="copyMessage(message.content)"
                           class="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-700"
                           :class="message.role === 'user' ? 'text-blue-100 hover:bg-blue-600' : 'text-gray-400'"
-                          title="复制消息"
+                          :title="$t('business.chat.copyMessage')"
                         >
                           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
@@ -336,7 +336,7 @@
                       <div class="w-2.5 h-2.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.15s"></div>
                       <div class="w-2.5 h-2.5 bg-gray-400 rounded-full animate-bounce" style="animation-delay: 0.3s"></div>
                     </div>
-                    <span class="text-sm text-gray-500 dark:text-gray-400">AI 正在思考...</span>
+                    <span class="text-sm text-gray-500 dark:text-gray-400">{{ $t('business.chat.aiThinking') }}</span>
                   </div>
                 </div>
               </div>
@@ -350,7 +350,7 @@
                     <input
                       v-model="chatInput"
                       type="text"
-                      placeholder="输入您的消息..."
+                      :placeholder="$t('business.chat.messagePlaceholder')"
                       class="w-full px-4 py-3 pr-12 border border-gray-300 dark:border-gray-600 rounded-xl focus:ring-2 focus:ring-blue-500 focus:border-transparent bg-white dark:bg-gray-700 text-gray-900 dark:text-white transition-all"
                       @keypress.enter="sendMessage"
                       :disabled="chatLoading"
@@ -371,7 +371,7 @@
                     <svg v-else class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"/>
                     </svg>
-                    <span>{{ chatLoading ? '发送中' : '发送' }}</span>
+                    <span>{{ chatLoading ? $t('business.chat.sending') : $t('business.chat.send') }}</span>
                   </button>
                 </div>
               </div>
@@ -381,13 +381,13 @@
           <!-- 设置侧边栏 -->
           <div v-if="showSettings" class="w-80 border-l border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 flex-shrink-0 overflow-y-auto">
             <div class="p-6">
-              <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">对话设置</h3>
+              <h3 class="text-lg font-semibold text-gray-900 dark:text-white mb-6">{{ $t('business.chat.chatSettings') }}</h3>
               
               <div class="space-y-6">
                 <!-- 模型信息 -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    当前模型
+                    {{ $t('business.chat.currentModel') }}
                   </label>
                   <div class="p-3 bg-gray-50 dark:bg-gray-700 rounded-lg border border-gray-200 dark:border-gray-600">
                     <div class="text-sm font-medium text-gray-900 dark:text-white">{{ modelName || modelId }}</div>
@@ -409,15 +409,15 @@
                     class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-600"
                   />
                   <div class="flex justify-between text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    <span>更精确</span>
-                    <span>更创意</span>
+                    <span>{{ $t('business.chat.morePrecise') }}</span>
+                    <span>{{ $t('business.chat.moreCreative') }}</span>
                   </div>
                 </div>
                 
                 <!-- Max Tokens 设置 -->
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    最大 Token 数
+                    {{ $t('business.chat.maxTokens') }}
                   </label>
                   <input
                     v-model.number="maxTokens"
@@ -428,20 +428,20 @@
                     class="w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-lg bg-white dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-blue-500 focus:border-transparent"
                   />
                   <div class="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    控制回复的最大长度
+                    {{ $t('business.chat.maxTokensDescription') }}
                   </div>
                 </div>
                 
                 <!-- 统计信息 -->
                 <div class="pt-4 border-t border-gray-200 dark:border-gray-700">
-                  <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">对话统计</h4>
+                  <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300 mb-3">{{ $t('business.chat.chatStatistics') }}</h4>
                   <div class="space-y-2">
                     <div class="flex justify-between text-sm">
-                      <span class="text-gray-500 dark:text-gray-400">消息数量:</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ $t('business.chat.messageCount') }}</span>
                       <span class="text-gray-900 dark:text-white font-medium">{{ chatMessages.length }}</span>
                     </div>
                     <div class="flex justify-between text-sm">
-                      <span class="text-gray-500 dark:text-gray-400">估算 Token:</span>
+                      <span class="text-gray-500 dark:text-gray-400">{{ $t('business.chat.estimatedTokens') }}</span>
                       <span class="text-gray-900 dark:text-white font-medium">{{ estimatedTokens }}</span>
                     </div>
                   </div>
@@ -453,19 +453,19 @@
                     @click="exportChat"
                     class="w-full px-4 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg transition-colors text-sm font-medium"
                   >
-                    导出对话
+                    {{ $t('business.chat.exportChat') }}
                   </button>
                   <button
                     @click="clearChat"
                     class="w-full px-4 py-2 bg-red-500 hover:bg-red-600 text-white rounded-lg transition-colors text-sm font-medium"
                   >
-                    清空对话
+                    {{ $t('business.chat.clearChat') }}
                   </button>
                   <button
                     @click="resetApiKey"
                     class="w-full px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg transition-colors text-sm font-medium"
                   >
-                    重置 API Key
+                    {{ $t('business.chat.resetKey') }}
                   </button>
                 </div>
               </div>
@@ -485,7 +485,7 @@
             <div class="w-3 h-3 bg-yellow-500 rounded-full"></div>
             <div class="w-3 h-3 bg-green-500 rounded-full"></div>
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300 ml-4">
-              {{ previewType === 'html' ? 'HTML 预览' : 'JavaScript 预览' }}
+              {{ previewType === 'html' ? $t('business.chat.htmlPreview') : $t('business.chat.javascriptPreview') }}
             </span>
           </div>
           <button
@@ -519,13 +519,13 @@
                   @click="runJavaScript"
                   class="px-4 py-2 bg-green-500 hover:bg-green-600 text-white rounded-lg text-sm font-medium transition-colors"
                 >
-                  运行代码
+                  {{ $t('business.chat.runCode') }}
                 </button>
                 <button
                   @click="clearJavaScriptOutput"
                   class="px-4 py-2 bg-gray-500 hover:bg-gray-600 text-white rounded-lg text-sm font-medium transition-colors"
                 >
-                  清空输出
+                  {{ $t('business.chat.clearOutput') }}
                 </button>
               </div>
             </div>
@@ -540,6 +540,7 @@
 import { ref, computed, onMounted, nextTick } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 import { marked } from 'marked';
 import hljs from 'highlight.js/lib/core';
 // 导入常用语言支持
@@ -826,7 +827,7 @@ const sendMessage = async () => {
 
     const reader = response.body?.getReader();
     if (!reader) {
-      throw new Error('无法获取响应流');
+      throw new Error($t('business.chat.responseStreamUnavailable'));
     }
 
     const decoder = new TextDecoder();
@@ -931,7 +932,7 @@ const sendMessage = async () => {
     // 添加错误消息
     chatMessages.value.push({
       role: 'assistant',
-      content: `抱歉，发生了错误：${error instanceof Error ? error.message : '未知错误'}`,
+      content: $t('business.chat.errorResponse', { error: error instanceof Error ? error.message : $t('business.chat.unknownError') }),
       timestamp: new Date()
     });
   } finally {
@@ -1030,7 +1031,7 @@ const runJavaScript = () => {
     // 创建输出区域
     const outputDiv = document.createElement('div');
     outputDiv.className = 'bg-black text-green-400 font-mono text-sm p-4 rounded-lg h-full overflow-auto';
-    outputDiv.textContent = '> 运行 JavaScript 代码...\n';
+    outputDiv.textContent = `> ${$t('business.chat.runJavascript')}\n`;
     container.appendChild(outputDiv);
     
     // 执行代码
@@ -1039,7 +1040,7 @@ const runJavaScript = () => {
     
     // 显示console.log输出
     if (logs.length > 0) {
-      outputDiv.textContent += '\n--- Console 输出 ---\n';
+      outputDiv.textContent += `\n--- ${$t('business.chat.consoleOutput')} ---\n`;
       logs.forEach(log => {
         outputDiv.textContent += log + '\n';
       });
@@ -1048,14 +1049,14 @@ const runJavaScript = () => {
     // 恢复原始console.log
     console.log = originalConsoleLog;
     
-    outputDiv.textContent += '\n> 代码执行完成';
+    outputDiv.textContent += `\n> ${$t('business.chat.executionComplete')}`;
     
   } catch (error) {
     const container = document.getElementById('js-preview-container');
     if (container) {
       container.innerHTML = `
         <div class="bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-700 rounded-lg p-4">
-          <h4 class="text-red-800 dark:text-red-200 font-semibold mb-2">执行错误</h4>
+          <h4 class="text-red-800 dark:text-red-200 font-semibold mb-2">${$t('business.chat.executionError')}</h4>
           <pre class="text-red-700 dark:text-red-300 text-sm">${error}</pre>
         </div>
       `;
@@ -1067,7 +1068,7 @@ const runJavaScript = () => {
 const clearJavaScriptOutput = () => {
   const container = document.getElementById('js-preview-container');
   if (container) {
-    container.innerHTML = '<div class="bg-black text-green-400 font-mono text-sm p-4 rounded-lg h-full">准备运行 JavaScript 代码...</div>';
+    container.innerHTML = `<div class="bg-black text-green-400 font-mono text-sm p-4 rounded-lg h-full">${$t('business.chat.readyToRun')}</div>`;
   }
 };
 
@@ -1088,7 +1089,7 @@ const addCopyButtonsToCodeBlocks = () => {
         // 复制按钮
         const copyButton = document.createElement('button');
         copyButton.className = 'bg-gray-700 hover:bg-gray-600 text-white text-xs px-2 py-1 rounded transition-colors';
-        copyButton.textContent = '复制';
+        copyButton.textContent = $t('business.chat.copy');
         copyButton.onclick = () => copyCodeBlock(codeText);
         
         actionsContainer.appendChild(copyButton);
@@ -1098,7 +1099,7 @@ const addCopyButtonsToCodeBlocks = () => {
         if (language === 'html' || language === 'javascript' || language === 'js') {
           const previewButton = document.createElement('button');
           previewButton.className = 'bg-blue-700 hover:bg-blue-600 text-white text-xs px-2 py-1 rounded transition-colors';
-          previewButton.textContent = '预览';
+          previewButton.textContent = $t('business.chat.preview');
           previewButton.onclick = () => previewCode(codeText, language);
           actionsContainer.appendChild(previewButton);
         }

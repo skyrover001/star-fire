@@ -8,6 +8,7 @@ import { useRouter } from 'vue-router';
 
 import { AuthenticationRegister, z } from '@vben/common-ui';
 import { sendEmailCodeApi, registerApi } from '#/api/core/auth';
+import { $t } from '#/locales';
 
 defineOptions({ name: 'Register' });
 
@@ -32,14 +33,14 @@ const formSchema = computed((): VbenFormSchema[] => {
         {
           component: 'VbenInput',
           componentProps: {
-            placeholder: '电子邮件地址',
+            placeholder: $t('page.auth.email'),
             type: 'email',
             size: 'large',
             class: 'h-12',
           },
           fieldName: 'email',
           label: '',
-          rules: z.string().email({ message: '请输入正确的邮箱格式' }),
+          rules: z.string().email({ message: $t('page.auth.emailFormatInvalid') }),
         },
       ];
     case 2:
@@ -49,7 +50,7 @@ const formSchema = computed((): VbenFormSchema[] => {
           component: 'VbenInputPassword',
           componentProps: {
             passwordStrength: true,
-            placeholder: '密码',
+            placeholder: $t('page.auth.password'),
             size: 'large',
             class: 'h-12',
           },
@@ -57,15 +58,15 @@ const formSchema = computed((): VbenFormSchema[] => {
           label: '',
           renderComponentContent() {
             return {
-              strengthText: () => '您的密码必须包含:',
+              strengthText: () => $t('page.auth.passwordRequirements'),
             };
           },
-          rules: z.string().min(8, { message: '密码至少8个字符' }),
+          rules: z.string().min(8, { message: $t('page.auth.passwordMinimumEight') }),
         },
         {
           component: 'VbenInputPassword',
           componentProps: {
-            placeholder: '确认密码',
+            placeholder: $t('page.auth.confirmPassword'),
             size: 'large',
             class: 'h-12',
           },
@@ -73,10 +74,10 @@ const formSchema = computed((): VbenFormSchema[] => {
             rules(values) {
               const { password } = values;
               return z
-                .string({ required_error: '请确认密码' })
-                .min(1, { message: '请确认密码' })
+                .string({ required_error: $t('page.auth.confirmPasswordRequired') })
+                .min(1, { message: $t('page.auth.confirmPasswordRequired') })
                 .refine((value) => value === password, {
-                  message: '两次输入的密码不一致',
+                  message: $t('page.auth.passwordMismatch'),
                 });
             },
             triggerFields: ['password'],
@@ -87,14 +88,14 @@ const formSchema = computed((): VbenFormSchema[] => {
         {
           component: 'VbenInput',
           componentProps: {
-            placeholder: '验证码',
+            placeholder: $t('page.auth.verificationCode'),
             size: 'large',
             class: 'h-12',
             maxlength: 6,
           },
           fieldName: 'emailCode',
           label: '',
-          rules: z.string().min(6, { message: '请输入6位验证码' }).max(6, { message: '验证码为6位数字' }),
+          rules: z.string().min(6, { message: $t('page.auth.verificationCodeRequired') }).max(6, { message: $t('page.auth.verificationCodeLength') }),
         },
       ];
     default:
@@ -106,11 +107,11 @@ const formSchema = computed((): VbenFormSchema[] => {
 const stepTitle = computed(() => {
   switch (currentStep.value) {
     case 1:
-      return '创建帐户';
+      return $t('page.auth.createAccount');
     case 2:
-      return '创建帐户';
+      return $t('page.auth.createAccount');
     default:
-      return '创建帐户';
+      return $t('page.auth.createAccount');
   }
 });
 
@@ -120,7 +121,7 @@ const stepSubtitle = computed(() => {
     case 1:
       return '';
     case 2:
-      return '设置密码并输入验证码确认身份';
+      return $t('page.auth.setPasswordAndEnterCode');
     default:
       return '';
   }
@@ -128,7 +129,7 @@ const stepSubtitle = computed(() => {
 
 // 获取按钮文本
 const buttonText = computed(() => {
-  return '继续';
+  return $t('page.auth.continue');
 });
 
 // 发送验证码
@@ -136,15 +137,15 @@ const sendEmailCode = async (email: string) => {
   sendingCode.value = true;
   try {
     const response = await sendEmailCodeApi({ email });
-    message.success('验证码已发送到您的邮箱');
+    message.success($t('page.auth.verificationCodeSent'));
     
     // 开发环境可能会返回验证码，便于测试
     if (import.meta.env.DEV && response.code) {
       console.log('验证码:', response.code);
-      message.info(`验证码: ${response.code}`);
+      message.info(`${$t('page.auth.verificationCode')}: ${response.code}`);
     }
   } catch (error: any) {
-    message.error(error.message || '发送验证码失败，请稍后重试');
+    message.error(error.message || $t('page.auth.sendCodeFailed'));
     throw error;
   } finally {
     sendingCode.value = false;
@@ -161,14 +162,14 @@ async function handleSubmit(values: Recordable<any>) {
       registrationData.email = values.email;
       await sendEmailCode(registrationData.email);
       currentStep.value = 2;
-      message.success('验证码已发送，请设置密码并输入验证码');
+      message.success($t('page.auth.verificationCodeSentSetPassword'));
     } else if (currentStep.value === 2) {
       // 步骤2：验证码验证，完成注册
       await completeRegistration(values);
     }
   } catch (error: any) {
     // 发送验证码失败，保持在当前步骤
-    message.error(error.message || '操作失败，请稍后重试');
+    message.error(error.message || $t('page.auth.operationFailed'));
   } finally {
     loading.value = false;
   }
@@ -187,7 +188,7 @@ const completeRegistration = async (values: any) => {
       code: values.emailCode,
     });
     
-    message.success('恭喜您！账户创建成功！');
+    message.success($t('page.auth.accountCreated'));
     console.log('register success:', response);
     
     // 注册成功后跳转到登录页面
@@ -195,7 +196,7 @@ const completeRegistration = async (values: any) => {
       router.push('/auth/login');
     }, 2000);
   } catch (error: any) {
-    message.error(error.message || '注册失败，请稍后重试');
+    message.error(error.message || $t('page.auth.registrationFailed'));
     console.error('register error:', error);
     throw error;
   }
@@ -243,33 +244,33 @@ const goBack = () => {
             class="text-sm text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200"
             type="button"
           >
-            编辑
+            {{ $t('page.auth.edit') }}
           </button>
         </div>
       </div>
       
       <!-- 密码强度提示（步骤2） -->
       <div v-if="currentStep === 2" class="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-        <p class="text-sm font-medium text-[var(--text-primary)] mb-2">密码要求:</p>
+        <p class="text-sm font-medium text-[var(--text-primary)] mb-2">{{ $t('page.auth.passwordRequirementsTitle') }}</p>
         <ul class="space-y-1 text-sm text-[var(--text-secondary)]">
           <li class="flex items-center space-x-2">
             <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
-            <span>至少 8 个字符</span>
+            <span>{{ $t('page.auth.passwordMinimumEight') }}</span>
           </li>
           <li class="flex items-center space-x-2">
             <svg class="w-4 h-4 text-green-500" fill="currentColor" viewBox="0 0 20 20">
               <path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd"/>
             </svg>
-            <span>确认密码必须与密码一致</span>
+            <span>{{ $t('page.auth.confirmPasswordMatches') }}</span>
           </li>
         </ul>
         
         <!-- 验证码提示 -->
         <div class="mt-4 pt-4 border-t border-gray-200 dark:border-gray-700">
-          <p class="text-sm font-medium text-[var(--text-primary)] mb-2">验证码已发送至您的邮箱</p>
-          <p class="text-sm text-[var(--text-secondary)]">请查收邮件并输入6位数字验证码</p>
+          <p class="text-sm font-medium text-[var(--text-primary)] mb-2">{{ $t('page.auth.verificationCodeSentNotice') }}</p>
+          <p class="text-sm text-[var(--text-secondary)]">{{ $t('page.auth.enterVerificationCodeNotice') }}</p>
         </div>
       </div>
     </template>
@@ -277,17 +278,17 @@ const goBack = () => {
     <!-- 底部登录链接 -->
     <template #footer>
       <div class="text-center mt-6">
-        <span class="text-[var(--text-secondary)]">已经有帐户了？</span>
+        <span class="text-[var(--text-secondary)]">{{ $t('page.auth.haveAccount') }}</span>
         <a 
           href="/auth/login" 
           class="text-blue-600 dark:text-blue-400 hover:text-blue-800 dark:hover:text-blue-200 ml-1 font-medium"
           @click.prevent="router.push('/auth/login')"
         >
-          请登录
+          {{ $t('page.auth.signIn') }}
         </a>
         
         <div class="mt-4 text-center">
-          <span class="text-[var(--text-tertiary)]">或</span>
+          <span class="text-[var(--text-tertiary)]">{{ $t('page.auth.or') }}</span>
         </div>
       </div>
     </template>

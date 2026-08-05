@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { message } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 import MyUsedModels from './components/MyUsedModels.vue';
 import MyProvidedModels from './components/MyProvidedModels.vue';
 
@@ -40,7 +41,7 @@ const refreshData = () => {
   } else {
     // 通知提供的模型组件刷新
   }
-  message.success('数据已刷新');
+  message.success($t('business.myModels.dataRefreshed'));
 };
 
 </script>
@@ -53,8 +54,8 @@ const refreshData = () => {
       <div class="px-6 py-6">
         <div class="flex items-center justify-between">
           <div>
-            <h1 class="text-3xl font-bold text-[var(--text-primary)]">我的模型</h1>
-            <p class="mt-2 text-[var(--text-secondary)]">管理您使用的模型和提供的模型服务</p>
+            <h1 class="text-3xl font-bold text-[var(--text-primary)]">{{ $t('business.myModels.title') }}</h1>
+            <p class="mt-2 text-[var(--text-secondary)]">{{ $t('business.myModels.subtitle') }}</p>
           </div>
           <div class="flex items-center space-x-4">
             <!-- 刷新按钮 -->
@@ -65,7 +66,7 @@ const refreshData = () => {
               <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
               </svg>
-              刷新数据
+              {{ $t('business.myModels.refreshData') }}
             </button>
           </div>
         </div>
@@ -84,7 +85,7 @@ const refreshData = () => {
               </div>
               <div class="ml-4">
                 <p class="text-2xl font-semibold text-[var(--text-primary)]">{{ stats.usedModels }}</p>
-                <p class="text-sm text-[var(--text-secondary)]">使用的模型</p>
+                <p class="text-sm text-[var(--text-secondary)]">{{ $t('business.myModels.usedModels') }}</p>
               </div>
             </div>
           </div>
@@ -99,7 +100,7 @@ const refreshData = () => {
               </div>
               <div class="ml-4">
                 <p class="text-2xl font-semibold text-[var(--text-primary)]">{{ stats.providedModels }}</p>
-                <p class="text-sm text-[var(--text-secondary)]">提供的模型</p>
+                <p class="text-sm text-[var(--text-secondary)]">{{ $t('business.myModels.providedModels') }}</p>
               </div>
             </div>
           </div>
@@ -114,7 +115,7 @@ const refreshData = () => {
               </div>
               <div class="ml-4">
                 <p class="text-2xl font-semibold text-[var(--text-primary)]">{{ stats.totalApiCalls.toLocaleString() }}</p>
-                <p class="text-sm text-[var(--text-secondary)]">API调用总数</p>
+                <p class="text-sm text-[var(--text-secondary)]">{{ $t('business.myModels.totalApiCalls') }}</p>
               </div>
             </div>
           </div>
@@ -129,7 +130,7 @@ const refreshData = () => {
               </div>
               <div class="ml-4">
                 <p class="text-2xl font-semibold text-[var(--text-primary)]">{{ stats.activeApiKeys }}</p>
-                <p class="text-sm text-[var(--text-secondary)]">活跃API密钥</p>
+                <p class="text-sm text-[var(--text-secondary)]">{{ $t('business.myModels.activeApiKeys') }}</p>
               </div>
             </div>
           </div>
@@ -151,7 +152,7 @@ const refreshData = () => {
                 <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
                 </svg>
-                我使用的模型
+                {{ $t('business.myModels.usedModels') }}
               </div>
             </button>
             <button
@@ -165,7 +166,7 @@ const refreshData = () => {
                 <svg class="mr-2 h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
                 </svg>
-                我提供的模型
+                {{ $t('business.myModels.providedModels') }}
               </div>
             </button>
           </nav>
@@ -178,7 +179,7 @@ const refreshData = () => {
         <div v-if="activeTab === 'used'">
           <!-- <MyUsedModels /> -->
           <div class="text-center py-12">
-            <p class="text-[var(--text-secondary)]">我使用的模型组件（开发中）</p>
+            <p class="text-[var(--text-secondary)]">{{ $t('business.myModels.usedModelsInDevelopment') }}</p>
           </div>
         </div>
 
@@ -186,7 +187,7 @@ const refreshData = () => {
         <div v-if="activeTab === 'provided'">
           <!-- <MyProvidedModels /> -->
           <div class="text-center py-12">
-            <p class="text-[var(--text-secondary)]">我提供的模型组件（开发中）</p>
+            <p class="text-[var(--text-secondary)]">{{ $t('business.myModels.providedModelsInDevelopment') }}</p>
           </div>
         </div>
       </div>

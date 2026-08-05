@@ -40,13 +40,13 @@
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/>
                 </svg>
-                点赞
+                {{ $t('business.marketplace.like') }}
               </button>
               <button class="inline-flex items-center text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors">
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                 </svg>
-                评论
+                {{ $t('business.marketplace.comment') }}
               </button>
             </div>
           </div>
@@ -60,7 +60,7 @@
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
           </svg>
-          正在加载更多...
+          {{ $t('business.marketplace.loadingMore') }}
         </div>
       </div>
     </div>
@@ -74,13 +74,13 @@
         <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/>
         </svg>
-        查看更多
+        {{ $t('business.marketplace.viewMore') }}
       </button>
     </div>
 
     <!-- 没有更多数据提示 -->
     <div v-if="!hasMore && displayItems.length > initialPageSize" class="text-center py-4">
-      <span class="text-xs text-[var(--text-secondary)]">已显示全部动态</span>
+      <span class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.allTrendsDisplayed') }}</span>
     </div>
   </div>
 </template>
@@ -89,6 +89,7 @@
 import { ref, computed, onMounted } from 'vue';
 // 导入请求工具
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 // 模型动态数据
 interface TrendItem {
@@ -126,7 +127,7 @@ const hasMoreFromServer = ref(true); // 服务器是否还有更多数据
 const transformApiTrend = (apiTrend: ApiTrendItem): TrendItem => {
   // 格式化时间
   const formatTime = (dateString: string | undefined): string => {
-    if (!dateString) return '未知时间';
+    if (!dateString) return $t('business.marketplace.unknownTime');
     
     try {
       const date = new Date(dateString);
@@ -136,16 +137,16 @@ const transformApiTrend = (apiTrend: ApiTrendItem): TrendItem => {
       const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
       const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
       
-      if (diffMins < 1) return '刚刚';
-      if (diffMins < 60) return `${diffMins}分钟前`;
-      if (diffHours < 24) return `${diffHours}小时前`;
-      if (diffDays < 7) return `${diffDays}天前`;
-      if (diffDays < 30) return `${Math.floor(diffDays / 7)}周前`;
+      if (diffMins < 1) return $t('business.marketplace.justNow');
+      if (diffMins < 60) return $t('business.marketplace.minutesAgo', { count: diffMins });
+      if (diffHours < 24) return $t('business.marketplace.hoursAgo', { count: diffHours });
+      if (diffDays < 7) return $t('business.marketplace.daysAgo', { count: diffDays });
+      if (diffDays < 30) return $t('business.marketplace.weeksAgo', { count: Math.floor(diffDays / 7) });
       
       return date.toLocaleDateString('zh-CN');
     } catch (error) {
       console.warn('时间格式化失败:', dateString, error);
-      return '未知时间';
+      return $t('business.marketplace.unknownTime');
     }
   };
 
@@ -158,8 +159,8 @@ const transformApiTrend = (apiTrend: ApiTrendItem): TrendItem => {
       .trim();
   };
 
-  const title = cleanText(apiTrend.name) || cleanText(apiTrend.author) || '未知用户';
-  const content = cleanText(apiTrend.description) || '暂无内容';
+  const title = cleanText(apiTrend.name) || cleanText(apiTrend.author) || $t('business.marketplace.unknownUser');
+  const content = localizeTrendContent(cleanText(apiTrend.description)) || $t('business.marketplace.noContent');
   const date = formatTime(apiTrend.created_at);
 
   return {
@@ -167,6 +168,17 @@ const transformApiTrend = (apiTrend: ApiTrendItem): TrendItem => {
     content,
     date
   };
+};
+
+const localizeTrendContent = (content: string): string => {
+  const keepAliveMatch = content.match(/^用户\s+(.+?)\s+保持模型:\s*(.+?)\s+在线$/);
+  if (keepAliveMatch) {
+    return $t('business.marketplace.modelKeptOnline', {
+      user: keepAliveMatch[1],
+      model: keepAliveMatch[2],
+    });
+  }
+  return content;
 };
 
 // 获取动态数据
@@ -227,9 +239,9 @@ const fetchTrends = async (page: number = 0, size: number = initialPageSize) => 
             console.error(`转换第 ${index} 条数据失败:`, trend, error);
             // 返回一个安全的默认对象
             return {
-              title: '数据异常',
-              content: '该动态数据存在异常',
-              date: '未知时间'
+              title: $t('business.marketplace.dataError'),
+              content: $t('business.marketplace.trendDataError'),
+              date: $t('business.marketplace.unknownTime')
             };
           }
         });
@@ -291,44 +303,44 @@ const fetchTrends = async (page: number = 0, size: number = initialPageSize) => 
 // 默认数据作为备用
 const getDefaultTrends = (): TrendItem[] => [
   {
-    title: 'KEG实验室',
-    content: '发布了新模型 <strong>ChatGLM3-6B</strong> 到模型广场，支持多轮对话和代码生成',
-    date: '刚刚',
+    title: 'KEG Lab',
+    content: 'Published <strong>ChatGLM3-6B</strong> to the model marketplace with multi-turn chat and code generation support',
+    date: $t('business.marketplace.justNow'),
   },
   {
-    title: '通义千问团队',
-    content: '更新了模型 <strong>Qwen2-7B-Instruct</strong> 的配置，提升了推理性能',
-    date: '1小时前',
+    title: 'Qwen Team',
+    content: 'Updated <strong>Qwen2-7B-Instruct</strong> configuration to improve inference performance',
+    date: $t('business.marketplace.hoursAgo', { count: 1 }),
   },
   {
-    title: '上海AI实验室',
-    content: '分享了模型优化技巧 <strong>大模型推理加速与内存优化</strong>',
-    date: '2小时前',
+    title: 'Shanghai AI Lab',
+    content: 'Shared model optimization techniques for <strong>LLM inference acceleration and memory optimization</strong>',
+    date: $t('business.marketplace.hoursAgo', { count: 2 }),
   },
   {
-    title: '百川智能',
-    content: '发布了技术文档 <strong>如何部署私有化MaaS服务</strong>',
-    date: '4小时前',
+    title: 'Baichuan Intelligence',
+    content: 'Published technical documentation on <strong>deploying private MaaS services</strong>',
+    date: $t('business.marketplace.hoursAgo', { count: 4 }),
   },
   {
     title: 'Hugging Face',
-    content: '新增模型 <strong>Meta-Llama-3-8B-Instruct</strong> 支持中文对话',
-    date: '6小时前',
+    content: $t('business.marketplace.fallbackHuggingFace'),
+    date: $t('business.marketplace.hoursAgo', { count: 6 }),
   },
   {
     title: 'OpenAI',
-    content: '发布了 <strong>GPT-4 Turbo</strong> 新版本，降低了API调用成本',
-    date: '1天前',
+    content: $t('business.marketplace.fallbackOpenAI'),
+    date: $t('business.marketplace.daysAgo', { count: 1 }),
   },
   {
-    title: '智谱AI',
-    content: '优化了 <strong>GLM-4</strong> 的函数调用能力，支持更复杂的工具使用',
-    date: '1天前',
+    title: 'Zhipu AI',
+    content: $t('business.marketplace.fallbackZhipu'),
+    date: $t('business.marketplace.daysAgo', { count: 1 }),
   },
   {
-    title: '阿里云',
-    content: '推出了 <strong>通义千问Plus</strong> 企业版，支持私有部署',
-    date: '2天前',
+    title: 'Alibaba Cloud',
+    content: $t('business.marketplace.fallbackAlibaba'),
+    date: $t('business.marketplace.daysAgo', { count: 2 }),
   }
 ];
 

@@ -35,6 +35,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	r.POST("/api/register", func(c *gin.Context) {
 		userHandler.Register(c, server)
 	})
+	r.GET("/api/public/homepage", marketHandler.PublicHomepageHandler)
 
 	// 客户端路由
 	r.GET("/register/:id", clientHandler.RegisterClient)
@@ -44,6 +45,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	marketAPI.Use(middleware.JWTAuth(server.UserDB))
 	{
 		marketAPI.GET("/models", marketHandler.ModelsHandler)
+		marketAPI.GET("/models/stats", marketHandler.ModelStatsHandler)
 		marketAPI.GET("/trends", marketHandler.TrendsHandler)
 		// marketAPI.POST("/messages", apiKeyHandler.CreateAPIKey)
 	}
