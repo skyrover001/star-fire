@@ -98,9 +98,9 @@ watch(
         >
           ✦
         </span>
-        <span v-if="!preferences.sidebar.collapsed" class="text-foreground truncate text-nowrap font-semibold">
+        <span v-if="!preferences.sidebar.collapsed" class="flex flex-col text-foreground truncate text-nowrap font-semibold leading-tight">
           {{ $t('page.home.brand') }}
-          <span class="text-xs font-normal opacity-70">
+          <span class="text-[10px] font-normal opacity-70">
             {{ $t('page.home.brandSuffix') }}
           </span>
         </span>

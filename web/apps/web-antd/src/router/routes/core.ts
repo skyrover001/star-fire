@@ -28,7 +28,7 @@ const coreRoutes: RouteRecordRaw[] = [
       hideInMenu: true,
       hideInTab: true,
       ignoreAccess: true,
-      title: $t('page.home.title'),
+      title: '',
     },
     name: 'Home',
     path: '/home',
