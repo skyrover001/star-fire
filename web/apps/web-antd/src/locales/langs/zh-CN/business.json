@@ -189,9 +189,12 @@
     "windowsApp": "Windows APP",
     "windowsDescription": "支持 Windows 10/11 压缩包 (~45MB)",
     "macosDescription": "支持 macOS 10.15+ 可执行文件 (~52MB)",
+    "linuxApp": "Linux",
+    "linuxDescription": "支持 Linux x86_64 压缩包 (~50MB)",
     "download": "下载",
     "windowsPlatform": "Windows",
     "macosPlatform": "macOS",
+    "linuxPlatform": "Linux",
     "tokenGenerated": "Token 生成成功",
     "tokenGenerationFailed": "Token 生成失败",
     "tokenGenerationRetry": "Token 生成失败，请稍后重试",
@@ -205,7 +208,7 @@
     "registrationNetworkRetry": "注册失败，请检查网络连接后重试",
     "downloadingClient": "正在下载 {platform} 客户端 ({size})",
     "downloadFailed": "下载 {platform} 客户端失败，请稍后重试",
-    "downloadHint": "Windows：下载 RAR 压缩包并解压后运行；macOS：下载可执行文件并添加执行权限。使用方式：starfire -host {host_ip:{port}} -token YOUR_TOKEN",
+    "downloadHint": "Windows：下载 RAR 压缩包并解压后运行；macOS：下载可执行文件并添加执行权限。使用方式：starfire -host HOST:PORT -token YOUR_TOKEN",
     "usageGuideMarkdown": "# 客户端注册使用说明\n\n## 1. 系统要求\n\n### Windows 系统\n- Windows 10 或更高版本\n- 至少 4GB 内存\n- 500MB 可用磁盘空间\n\n### macOS 系统\n- macOS 10.15 (Catalina) 或更高版本\n- 至少 4GB 内存\n- 500MB 可用磁盘空间\n\n## 2. 安装步骤\n\n### Windows 安装\n1. 下载 `starfire.rar` 压缩包\n2. 解压缩到目标目录\n3. 运行解压后的 starfire.exe 程序\n4. 启动应用程序\n\n### macOS 安装\n1. 下载 `starfire` 应用程序\n2. 将下载的文件移动到 Applications 文件夹\n3. 在终端中运行 chmod +x starfire 赋予执行权限\n4. 在应用程序文件夹中启动客户端\n\n## 3. 客户端配置\n\n### 首次配置\n1. 启动客户端后，进入设置页面\n2. 配置服务器地址：`https://your-server.com/api`\n3. 输入您的用户名和密码\n4. 点击\"测试连接\"验证配置\n\n### 注册 Token 配置\n1. 在模型广场页面生成注册 Token\n2. 复制 Token 到客户端的\"Token\"输入框\n3. 点击\"验证 Token\"确认有效性\n\n## 4. 模型注册流程\n\n### 准备工作\n- 确保模型文件完整且格式正确\n- 准备模型描述和相关文档\n- 确认模型兼容性要求\n\n### 注册步骤\n1. 在客户端中选择\"注册新模型\"\n2. 填写模型基本信息：\n   - 模型名称\n   - 版本号\n   - 描述信息\n   - 参数规模\n   - 模型类型\n3. 上传模型文件（支持多种格式）\n4. 配置模型运行参数\n5. 提交注册申请\n\n### 状态跟踪\n- **等待审核**：模型已提交，等待管理员审核\n- **审核通过**：模型已通过审核，正在部署\n- **部署完成**：模型已成功部署，可以使用\n- **审核拒绝**：模型未通过审核，需要修改后重新提交\n\n## 5. 常见问题\n\n### Q: 客户端连接不上服务器？\nA: 请检查：\n- 网络连接是否正常\n- 服务器地址是否正确\n- 防火墙设置是否阻止了连接\n\n### Q: Token 验证失败？\nA: 请确认：\n- Token 是否过期\n- Token 是否复制完整\n- 用户账户是否有注册权限\n\n### Q: 模型上传失败？\nA: 可能的原因：\n- 文件格式不支持\n- 文件大小超过限制\n- 网络连接中断\n\n### Q: 如何更新客户端？\nA: 客户端会自动检查更新，也可以：\n- 在菜单中选择\"检查更新\"\n- 重新下载最新版本安装包\n\n## 6. 技术支持\n\n如果您在使用过程中遇到问题，可以通过以下方式获取帮助：\n\n- 邮箱：support@example.com\n- 在线客服：工作日 9:00-18:00\n- 文档中心：https://docs.example.com\n- 问题反馈：https://github.com/example/issues\n\n---\n\n*最后更新时间：2024年12月*"
   },
   "myModels": {

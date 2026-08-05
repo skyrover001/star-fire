@@ -338,18 +338,23 @@ const closeDownloadModal = () => {
 };
 
 // 下载客户端
-const downloadClient = (platform: 'windows' | 'macos') => {
+const downloadClient = (platform: 'windows' | 'macos' | 'linux') => {
   // 客户端下载链接配置
   const downloadUrls = {
     windows: {
       url: '/download/windows/starfire.rar',
       filename: 'starfire.rar',
-      size: '~20MB'
+      size: '~45MB'
     },
     macos: {
       url: '/download/macos/starfire.zip',
       filename: 'starfire',
-      size: '~20MB'
+      size: '~52MB'
+    },
+    linux: {
+      url: '/download/linux/starfire.tar.gz',
+      filename: 'starfire.tar.gz',
+      size: '~50MB'
     }
   };
 
@@ -357,9 +362,14 @@ const downloadClient = (platform: 'windows' | 'macos') => {
   const platformName = t(`business.marketplace.${platform}Platform`);
 
   try {
+    // 使用同源相对路径构造下载链接（安装包与前端部署在同一 nginx 上），
+    // 并附带 filename 参数（匹配 nginx Content-Disposition 配置）。
+    // 不依赖 serverHost，确保 dev 与生产环境行为一致。
+    const downloadUrl = `${window.location.origin}${clientInfo.url}?filename=${encodeURIComponent(clientInfo.filename)}`;
+
     // 创建下载链接
     const link = document.createElement('a');
-    link.href = clientInfo.url;
+    link.href = downloadUrl;
     link.download = clientInfo.filename;
     link.style.display = 'none';
     document.body.appendChild(link);
@@ -371,15 +381,6 @@ const downloadClient = (platform: 'windows' | 'macos') => {
     document.body.removeChild(link);
 
     message.success(t('business.marketplace.downloadingClient', { platform: platformName, size: clientInfo.size }));
-
-    // 可选：记录下载统计
-    requestClient.post('/api/stats/client-download', {
-      platform: platform,
-      timestamp: Date.now(),
-      userAgent: navigator.userAgent
-    }).catch(() => {
-      // 忽略统计错误，不影响下载
-    });
 
   } catch (error) {
     console.error('下载客户端失败:', error);
@@ -773,6 +774,31 @@ const usageGuideHtml = computed(() => {
               <button
                 class="inline-flex items-center rounded-md bg-gray-600 px-4 py-2 text-sm font-medium text-white hover:bg-gray-700 focus:outline-none focus:ring-2 focus:ring-gray-500"
                 @click="downloadClient('macos')">
+                <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                    d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />
+                </svg>
+                {{ $t('business.marketplace.download') }}
+              </button>
+            </div>
+
+            <!-- Linux版本 -->
+            <div class="flex items-center justify-between rounded-lg border border-gray-200 p-4 dark:border-gray-700">
+              <div class="flex items-center space-x-3">
+                <div class="rounded-lg bg-orange-100 p-2 dark:bg-orange-900/20">
+                  <svg class="h-6 w-6 text-orange-600 dark:text-orange-400" fill="currentColor" viewBox="0 0 24 24">
+                    <path
+                      d="M12 2C9.24 2 7 4.24 7 7c0 .34.04.67.12 1H7a3 3 0 00-3 3c0 .53.14 1.03.38 1.47A3 3 0 003 15a3 3 0 003 3c.34 0 .67-.05.98-.14A3 3 0 0010 21a3 3 0 003-3c0-.34-.04-.67-.12-1H13a3 3 0 003-3c0-.53-.14-1.03-.38-1.47A3 3 0 0021 10a3 3 0 00-3-3c-.34 0-.67.05-.98.14A3 3 0 0014 3a3 3 0 00-2-1zm0 2a1 1 0 011 1 1 1 0 01-1 1 1 1 0 01-1-1 1 1 0 011-1z" />
+                  </svg>
+                </div>
+                <div>
+                  <h4 class="font-medium text-gray-900 dark:text-white">{{ $t('business.marketplace.linuxApp') }}</h4>
+                  <p class="text-sm text-gray-500 dark:text-gray-400">{{ $t('business.marketplace.linuxDescription') }}</p>
+                </div>
+              </div>
+              <button
+                class="inline-flex items-center rounded-md bg-orange-600 px-4 py-2 text-sm font-medium text-white hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500"
+                @click="downloadClient('linux')">
                 <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
                     d="M12 10v6m0 0l-3-3m3 3l3-3M3 17V7a2 2 0 012-2h6l2 2h6a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2z" />

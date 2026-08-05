@@ -31,6 +31,12 @@ COPY --from=builder /app/apps/web-antd/dist /usr/share/nginx/html
 # 复制 nginx 配置
 COPY --from=builder /app/scripts/deploy/nginx.conf /etc/nginx/nginx.conf
 
+# 创建客户端安装包下载目录
+# 将 starfire.rar / starfire.zip 等安装包放入 web/scripts/deploy/download/ 目录
+# 构建时会自动复制到镜像中，供 /download/ 路径下载
+RUN mkdir -p /usr/share/nginx/download
+COPY scripts/deploy/download/ /usr/share/nginx/download/
+
 EXPOSE 8080
 
 # 启动 nginx

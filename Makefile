@@ -21,13 +21,14 @@ LDFLAGS = -ldflags "-X main.Version=$(VERSION) -X main.BuildTime=$(BUILD_TIME)"
 WINDOWS_AMD64 = GOOS=windows GOARCH=amd64
 DARWIN_AMD64 = GOOS=darwin GOARCH=amd64
 DARWIN_ARM64 = GOOS=darwin GOARCH=arm64
+LINUX_AMD64 = GOOS=linux GOARCH=amd64
 
 # DMG 相关配置
 APP_NAME = StarFire
 DMG_NAME = starfire
 TEMP_DIR = $(BUILD_DIR)/temp
 
-.PHONY: all server client clean package-dmg universal-mac package-dmg-advanced help
+.PHONY: all server client install clean package-dmg universal-mac package-dmg-advanced help
 
 # 默认目标：构建所有
 all: server client
@@ -41,23 +42,27 @@ help:
 	@echo "  all                    - Build server and all clients"
 	@echo "  server                 - Build server only"
 	@echo "  client                 - Build all client variants"
+	@echo "  install                - Build server and clients (alias of all)"
 	@echo "  client-windows-amd64   - Build Windows AMD64 client"
+	@echo "  client-linux-amd64     - Build Linux AMD64 client"
 	@echo "  client-darwin-amd64    - Build macOS Intel client"
 	@echo "  client-darwin-arm64    - Build macOS Apple Silicon client"
 	@echo "  universal-mac          - Build Universal Binary for macOS"
-	@echo "  package-dmg           - Create installer DMG package for macOS"
-	@echo "  package-dmg-advanced  - Create advanced DMG package (requires create-dmg)"
-	@echo "  clean                 - Clean build artifacts"
-	@echo "  help                  - Show this help message"
+	@echo "  package-dmg            - Create installer DMG package for macOS"
+	@echo "  package-dmg-advanced   - Create advanced DMG package (requires create-dmg)"
+	@echo "  clean                  - Clean build artifacts"
+	@echo "  help                   - Show this help message"
 	@echo ""
 	@echo "Examples:"
-	@echo "  make package-dmg      - Build and package macOS client as installer DMG"
-	@echo "  make universal-mac    - Create Universal Binary for both Intel and M1/M2"
+	@echo "  make all               - Build server and all clients"
+	@echo "  make client            - Build all client variants"
+	@echo "  make package-dmg       - Build and package macOS client as installer DMG"
+	@echo "  make universal-mac     - Create Universal Binary for both Intel and M1/M2"
 	@echo ""
 	@echo "After DMG installation:"
 	@echo "  sudo ./StarFire/install.sh              - Install starfire command"
-	@echo "  starfire --host HOST --token TOKEN      - Connect to server"
-	@echo "  starfire --daemon --host HOST --token TOKEN  - Run in background"
+	@echo "  starfire -host HOST -token TOKEN        - Connect to server"
+	@echo "  starfire -daemon -host HOST -token TOKEN - Run in background"
 
 # 创建构建目录
 $(BUILD_DIR):
@@ -68,11 +73,15 @@ server: $(BUILD_DIR)
 	$(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/server/$(SERVER_BINARY) $(SERVER_SRC)
 
 # 构建所有客户端
-client: client-windows-amd64 client-darwin-amd64 client-darwin-arm64
+client: client-windows-amd64 client-linux-amd64 client-darwin-amd64 client-darwin-arm64
 
 # 构建Windows客户端
 client-windows-amd64: $(BUILD_DIR)
 	$(WINDOWS_AMD64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/client/$(CLIENT_BINARY)_windows_amd64.exe $(CLIENT_SRC)
+
+# 构建Linux客户端
+client-linux-amd64: $(BUILD_DIR)
+	$(LINUX_AMD64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/client/$(CLIENT_BINARY)_linux_amd64 $(CLIENT_SRC)
 
 # 构建Mac Intel客户端
 client-darwin-amd64: $(BUILD_DIR)
@@ -81,6 +90,12 @@ client-darwin-amd64: $(BUILD_DIR)
 # 构建Mac M系列芯片客户端
 client-darwin-arm64: $(BUILD_DIR)
 	$(DARWIN_ARM64) $(GOBUILD) $(LDFLAGS) -o $(BUILD_DIR)/client/$(CLIENT_BINARY)_darwin_arm64 $(CLIENT_SRC)
+
+# 编译并安装（构建 server 和所有客户端到 build 目录）
+install: all
+	@echo "✅ Build complete. Binaries are in $(BUILD_DIR)/"
+	@echo "   Server: $(BUILD_DIR)/server/$(SERVER_BINARY)"
+	@echo "   Client: $(BUILD_DIR)/client/"
 
 # 创建Universal Binary (Intel + Apple Silicon)
 universal-mac: client-darwin-amd64 client-darwin-arm64
@@ -140,9 +155,9 @@ package-dmg: universal-mac
 	@echo '    echo "✅ StarFire 客户端安装成功!"' >> $(TEMP_DIR)/StarFire/install.sh
 	@echo '    echo ""' >> $(TEMP_DIR)/StarFire/install.sh
 	@echo '    echo "使用方法:"' >> $(TEMP_DIR)/StarFire/install.sh
-	@echo '    echo "  starfire --help                    # 查看帮助"' >> $(TEMP_DIR)/StarFire/install.sh
-	@echo '    echo "  starfire --host HOST --token TOKEN # 连接服务器"' >> $(TEMP_DIR)/StarFire/install.sh
-	@echo '    echo "  starfire --daemon --host HOST --token TOKEN # 后台运行"' >> $(TEMP_DIR)/StarFire/install.sh
+	@echo '    echo "  starfire -help                    # 查看帮助"' >> $(TEMP_DIR)/StarFire/install.sh
+	@echo '    echo "  starfire -host HOST -token TOKEN # 连接服务器"' >> $(TEMP_DIR)/StarFire/install.sh
+	@echo '    echo "  starfire -daemon -host HOST -token TOKEN # 后台运行"' >> $(TEMP_DIR)/StarFire/install.sh
 	@echo '    echo ""' >> $(TEMP_DIR)/StarFire/install.sh
 	@echo '    echo "注意: /usr/local/bin 已经在大多数系统的 PATH 中"' >> $(TEMP_DIR)/StarFire/install.sh
 	@echo '    echo "如果命令不可用，请将以下行添加到 ~/.zshrc 或 ~/.bash_profile:"' >> $(TEMP_DIR)/StarFire/install.sh
@@ -189,9 +204,9 @@ package-dmg: universal-mac
 	@echo '3. 安装完成后可以在任何地方使用 starfire 命令' >> $(TEMP_DIR)/README.txt
 	@echo '' >> $(TEMP_DIR)/README.txt
 	@echo '使用示例:' >> $(TEMP_DIR)/README.txt
-	@echo '  starfire --help' >> $(TEMP_DIR)/README.txt
-	@echo '  starfire --host your-server.com --token your-token' >> $(TEMP_DIR)/README.txt
-	@echo '  starfire --daemon --host your-server.com --token your-token' >> $(TEMP_DIR)/README.txt
+	@echo '  starfire -help' >> $(TEMP_DIR)/README.txt
+	@echo '  starfire -host your-server.com -token your-token' >> $(TEMP_DIR)/README.txt
+	@echo '  starfire -daemon -host your-server.com -token your-token' >> $(TEMP_DIR)/README.txt
 	@echo '' >> $(TEMP_DIR)/README.txt
 	@echo '卸载方法:' >> $(TEMP_DIR)/README.txt
 	@echo '  sudo ./uninstall.sh' >> $(TEMP_DIR)/README.txt
@@ -212,17 +227,38 @@ package-dmg: universal-mac
 	@echo '### 基本命令' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '```bash' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '# 查看帮助信息' >> $(TEMP_DIR)/StarFire/USAGE.md
-	@echo 'starfire --help' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo 'starfire -help' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '# 连接到服务器' >> $(TEMP_DIR)/StarFire/USAGE.md
-	@echo 'starfire --host your-server.com --token your-registration-token' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo 'starfire -host your-server.com -token your-registration-token' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '# 后台运行（推荐）' >> $(TEMP_DIR)/StarFire/USAGE.md
-	@echo 'starfire --daemon --host your-server.com --token your-registration-token' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo 'starfire -daemon -host your-server.com -token your-registration-token' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '# 指定推理引擎' >> $(TEMP_DIR)/StarFire/USAGE.md
-	@echo 'starfire --engine ollama --host your-server.com --token your-token' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo 'starfire -engine ollama -host your-server.com -token your-token' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '```' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '### 通过配置文件设置价格' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '客户端默认读取当前目录下的 starfire_config.json，也可用 -config 指定路径。' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '配置文件支持为每个模型单独设置价格：' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '```json' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '{' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '  "host": "http://your-server.com",' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '  "token": "your-registration-token",' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '  "ippm": "3.8",' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '  "oppm": "8.3",' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '  "model_prices": {' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '    "DeepSeek-V4": { "engine": "openai", "ippm": "2.99", "oppm": "14.99", "cippm": "0.3" },' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '    "GLM-5.2": { "engine": "openai", "ippm": "3.99", "oppm": "19.99", "cippm": "0.4" }' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '  }' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '}' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '```' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '价格优先级（从高到低）：命令行参数 > 环境变量 > 配置文件。' >> $(TEMP_DIR)/StarFire/USAGE.md
+	@echo '未在 model_prices 中配置的模型使用顶层 ippm/oppm 或默认价格。' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '## 卸载' >> $(TEMP_DIR)/StarFire/USAGE.md
 	@echo '' >> $(TEMP_DIR)/StarFire/USAGE.md
