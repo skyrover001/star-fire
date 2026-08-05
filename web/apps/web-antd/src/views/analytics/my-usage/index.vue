@@ -4,6 +4,7 @@ import { ref, onMounted, computed, provide } from 'vue';
 import { requestClient } from '#/api/request';
 import { getBalanceApi } from '#/api/core/balance';
 import type { BalanceInfo } from '#/api/core/balance';
+import { $t } from '#/locales';
 
 import {
   AnalysisChartCard,
@@ -107,15 +108,15 @@ const clientStats = computed(() => {
 
 const chartTabs: TabOption[] = [
   {
-    label: 'Token使用分析',
+    label: $t('business.analytics.tokenUsageAnalysis'),
     value: 'token-usage',
   },
   {
-    label: '使用趋势',
+    label: $t('business.analytics.usageTrend'),
     value: 'trends',
   },
   {
-    label: '调用统计',
+    label: $t('business.analytics.callStatistics'),
     value: 'visits',
   },
 ];
@@ -184,12 +185,12 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">账户余额</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.accountBalance') }}</p>
             <p class="text-2xl font-semibold text-green-600">
               <span v-if="balanceLoading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-24"></span>
               <span v-else>¥{{ balanceInfo.balance?.toFixed(4) || '0.0000' }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] mt-1">可用余额</p>
+            <p class="text-xs text-[var(--text-tertiary)] mt-1">{{ $t('business.analytics.availableBalance') }}</p>
           </div>
         </div>
       </div>
@@ -205,12 +206,12 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">累计消费</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.totalSpent') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="balanceLoading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-24"></span>
               <span v-else>¥{{ balanceInfo.total_spent?.toFixed(4) || '0.0000' }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] mt-1">历史消费总额</p>
+            <p class="text-xs text-[var(--text-tertiary)] mt-1">{{ $t('business.analytics.historicalTotal') }}</p>
           </div>
         </div>
       </div>
@@ -222,7 +223,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">总Tokens</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.totalTokens') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-20"></span>
               <span v-else>{{ totalTokenStats.total.toLocaleString() }}</span>
@@ -240,7 +241,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">今日Tokens</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.todayTokens') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>{{ totalTokenStats.today.toLocaleString() }}</span>
@@ -258,7 +259,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">输入Tokens</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.inputTokens') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>{{ totalTokenStats.totalInput.toLocaleString() }}</span>
@@ -276,7 +277,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">输出Tokens</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.outputTokens') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>{{ totalTokenStats.totalOutput.toLocaleString() }}</span>
@@ -294,7 +295,7 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">调用次数</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.calls') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-12"></span>
               <span v-else>{{ totalTokenStats.totalCalls.toLocaleString() }}</span>
@@ -312,12 +313,12 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">客户端数</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.clients') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-12"></span>
               <span v-else>{{ clientStats.totalClients }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">独立客户端</p>
+            <p class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.uniqueClients') }}</p>
           </div>
         </div>
       </div>
@@ -338,14 +339,14 @@ onMounted(() => {
 
     <!-- 模型使用统计 -->
     <div class="mt-5">
-      <AnalysisChartCard title="我使用的模型">
+      <AnalysisChartCard :title="$t('business.analytics.myModels')">
         <MyUsageModels />
       </AnalysisChartCard>
     </div>
 
     <!-- 全部使用详单 -->
     <div class="mt-5">
-      <AnalysisChartCard title="全部使用详单">
+      <AnalysisChartCard :title="$t('business.analytics.allUsageDetails')">
         <UsageDetailTable />
       </AnalysisChartCard>
     </div>

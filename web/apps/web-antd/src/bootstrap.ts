@@ -80,8 +80,9 @@ async function bootstrap(namespace: string) {
   watchEffect(() => {
     if (preferences.app.dynamicTitle) {
       const routeTitle = router.currentRoute.value.meta?.title;
+      const appName = `${$t('page.home.brand')} ${$t('page.home.brandSuffix')}`;
       const pageTitle =
-        (routeTitle ? `${$t(routeTitle)} - ` : '') + preferences.app.name;
+        (routeTitle ? `${$t(routeTitle)} - ` : '') + appName;
       useTitle(pageTitle);
     }
   });

@@ -8,6 +8,7 @@ import {
   getBalanceApi,
 } from '#/api/core/balance';
 import type { RechargeRecord, BalanceInfo } from '#/api/core/balance';
+import { $t } from '#/locales';
 
 // 预设充值金额
 const presetAmounts = [10, 20, 50, 100, 200, 500];
@@ -71,7 +72,7 @@ const fetchHistory = async () => {
     historyTotal.value = res.total || 0;
   } catch (err: any) {
     console.error('获取充值记录失败:', err);
-    message.error(err?.message || '获取充值记录失败');
+    message.error(err?.message || $t('business.analytics.fetchRechargeHistoryFailed'));
     history.value = [];
   } finally {
     historyLoading.value = false;
@@ -81,11 +82,11 @@ const fetchHistory = async () => {
 const createOrder = async () => {
   const amt = selectedAmount.value;
   if (!amt || amt <= 0) {
-    message.error('请输入有效的充值金额');
+    message.error($t('business.analytics.invalidRechargeAmount'));
     return;
   }
   if (amt > 10000) {
-    message.error('单次充值金额不能超过 ¥10,000');
+    message.error($t('business.analytics.rechargeAmountMaximum'));
     return;
   }
 
@@ -100,7 +101,7 @@ const createOrder = async () => {
     };
     currentStep.value = 'payment';
   } catch (e: any) {
-    message.error(e?.message || '创建订单失败');
+    message.error(e?.message || $t('business.analytics.createOrderFailed'));
   } finally {
     loading.value = false;
   }
@@ -112,12 +113,12 @@ const confirmPayment = async () => {
   confirming.value = true;
   try {
     const res = await confirmRechargeApi(currentOrder.value.order_id);
-    message.success(`充值成功！当前余额: ¥${res.balance.toFixed(2)}`);
+    message.success($t('business.analytics.rechargeSucceededBalance', { balance: res.balance.toFixed(2) }));
     currentStep.value = 'success';
     await fetchBalance();
     await fetchHistory();
   } catch (e: any) {
-    message.error(e?.message || '确认充值失败');
+    message.error(e?.message || $t('business.analytics.confirmRechargeFailed'));
   } finally {
     confirming.value = false;
   }
@@ -134,11 +135,11 @@ const resetForm = () => {
 const statusLabel = (status: string) => {
   switch (status) {
     case 'pending':
-      return '待支付';
+      return $t('business.analytics.pending');
     case 'completed':
-      return '已支付';
+      return $t('business.analytics.completed');
     case 'cancelled':
-      return '已取消';
+      return $t('business.analytics.cancelled');
     default:
       return status;
   }
@@ -173,8 +174,8 @@ fetchHistory();
     <div class="px-6 py-6">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-bold text-[var(--text-primary)]">账户充值</h1>
-          <p class="mt-2 text-[var(--text-secondary)]">充值余额用于模型调用计费</p>
+          <h1 class="text-3xl font-bold text-[var(--text-primary)]">{{ $t('business.analytics.rechargeTitle') }}</h1>
+          <p class="mt-2 text-[var(--text-secondary)]">{{ $t('business.analytics.rechargeDescription') }}</p>
         </div>
       </div>
     </div>
@@ -192,7 +193,7 @@ fetchHistory();
               </div>
             </div>
             <div class="ml-4">
-              <p class="text-sm font-medium text-[var(--text-secondary)]">账户余额</p>
+              <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.accountBalance') }}</p>
               <p class="text-2xl font-semibold text-[var(--text-primary)]">
                 <span v-if="loadingBalance" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-24"></span>
                 <span v-else class="text-green-600">¥{{ balanceInfo.balance?.toFixed(4) || '0.0000' }}</span>
@@ -211,7 +212,7 @@ fetchHistory();
               </div>
             </div>
             <div class="ml-4">
-              <p class="text-sm font-medium text-[var(--text-secondary)]">累计消费</p>
+              <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.totalSpent') }}</p>
               <p class="text-2xl font-semibold text-[var(--text-primary)]">
                 <span v-if="loadingBalance" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-24"></span>
                 <span v-else>¥{{ balanceInfo.total_spent?.toFixed(4) || '0.0000' }}</span>
@@ -225,7 +226,7 @@ fetchHistory();
       <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] p-6">
         <!-- 步骤1: 选择金额和方式 -->
         <div v-if="currentStep === 'form'">
-          <h3 class="text-lg font-semibold text-[var(--text-primary)] mb-4">选择充值金额</h3>
+          <h3 class="text-lg font-semibold text-[var(--text-primary)] mb-4">{{ $t('business.analytics.selectRechargeAmount') }}</h3>
 
           <!-- 预设金额 -->
           <div class="grid grid-cols-3 md:grid-cols-6 gap-3 mb-4">
@@ -243,7 +244,7 @@ fetchHistory();
 
           <!-- 自定义金额 -->
           <div class="mb-4">
-            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">自定义金额</label>
+            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">{{ $t('business.analytics.customAmount') }}</label>
             <div class="relative max-w-xs">
               <span class="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-secondary)]">¥</span>
               <input
@@ -252,7 +253,7 @@ fetchHistory();
                 min="0.01"
                 max="10000"
                 step="0.01"
-                placeholder="输入自定义金额"
+                :placeholder="$t('business.analytics.customAmountPlaceholder')"
                 class="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-color)] py-2 pl-8 pr-3 text-[var(--text-primary)] focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 @input="onCustomInput"
               />
@@ -261,7 +262,7 @@ fetchHistory();
 
           <!-- 支付方式 -->
           <div class="mb-6">
-            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">支付方式</label>
+            <label class="block text-sm font-medium text-[var(--text-secondary)] mb-2">{{ $t('business.analytics.paymentMethod') }}</label>
             <div class="flex gap-4">
               <button
                 type="button"
@@ -270,7 +271,7 @@ fetchHistory();
                 @click="paymentMethod = 'wechat'"
               >
                 <span class="text-green-600 font-bold text-xl">💬</span>
-                <span class="font-medium text-[var(--text-primary)]">微信支付</span>
+                <span class="font-medium text-[var(--text-primary)]">{{ $t('business.analytics.wechatPay') }}</span>
               </button>
               <button
                 type="button"
@@ -279,7 +280,7 @@ fetchHistory();
                 @click="paymentMethod = 'alipay'"
               >
                 <span class="text-blue-600 font-bold text-xl">💳</span>
-                <span class="font-medium text-[var(--text-primary)]">支付宝</span>
+                <span class="font-medium text-[var(--text-primary)]">{{ $t('business.analytics.alipay') }}</span>
               </button>
             </div>
           </div>
@@ -294,15 +295,15 @@ fetchHistory();
               <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
               <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
             </svg>
-            {{ loading ? '创建中...' : `立即充值 ¥${selectedAmount?.toFixed(2) || '0.00'}` }}
+            {{ loading ? $t('business.analytics.creating') : $t('business.analytics.rechargeNow', { amount: selectedAmount?.toFixed(2) || '0.00' }) }}
           </button>
         </div>
 
         <!-- 步骤2: 模拟支付 -->
         <div v-else-if="currentStep === 'payment' && currentOrder">
-          <h3 class="text-lg font-semibold text-[var(--text-primary)] mb-2">扫码支付（模拟）</h3>
+          <h3 class="text-lg font-semibold text-[var(--text-primary)] mb-2">{{ $t('business.analytics.scanToPay') }}</h3>
           <p class="text-sm text-[var(--text-secondary)] mb-6">
-            这是模拟支付环境，点击下方"确认支付"按钮即可完成充值
+            {{ $t('business.analytics.simulationDescription') }}
           </p>
 
           <div class="bg-gray-50 dark:bg-gray-800 rounded-lg p-8 text-center mb-6 max-w-sm mx-auto">
@@ -323,7 +324,7 @@ fetchHistory();
               class="rounded-lg border border-[var(--border-color)] px-4 py-2 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-color-secondary)] transition-colors"
               @click="resetForm"
             >
-              取消
+              {{ $t('business.analytics.cancel') }}
             </button>
             <button
               type="button"
@@ -335,7 +336,7 @@ fetchHistory();
                 <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
                 <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
               </svg>
-              {{ confirming ? '确认中...' : '确认支付（模拟）' }}
+              {{ confirming ? $t('business.analytics.confirming') : $t('business.analytics.confirmPayment') }}
             </button>
           </div>
         </div>
@@ -343,16 +344,16 @@ fetchHistory();
         <!-- 步骤3: 充值成功 -->
         <div v-else-if="currentStep === 'success'" class="text-center py-8">
           <div class="text-6xl mb-4">✅</div>
-          <h3 class="text-xl font-bold text-[var(--text-primary)] mb-2">充值成功！</h3>
+          <h3 class="text-xl font-bold text-[var(--text-primary)] mb-2">{{ $t('business.analytics.rechargeSuccess') }}</h3>
           <p class="text-[var(--text-secondary)] mb-6">
-            充值金额已添加到您的账户余额
+            {{ $t('business.analytics.rechargeSuccessDescription') }}
           </p>
           <button
             type="button"
             class="rounded-lg bg-blue-600 px-6 py-2.5 text-sm font-medium text-white hover:bg-blue-700 transition-colors"
             @click="resetForm"
           >
-            继续充值
+            {{ $t('business.analytics.continueRecharge') }}
           </button>
         </div>
       </div>
@@ -360,18 +361,18 @@ fetchHistory();
       <!-- 充值历史 -->
       <div class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] overflow-hidden">
         <div class="px-6 py-4 border-b border-[var(--border-color)]">
-          <h3 class="text-lg font-semibold text-[var(--text-primary)]">充值记录</h3>
+          <h3 class="text-lg font-semibold text-[var(--text-primary)]">{{ $t('business.analytics.rechargeHistory') }}</h3>
         </div>
 
         <div v-if="historyLoading" class="flex justify-center py-8">
           <div class="flex items-center space-x-3 text-[var(--text-secondary)]">
             <div class="w-5 h-5 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-            <span>加载中...</span>
+            <span>{{ $t('business.analytics.loading') }}</span>
           </div>
         </div>
 
         <div v-else-if="history.length === 0" class="p-8 text-center text-[var(--text-secondary)]">
-          暂无充值记录
+          {{ $t('business.analytics.noRechargeHistory') }}
         </div>
 
         <table v-else class="w-full">

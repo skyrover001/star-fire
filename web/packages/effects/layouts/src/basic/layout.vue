@@ -232,20 +232,22 @@ const headerSlots = computed(() => {
   >
     <!-- logo -->
     <template #logo>
-      <VbenLogo
-        v-if="preferences.logo.enable"
-        :fit="preferences.logo.fit"
-        :class="logoClass"
-        :collapsed="logoCollapsed"
-        :src="preferences.logo.source"
-        :text="preferences.app.name"
-        :theme="showHeaderNav ? headerTheme : theme"
-        @click="clickLogo"
-      >
-        <template v-if="$slots['logo-text']" #text>
-          <slot name="logo-text"></slot>
-        </template>
-      </VbenLogo>
+      <slot name="logo">
+        <VbenLogo
+          v-if="preferences.logo.enable"
+          :fit="preferences.logo.fit"
+          :class="logoClass"
+          :collapsed="logoCollapsed"
+          :src="preferences.logo.source"
+          :text="preferences.app.name"
+          :theme="showHeaderNav ? headerTheme : theme"
+          @click="clickLogo"
+        >
+          <template v-if="$slots['logo-text']" #text>
+            <slot name="logo-text"></slot>
+          </template>
+        </VbenLogo>
+      </slot>
     </template>
     <!-- 头部区域 -->
     <template #header>
@@ -323,16 +325,18 @@ const headerSlots = computed(() => {
       />
     </template>
     <template #side-extra-title>
-      <VbenLogo
-        v-if="preferences.logo.enable"
-        :fit="preferences.logo.fit"
-        :text="preferences.app.name"
-        :theme="theme"
-      >
-        <template v-if="$slots['logo-text']" #text>
-          <slot name="logo-text"></slot>
-        </template>
-      </VbenLogo>
+      <slot name="side-extra-title">
+        <VbenLogo
+          v-if="preferences.logo.enable"
+          :fit="preferences.logo.fit"
+          :text="preferences.app.name"
+          :theme="theme"
+        >
+          <template v-if="$slots['logo-text']" #text>
+            <slot name="logo-text"></slot>
+          </template>
+        </VbenLogo>
+      </slot>
     </template>
 
     <template #tabbar>

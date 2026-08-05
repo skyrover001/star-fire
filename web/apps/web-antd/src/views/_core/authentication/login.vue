@@ -5,7 +5,7 @@ import type { BasicOption } from '@vben/types';
 import { computed, markRaw } from 'vue';
 
 import { AuthenticationLogin, SliderCaptcha, z } from '@vben/common-ui';
-import { $t } from '@vben/locales';
+import { $t } from '#/locales';
 
 import { useAuthStore } from '#/store';
 
@@ -47,7 +47,7 @@ const formSchema = computed((): VbenFormSchema[] => {
     {
       component: 'VbenInput',
       componentProps: {
-        placeholder: '邮箱',
+        placeholder: $t('page.auth.email'),
       },
       dependencies: {
         trigger(values, form) {
@@ -66,8 +66,8 @@ const formSchema = computed((): VbenFormSchema[] => {
         triggerFields: ['selectAccount'],
       },
       fieldName: 'username',
-      label: '账号',
-      rules: z.string().min(1, { message: '请输入邮箱' }),
+      label: $t('page.auth.email'),
+      rules: z.string().min(1, { message: $t('page.auth.email') }),
     },
     {
       component: 'VbenInputPassword',

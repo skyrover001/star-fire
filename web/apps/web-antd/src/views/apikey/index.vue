@@ -6,8 +6,8 @@
       <div class="px-6 py-6">
         <div class="flex items-center justify-between">
           <div>
-            <h1 class="text-3xl font-bold text-[var(--text-primary)]">API Key 管理</h1>
-            <p class="mt-2 text-[var(--text-secondary)]">管理您的 API 密钥，安全访问模型服务</p>
+            <h1 class="text-3xl font-bold text-[var(--text-primary)]">{{ $t('business.apiKey.title') }}</h1>
+            <p class="mt-2 text-[var(--text-secondary)]">{{ $t('business.apiKey.subtitle') }}</p>
           </div>
           <div class="flex items-center space-x-4">
             <!-- 刷新按钮 -->
@@ -18,7 +18,7 @@
               <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
               </svg>
-              刷新数据
+              {{ $t('business.apiKey.refreshData') }}
             </button>
           </div>
         </div>
@@ -35,6 +35,7 @@
 <script lang="ts" setup>
 import { ref } from 'vue';
 import { message } from 'ant-design-vue';
+import { $t } from '#/locales';
 import ApiKeyManagement from './components/ApiKeyManagement.vue';
 
 // API Key管理组件引用
@@ -46,6 +47,6 @@ const refreshData = () => {
   if (apiKeyManagementRef.value && typeof apiKeyManagementRef.value.refreshApiKeys === 'function') {
     apiKeyManagementRef.value.refreshApiKeys();
   }
-  message.success('数据已刷新');
+  message.success($t('business.apiKey.dataRefreshed'));
 };
 </script>

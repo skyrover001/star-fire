@@ -55,7 +55,7 @@ export const useAuthStore = defineStore('auth', () => {
           avatar: '',
           roles: [user.role],
           desc: '',
-          homePath: preferences.app.defaultHomePath,
+          homePath: '/model-marketplace',
           token: token,
           email: user.email,
         } as UserInfo;

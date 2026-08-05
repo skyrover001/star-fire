@@ -16,8 +16,8 @@
                   <SvgCakeIcon class="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <h2 class="text-base font-bold text-white leading-tight">💰 总计收益</h2>
-                  <p class="text-white/60 text-xs leading-tight">累计收入总额</p>
+                  <h2 class="text-base font-bold text-white leading-tight">💰 {{ $t('business.analytics.contribution.totalIncome') }}</h2>
+                  <p class="text-white/60 text-xs leading-tight">{{ $t('business.analytics.contribution.cumulativeIncome') }}</p>
                 </div>
               </div>
               <div class="text-right">
@@ -30,22 +30,22 @@
             
             <!-- 收益指标 -->
             <div class="mb-3">
-              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">💵 收益指标</div>
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">💵 {{ $t('business.analytics.contribution.incomeMetrics') }}</div>
               <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">总收益</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.totalIncome') }}</p>
                   <p class="text-sm font-bold text-white">¥{{ timeStatsData.total.income.toFixed(4) }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">平均单次</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.averagePerCall') }}</p>
                   <p class="text-sm font-bold text-white">¥{{ averageIncomePerCall.toFixed(6) }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">最高单次</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.highestPerCall') }}</p>
                   <p class="text-sm font-bold text-white">¥{{ maxIncomePerCall.toFixed(6) }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">最低单次</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.lowestPerCall') }}</p>
                   <p class="text-sm font-bold text-white">¥{{ minIncomePerCall.toFixed(6) }}</p>
                 </div>
               </div>
@@ -53,22 +53,22 @@
             
             <!-- 调用统计 -->
             <div class="mb-3">
-              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">📞 调用统计</div>
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">📞 {{ $t('business.analytics.contribution.callMetrics') }}</div>
               <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">总调用次数</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.totalCalls') }}</p>
                   <p class="text-sm font-bold text-white">{{ timeStatsData.total.calls.toLocaleString() }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">成功率</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.successRate') }}</p>
                   <p class="text-sm font-bold text-white">{{ successRate.toFixed(1) }}%</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">活跃客户端</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.activeClients') }}</p>
                   <p class="text-sm font-bold text-white">{{ uniqueClientsCount }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">活跃用户数</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.activeUsers') }}</p>
                   <p class="text-sm font-bold text-white">{{ uniqueUsersCount }}</p>
                 </div>
               </div>
@@ -76,22 +76,22 @@
             
             <!-- Token统计 -->
             <div class="mb-3">
-              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">🎯 Token统计</div>
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">🎯 {{ $t('business.analytics.contribution.tokenMetrics') }}</div>
               <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">总Token</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.totalTokens') }}</p>
                   <p class="text-sm font-bold text-white">{{ timeStatsData.total.totalTokens.toLocaleString() }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">输入Token</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.inputTokens') }}</p>
                   <p class="text-sm font-bold text-white">{{ timeStatsData.total.inputTokens.toLocaleString() }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">输出Token</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.outputTokens') }}</p>
                   <p class="text-sm font-bold text-white">{{ timeStatsData.total.outputTokens.toLocaleString() }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">平均Token</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.averageTokens') }}</p>
                   <p class="text-sm font-bold text-white">{{ averageTokensPerCall.toLocaleString() }}</p>
                 </div>
               </div>
@@ -99,22 +99,22 @@
             
             <!-- 模型统计 -->
             <div class="mb-3">
-              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">🤖 模型统计</div>
+              <div class="text-xs font-semibold text-white/80 mb-1.5 uppercase tracking-wide">🤖 {{ $t('business.analytics.contribution.modelMetrics') }}</div>
               <div class="grid grid-cols-2 md:grid-cols-4 gap-2">
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">活跃模型数</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.activeModels') }}</p>
                   <p class="text-sm font-bold text-white">{{ timeStatsData.total.models }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">最热模型</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.mostPopularModel') }}</p>
                   <p class="text-sm font-bold text-white truncate" :title="topModel">{{ topModel }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">最赚钱模型</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.topEarningModel') }}</p>
                   <p class="text-sm font-bold text-white truncate" :title="topIncomeModel">{{ topIncomeModel }}</p>
                 </div>
                 <div class="bg-white/10 backdrop-blur-sm rounded-lg p-2 border border-white/20">
-                  <p class="text-xs font-medium text-white/70 mb-0.5">平均模型价格</p>
+                  <p class="text-xs font-medium text-white/70 mb-0.5">{{ $t('business.analytics.contribution.averageModelPrice') }}</p>
                   <p class="text-sm font-bold text-white">¥{{ averageModelPrice.toFixed(6) }}</p>
                 </div>
               </div>
@@ -127,7 +127,7 @@
                 class="px-3 py-1.5 bg-white/15 hover:bg-white/25 rounded-lg border border-white/30 text-white text-sm font-medium transition-all duration-200 backdrop-blur-sm flex items-center gap-2"
               >
                 <SvgCardIcon class="h-4 w-4" />
-                <span>{{ showDetailTable ? '隐藏详单' : '查看详单' }}</span>
+                <span>{{ showDetailTable ? $t('business.analytics.contribution.hideDetails') : $t('business.analytics.contribution.viewDetails') }}</span>
               </button>
             </div>
           </div>
@@ -139,48 +139,48 @@
         <!-- 今日收益 -->
         <div class="rounded-xl bg-gradient-to-br from-blue-50 to-blue-100 dark:from-blue-950/30 dark:to-blue-900/20 border border-blue-200 dark:border-blue-800 p-2.5 shadow-md flex-1">
           <div class="flex items-center justify-between mb-1.5">
-            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">今日收益</span>
-            <span class="text-xs px-1.5 py-0.5 rounded-full bg-blue-200 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">Today</span>
+            <span class="text-xs font-semibold text-blue-600 dark:text-blue-400 uppercase tracking-wide">{{ $t('business.analytics.contribution.todayIncome') }}</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full bg-blue-200 dark:bg-blue-900/50 text-blue-700 dark:text-blue-300">{{ $t('business.analytics.todayUsage') }}</span>
           </div>
           <p class="text-xl font-bold text-blue-900 dark:text-blue-100 mb-1.5">
             <span v-if="loading" class="inline-block animate-pulse bg-blue-200 dark:bg-blue-800 rounded h-7 w-24"></span>
             <span v-else>¥{{ timeStatsData.today.income.toFixed(4) }}</span>
           </p>
           <div class="flex items-center justify-between text-xs text-blue-700 dark:text-blue-300">
-            <span>{{ timeStatsData.today.calls }} 次调用</span>
-            <span>{{ timeStatsData.today.totalTokens.toLocaleString() }} tokens</span>
+            <span>{{ $t('business.analytics.contribution.calls', { count: timeStatsData.today.calls }) }}</span>
+            <span>{{ timeStatsData.today.totalTokens.toLocaleString() }} {{ $t('business.analytics.contribution.totalTokens') }}</span>
           </div>
         </div>
 
         <!-- 本周收益 -->
         <div class="rounded-xl bg-gradient-to-br from-purple-50 to-purple-100 dark:from-purple-950/30 dark:to-purple-900/20 border border-purple-200 dark:border-purple-800 p-2.5 shadow-md flex-1">
           <div class="flex items-center justify-between mb-1.5">
-            <span class="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wide">近7日收益</span>
-            <span class="text-xs px-1.5 py-0.5 rounded-full bg-purple-200 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">7 Days</span>
+            <span class="text-xs font-semibold text-purple-600 dark:text-purple-400 uppercase tracking-wide">{{ $t('business.analytics.contribution.recentSevenDaysIncome') }}</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full bg-purple-200 dark:bg-purple-900/50 text-purple-700 dark:text-purple-300">{{ $t('business.analytics.days', { count: 7 }) }}</span>
           </div>
           <p class="text-xl font-bold text-purple-900 dark:text-purple-100 mb-1.5">
             <span v-if="loading" class="inline-block animate-pulse bg-purple-200 dark:bg-purple-800 rounded h-7 w-24"></span>
             <span v-else>¥{{ timeStatsData.week.income.toFixed(4) }}</span>
           </p>
           <div class="flex items-center justify-between text-xs text-purple-700 dark:text-purple-300">
-            <span>{{ timeStatsData.week.calls }} 次调用</span>
-            <span>{{ timeStatsData.week.totalTokens.toLocaleString() }} tokens</span>
+            <span>{{ $t('business.analytics.contribution.calls', { count: timeStatsData.week.calls }) }}</span>
+            <span>{{ timeStatsData.week.totalTokens.toLocaleString() }} {{ $t('business.analytics.contribution.totalTokens') }}</span>
           </div>
         </div>
 
         <!-- 本月收益 -->
         <div class="rounded-xl bg-gradient-to-br from-emerald-50 to-emerald-100 dark:from-emerald-950/30 dark:to-emerald-900/20 border border-emerald-200 dark:border-emerald-800 p-2.5 shadow-md flex-1">
           <div class="flex items-center justify-between mb-1.5">
-            <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">本月收益</span>
-            <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-200 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">This Month</span>
+            <span class="text-xs font-semibold text-emerald-600 dark:text-emerald-400 uppercase tracking-wide">{{ $t('business.analytics.contribution.thisMonthIncome') }}</span>
+            <span class="text-xs px-1.5 py-0.5 rounded-full bg-emerald-200 dark:bg-emerald-900/50 text-emerald-700 dark:text-emerald-300">{{ $t('business.analytics.monthlyUsage') }}</span>
           </div>
           <p class="text-xl font-bold text-emerald-900 dark:text-emerald-100 mb-1.5">
             <span v-if="loading" class="inline-block animate-pulse bg-emerald-200 dark:bg-emerald-800 rounded h-7 w-24"></span>
             <span v-else>¥{{ timeStatsData.month.income.toFixed(4) }}</span>
           </p>
           <div class="flex items-center justify-between text-xs text-emerald-700 dark:text-emerald-300">
-            <span>{{ timeStatsData.month.calls }} 次调用</span>
-            <span>{{ timeStatsData.month.totalTokens.toLocaleString() }} tokens</span>
+            <span>{{ $t('business.analytics.contribution.calls', { count: timeStatsData.month.calls }) }}</span>
+            <span>{{ timeStatsData.month.totalTokens.toLocaleString() }} {{ $t('business.analytics.contribution.totalTokens') }}</span>
           </div>
         </div>
       </div>
@@ -188,7 +188,7 @@
 
     <!-- 收益详单表格 -->
     <div v-if="showDetailTable" class="mt-5">
-      <AnalysisChartCard title="收益详单">
+      <AnalysisChartCard :title="$t('business.analytics.contribution.incomeDetails')">
         <div class="overflow-x-auto">
           <div v-if="loading" class="p-4">
             <div class="animate-pulse space-y-3">
@@ -197,29 +197,29 @@
             </div>
           </div>
           <div v-else-if="incomeData.length === 0" class="text-center py-8 text-[var(--text-secondary)]">
-            <div class="mb-2">暂无收益详单</div>
-            <div class="text-xs text-[var(--text-tertiary)]">请确保已有收益记录</div>
+            <div class="mb-2">{{ $t('business.analytics.contribution.noIncomeDetails') }}</div>
+            <div class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.contribution.ensureIncomeRecords') }}</div>
           </div>
           <table v-else class="min-w-full divide-y divide-[var(--border-color)]">
             <thead class="bg-[var(--bg-color-secondary)]">
               <tr>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  时间
+                  {{ $t('business.analytics.contribution.time') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  模型
+                  {{ $t('business.analytics.contribution.model') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  输入Token
+                  {{ $t('business.analytics.contribution.inputTokens') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  缓存命中
+                  {{ $t('business.analytics.contribution.cachedTokens') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  输出Token
+                  {{ $t('business.analytics.contribution.outputTokens') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  总Token
+                  {{ $t('business.analytics.contribution.totalTokens') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
                   IPPM
@@ -231,22 +231,22 @@
                   CIPPM
                 </th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  未命中输入收益
+                  {{ $t('business.analytics.contribution.uncachedInputIncome') }}
                 </th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  缓存命中收益
+                  {{ $t('business.analytics.contribution.cachedInputIncome') }}
                 </th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  输出收益
+                  {{ $t('business.analytics.contribution.outputIncome') }}
                 </th>
                 <th class="px-6 py-3 text-right text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  总收益
+                  {{ $t('business.analytics.contribution.totalIncome') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  调用者
+                  {{ $t('business.analytics.contribution.caller') }}
                 </th>
                 <th class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  请求ID
+                  {{ $t('business.analytics.contribution.requestId') }}
                 </th>
               </tr>
             </thead>            <tbody class="bg-[var(--content-bg)] divide-y divide-[var(--border-color)]">
@@ -312,7 +312,7 @@
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-right">
-                  <div class="text-sm font-bold text-emerald-600" :title="`(输入${record.InputTokens}-缓存${record.CachedTokens || 0})×IPPM${record.IPPM} + 缓存${record.CachedTokens || 0}×CIPPM${record.CIPPM || 0} + 输出${record.OutputTokens}×OPPM${record.OPPM}) / 1000000`">
+                  <div class="text-sm font-bold text-emerald-600" :title="$t('business.analytics.contribution.incomeFormulaTooltip', { inputTokens: record.InputTokens, cachedTokens: record.CachedTokens || 0, ippm: record.IPPM, cippm: record.CIPPM || 0, outputTokens: record.OutputTokens, oppm: record.OPPM })">
                     ¥{{ calculateSingleCallIncome(record).toFixed(6) }}
                   </div>
                 </td>
@@ -332,10 +332,10 @@
           <div v-if="sortedIncomeData.length > 0" class="px-6 py-4 bg-[var(--bg-color-secondary)] border-t border-[var(--border-color)]">
             <div class="flex justify-between items-center">
               <div class="text-sm text-[var(--text-secondary)]">
-                已加载 {{ sortedIncomeData.length }} / {{ totalRecords }} 条记录（按时间倒序）
+                {{ $t('business.analytics.contribution.loadedRecords', { loaded: sortedIncomeData.length, total: totalRecords }) }}
               </div>
               <div class="text-sm text-[var(--text-secondary)]">
-                收益计算: ((输入tokens - 缓存命中) × IPPM + 缓存命中 × CIPPM + 输出tokens × OPPM) / 1,000,000
+                {{ $t('business.analytics.contribution.incomeFormula') }}
               </div>
             </div>
             <!-- 加载更多按钮（懒加载） -->
@@ -346,11 +346,11 @@
                 class="px-4 py-2 text-sm rounded-lg bg-blue-500 hover:bg-blue-600 text-white font-medium transition-all duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
               >
                 <div v-if="loadingMore" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
-                <span>{{ loadingMore ? '加载中...' : '加载更多' }}</span>
+                <span>{{ loadingMore ? $t('business.analytics.loading') : $t('business.analytics.contribution.loadMore') }}</span>
               </button>
             </div>
             <div v-else-if="totalRecords > 0" class="flex justify-center items-center mt-4">
-              <span class="text-sm text-[var(--text-tertiary)]">已加载全部记录</span>
+              <span class="text-sm text-[var(--text-tertiary)]">{{ $t('business.analytics.contribution.allRecordsLoaded') }}</span>
             </div>
           </div>
         </div>
@@ -359,7 +359,7 @@
 
     <!-- 时间趋势图 -->
     <div class="mt-5">
-      <AnalysisChartCard title="收益趋势">
+      <AnalysisChartCard :title="$t('business.analytics.contribution.incomeTrend')">
         <div class="flex justify-end mb-3">
           <a-range-picker
             :value="trendDateRange"
@@ -377,7 +377,7 @@
             <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
           <div v-if="!trendLoading && dailyIncomeData.length === 0" class="flex items-center justify-center absolute inset-0 text-[var(--text-secondary)]">
-            <p>暂无趋势数据</p>
+            <p>{{ $t('business.analytics.contribution.noTrendData') }}</p>
           </div>
         </div>
       </AnalysisChartCard>
@@ -385,7 +385,7 @@
 
     <!-- 按模型收益柱状图 + 模型收益详情（按钮控制） -->
     <div class="mt-5 relative">
-      <AnalysisChartCard title="按模型收益统计">
+      <AnalysisChartCard :title="$t('business.analytics.contribution.incomeByModel')">
         <!-- 标题行右侧按钮：显示/隐藏模型详情（绝对定位对齐卡片标题高度） -->
         <div class="absolute top-4 right-4 z-10">
           <button 
@@ -393,7 +393,7 @@
             class="px-3 py-1.5 bg-blue-500 hover:bg-blue-600 rounded-lg text-white text-sm font-medium transition-all duration-200 flex items-center gap-2"
           >
             <SvgCardIcon class="h-4 w-4" />
-            <span>{{ showModelDetail ? '隐藏模型详情' : '显示模型详情' }}</span>
+            <span>{{ showModelDetail ? $t('business.analytics.contribution.hideModelDetails') : $t('business.analytics.contribution.showModelDetails') }}</span>
           </button>
         </div>
         <!-- 柱状图 -->
@@ -406,7 +406,7 @@
             <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-500"></div>
           </div>
           <div v-if="!modelLoading && modelIncomeData.length === 0" class="flex items-center justify-center absolute inset-0 text-[var(--text-secondary)]">
-            <p>暂无收益数据</p>
+            <p>{{ $t('business.analytics.contribution.noIncomeData') }}</p>
           </div>
         </div>
         <!-- 模型收益详情表格（按钮控制，显示在柱状图下方） -->
@@ -419,34 +419,34 @@
               </div>
             </div>
             <div v-else-if="modelStatsData.length === 0" class="text-center py-8 text-[var(--text-secondary)]">
-              <div class="mb-2">暂无模型统计数据</div>
-              <div class="text-xs text-[var(--text-tertiary)]">请确保已有收益记录</div>
+              <div class="mb-2">{{ $t('business.analytics.contribution.noModelStats') }}</div>
+              <div class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.contribution.ensureIncomeRecords') }}</div>
             </div>
           <table v-else class="min-w-full divide-y divide-[var(--border-color)]">
             <thead class="bg-[var(--bg-color-secondary)]">
               <tr>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  模型名称
+                  {{ $t('business.analytics.contribution.modelName') }}
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  输入Tokens
+                  {{ $t('business.analytics.contribution.inputTokens') }}
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  输出Tokens
+                  {{ $t('business.analytics.contribution.outputTokens') }}
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  总Tokens
+                  {{ $t('business.analytics.contribution.totalTokens') }}
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  收益
+                  {{ $t('business.analytics.contribution.income') }}
                 </th>                <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  客户端数
+                  {{ $t('business.analytics.contribution.clientCount') }}
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  调用次数
+                  {{ $t('business.analytics.contribution.totalCalls') }}
                 </th>
                 <th scope="col" class="px-6 py-3 text-left text-xs font-medium text-[var(--text-secondary)] uppercase tracking-wider">
-                  成功率
+                  {{ $t('business.analytics.contribution.successRate') }}
                 </th>
               </tr>
             </thead>
@@ -506,6 +506,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, nextTick, watch } from 'vue'
 import { requestClient } from '#/api/request'
+import { $t } from '#/locales'
 import { useEcharts, EchartsUI } from '@vben/plugins/echarts'
 import {
   AnalysisChartCard,
@@ -653,7 +654,7 @@ const calcOutputIncome = (record: IncomeRecord): number => {
 // 格式化时间戳
 const formatTimestamp = (timestamp: string) => {
   const date = new Date(timestamp)
-  return date.toLocaleString('zh-CN', {
+  return date.toLocaleString(navigator.language, {
     year: 'numeric',
     month: '2-digit',
     day: '2-digit',
@@ -966,7 +967,7 @@ const updateIncomeChart = () => {
   
   const option = {
     title: {
-      text: '按模型收益统计',
+      text: $t('business.analytics.contribution.incomeByModel'),
       left: 'center',
       textStyle: {
         fontSize: 16,
@@ -983,9 +984,9 @@ const updateIncomeChart = () => {
         const modelData = modelStats.value.find(m => m.name === data.name)
         return `
           <div style="font-weight: bold; margin-bottom: 4px;">${data.name}</div>
-          <div>收益: ¥${data.value.toFixed(4)}</div>
-          <div>输出Token: ${modelData?.outputTokens.toLocaleString()}</div>
-          <div>调用次数: ${modelData?.calls}</div>
+          <div>${$t('business.analytics.contribution.chartIncome', { value: data.value.toFixed(4) })}</div>
+          <div>${$t('business.analytics.contribution.chartOutputTokens', { value: modelData?.outputTokens.toLocaleString() })}</div>
+          <div>${$t('business.analytics.contribution.chartCalls', { value: modelData?.calls })}</div>
         `
       }
     },
@@ -1006,14 +1007,14 @@ const updateIncomeChart = () => {
     },
     yAxis: {
       type: 'value' as const,
-      name: '收益 (¥)',
+      name: $t('business.analytics.contribution.incomeAxis'),
       axisLabel: {
         formatter: '¥{value}'
       }
     },
     series: [
       {
-        name: '收益',
+        name: $t('business.analytics.contribution.income'),
         type: 'bar' as const,
         data: modelIncomeData.value.map(item => ({
           value: item.income,
@@ -1024,7 +1025,7 @@ const updateIncomeChart = () => {
         })),
         markLine: {
           data: [
-            { type: 'average' as const, name: '平均值' }
+            { type: 'average' as const, name: $t('business.analytics.contribution.average') }
           ]
         }
       }
@@ -1040,7 +1041,7 @@ const updateTrendChart = () => {
   
   const option = {
     title: {
-      text: '收益趋势',
+      text: $t('business.analytics.contribution.incomeTrend'),
       left: 'center',
       textStyle: {
         fontSize: 16,
@@ -1051,7 +1052,7 @@ const updateTrendChart = () => {
       trigger: 'axis' as const,
       formatter: function(params: any) {
         const data = params[0]
-        return `${data.axisValue}<br/>收益: ¥${data.value.toFixed(4)}`
+        return $t('business.analytics.contribution.trendTooltip', { date: data.axisValue, income: data.value.toFixed(4) })
       }
     },
     grid: {
@@ -1071,14 +1072,14 @@ const updateTrendChart = () => {
     },
     yAxis: {
       type: 'value' as const,
-      name: '收益 (¥)',
+      name: $t('business.analytics.contribution.incomeAxis'),
       axisLabel: {
         formatter: '¥{value}'
       }
     },
     series: [
       {
-        name: '每日收益',
+        name: $t('business.analytics.contribution.dailyIncome'),
         type: 'line' as const,
         data: dailyIncomeData.value.map(item => item.income),
         smooth: true,

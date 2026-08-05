@@ -4,8 +4,8 @@
     <div class="px-6 py-6">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-bold text-foreground">消费限额</h1>
-          <p class="mt-2 text-muted-foreground">按模型设置价格上限，超过上限的 contributor 不会被路由到</p>
+          <h1 class="text-3xl font-bold text-foreground">{{ $t('business.analytics.priceCapsTitle') }}</h1>
+          <p class="mt-2 text-muted-foreground">{{ $t('business.analytics.priceCapsDescription') }}</p>
         </div>
         <button
           class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -14,7 +14,7 @@
           <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
           </svg>
-          添加限额
+          {{ $t('business.analytics.addLimit') }}
         </button>
       </div>
     </div>
@@ -27,10 +27,10 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <div class="text-sm text-muted-foreground space-y-1">
-            <p><span class="font-medium text-foreground">IPPM_Ceiling</span>：输入 Token 每百万价格上限（¥/百万 tokens），用于未命中缓存的输入 Token</p>
-            <p><span class="font-medium text-foreground">OPPM_Ceiling</span>：输出 Token 每百万价格上限（¥/百万 tokens）</p>
-            <p><span class="font-medium text-foreground">CIPPM_Ceiling</span>：缓存命中输入 Token 每百万价格上限（¥/百万 tokens）</p>
-            <p>未配置的模型默认不限价，路由行为与原先一致。</p>
+            <p><span class="font-medium text-foreground">IPPM_Ceiling</span>: {{ $t('business.analytics.limitInfoIppm') }}</p>
+            <p><span class="font-medium text-foreground">OPPM_Ceiling</span>: {{ $t('business.analytics.limitInfoOppm') }}</p>
+            <p><span class="font-medium text-foreground">CIPPM_Ceiling</span>: {{ $t('business.analytics.limitInfoCippm') }}</p>
+            <p>{{ $t('business.analytics.limitInfoDefault') }}</p>
           </div>
         </div>
       </div>
@@ -39,7 +39,7 @@
       <div v-if="loading" class="flex justify-center py-16">
         <div class="flex items-center space-x-3 text-[var(--text-secondary)]">
           <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-          <span>加载中...</span>
+          <span>{{ $t('business.analytics.loading') }}</span>
         </div>
       </div>
 
@@ -50,8 +50,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
         </div>
-        <h3 class="text-lg font-semibold text-foreground mb-2">尚未配置任何限额</h3>
-        <p class="text-muted-foreground mb-5">所有模型默认不限价。点击"添加限额"为特定模型设置价格上限。</p>
+        <h3 class="text-lg font-semibold text-foreground mb-2">{{ $t('business.analytics.noLimits') }}</h3>
+        <p class="text-muted-foreground mb-5">{{ $t('business.analytics.noLimitsDescription') }}</p>
         <button
           class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
           @click="openAddModal"
@@ -59,7 +59,7 @@
           <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
           </svg>
-          添加第一条限额
+          {{ $t('business.analytics.addFirstLimit') }}
         </button>
       </div>
 
@@ -68,12 +68,12 @@
         <table class="w-full">
           <thead>
             <tr class="border-b border-border bg-accent">
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">模型</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输入上限 (IPPM_Ceiling)</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">输出上限 (OPPM_Ceiling)</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">缓存输入上限 (CIPPM_Ceiling)</th>
-              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">更新时间</th>
-              <th class="px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">操作</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.model') }}</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.inputLimit') }}</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.outputLimit') }}</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.cachedInputLimit') }}</th>
+              <th class="px-6 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.updatedAt') }}</th>
+              <th class="px-6 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.actions') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-border">
@@ -89,17 +89,17 @@
               </td>
               <td class="px-6 py-4">
                 <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                  ¥{{ cap.max_ippm.toFixed(2) }} / 百万
+                  ¥{{ cap.max_ippm.toFixed(2) }} {{ $t('business.analytics.perMillion') }}
                 </span>
               </td>
               <td class="px-6 py-4">
                 <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                  ¥{{ cap.max_oppm.toFixed(2) }} / 百万
+                  ¥{{ cap.max_oppm.toFixed(2) }} {{ $t('business.analytics.perMillion') }}
                 </span>
               </td>
               <td class="px-6 py-4">
                 <span class="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
-                  ¥{{ (cap.max_cippm || 0).toFixed(2) }} / 百万
+                  ¥{{ (cap.max_cippm || 0).toFixed(2) }} {{ $t('business.analytics.perMillion') }}
                 </span>
               </td>
               <td class="px-6 py-4 text-sm text-muted-foreground">
@@ -110,15 +110,15 @@
                   class="text-xs px-3 py-1.5 rounded-lg bg-accent text-foreground border border-border hover:bg-blue-500/10 hover:text-blue-500 hover:border-blue-500/30 transition-colors"
                   @click="openEditModal(cap)"
                 >
-                  编辑
+                  {{ $t('business.analytics.edit') }}
                 </button>
                 <button
                   class="text-xs px-3 py-1.5 rounded-lg bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500/20 transition-colors"
                   :disabled="deletingModel === cap.model"
                   @click="confirmDelete(cap)"
                 >
-                  <span v-if="deletingModel === cap.model">删除中...</span>
-                  <span v-else>删除</span>
+                  <span v-if="deletingModel === cap.model">{{ $t('business.analytics.deleting') }}</span>
+                  <span v-else>{{ $t('business.analytics.delete') }}</span>
                 </button>
               </td>
             </tr>
@@ -135,13 +135,13 @@
     >
       <div class="w-full max-w-md rounded-2xl bg-card border border-border p-6 shadow-2xl">
         <h2 class="text-xl font-bold text-foreground mb-5">
-          {{ editingCap ? '编辑限额' : '添加限额' }}
+          {{ editingCap ? $t('business.analytics.editLimit') : $t('business.analytics.addLimit') }}
         </h2>
 
         <div class="space-y-4">
           <!-- 模型名 -->
           <div>
-            <label class="block text-sm font-medium text-muted-foreground mb-1.5">模型名称</label>
+            <label class="block text-sm font-medium text-muted-foreground mb-1.5">{{ $t('business.analytics.modelName') }}</label>
 
             <!-- 新增：自定义下拉，完全主题适配 -->
             <div v-if="!editingCap" ref="modelDropdownRef" class="relative">
@@ -157,7 +157,7 @@
                 @click="modelDropdownOpen = !modelDropdownOpen"
               >
                 <span :class="form.model ? 'font-mono text-foreground' : 'text-muted-foreground'">
-                  {{ form.model || (loadingModels ? '加载模型列表...' : availableModels.length === 0 ? '暂无在线模型' : '请选择模型') }}
+                  {{ form.model || (loadingModels ? $t('business.analytics.loadingModels') : availableModels.length === 0 ? $t('business.analytics.noOnlineModels') : $t('business.analytics.selectModel')) }}
                 </span>
                 <svg v-if="loadingModels" class="animate-spin h-4 w-4 text-muted-foreground flex-shrink-0" fill="none" viewBox="0 0 24 24">
                   <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/>
@@ -182,7 +182,7 @@
                   class="absolute z-20 mt-1.5 w-full max-h-52 overflow-y-auto rounded-xl border border-border bg-popover shadow-2xl py-1"
                 >
                   <div v-if="availableModels.length === 0" class="px-4 py-3 text-sm text-muted-foreground text-center">
-                    暂无在线模型
+                    {{ $t('business.analytics.noOnlineModels') }}
                   </div>
                   <button
                     v-for="name in availableModels"
@@ -200,7 +200,7 @@
                     @click="!alreadyConfigured(name) && selectModel(name)"
                   >
                     <span class="font-mono truncate">{{ name }}</span>
-                    <span v-if="alreadyConfigured(name)" class="ml-2 flex-shrink-0 text-xs font-sans text-muted-foreground">已设置</span>
+                    <span v-if="alreadyConfigured(name)" class="ml-2 flex-shrink-0 text-xs font-sans text-muted-foreground">{{ $t('business.analytics.configured') }}</span>
                     <svg v-else-if="form.model === name" class="ml-2 flex-shrink-0 h-3.5 w-3.5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/>
                     </svg>
@@ -218,15 +218,15 @@
           <!-- IPPM -->
           <div>
             <label class="block text-sm font-medium text-muted-foreground mb-1.5">
-              输入价格上限 (IPPM)
-              <span class="text-muted-foreground/60 font-normal ml-1">¥ / 百万 tokens</span>
+              {{ $t('business.analytics.inputPriceLimit') }}
+              <span class="text-muted-foreground/60 font-normal ml-1">{{ $t('business.analytics.currencyPerMillionTokens') }}</span>
             </label>
             <input
               v-model.number="form.maxIPPM"
               type="number"
               min="0"
               step="0.01"
-              placeholder="例如：2.50"
+              :placeholder="$t('business.analytics.exampleIppm')"
               class="w-full rounded-lg border border-border bg-accent px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -234,15 +234,15 @@
           <!-- OPPM -->
           <div>
             <label class="block text-sm font-medium text-muted-foreground mb-1.5">
-              输出价格上限 (OPPM)
-              <span class="text-muted-foreground/60 font-normal ml-1">¥ / 百万 tokens</span>
+              {{ $t('business.analytics.outputPriceLimit') }}
+              <span class="text-muted-foreground/60 font-normal ml-1">{{ $t('business.analytics.currencyPerMillionTokens') }}</span>
             </label>
             <input
               v-model.number="form.maxOPPM"
               type="number"
               min="0"
               step="0.01"
-              placeholder="例如：5.00"
+              :placeholder="$t('business.analytics.exampleOppm')"
               class="w-full rounded-lg border border-border bg-accent px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -250,15 +250,15 @@
           <!-- CIPPM -->
           <div>
             <label class="block text-sm font-medium text-muted-foreground mb-1.5">
-              缓存输入价格上限 (CIPPM)
-              <span class="text-muted-foreground/60 font-normal ml-1">¥ / 百万 tokens</span>
+              {{ $t('business.analytics.cachedInputPriceLimit') }}
+              <span class="text-muted-foreground/60 font-normal ml-1">{{ $t('business.analytics.currencyPerMillionTokens') }}</span>
             </label>
             <input
               v-model.number="form.maxCIPPM"
               type="number"
               min="0"
               step="0.01"
-              placeholder="例如：1.00"
+              :placeholder="$t('business.analytics.exampleCippm')"
               class="w-full rounded-lg border border-border bg-accent px-3 py-2.5 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
@@ -272,14 +272,14 @@
             class="px-4 py-2 rounded-lg text-sm font-medium text-foreground bg-accent border border-border hover:bg-muted transition-colors"
             @click="closeModal"
           >
-            取消
+            {{ $t('business.analytics.cancel') }}
           </button>
           <button
             class="px-4 py-2 rounded-lg text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             :disabled="saving"
             @click="save"
           >
-            {{ saving ? '保存中...' : '保存' }}
+            {{ saving ? $t('business.analytics.saving') : $t('business.analytics.save') }}
           </button>
         </div>
       </div>
@@ -292,6 +292,7 @@ import { ref, onMounted } from 'vue';
 import { onClickOutside } from '@vueuse/core';
 import { message } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 import {
   type PriceCap,
   getPriceCapsApi,
@@ -349,7 +350,7 @@ const fetchCaps = async () => {
     loading.value = true;
     caps.value = await getPriceCapsApi();
   } catch (e: any) {
-    message.error('获取限额配置失败：' + (e?.message ?? '未知错误'));
+    message.error($t('business.analytics.fetchLimitsFailed', { error: e?.message ?? $t('business.analytics.unknownError') }));
   } finally {
     loading.value = false;
   }
@@ -377,36 +378,36 @@ const closeModal = () => {
 
 const save = async () => {
   if (!form.value.model.trim()) {
-    formError.value = editingCap.value ? '模型名称不能为空' : '请选择模型';
+    formError.value = editingCap.value ? $t('business.analytics.modelNameRequired') : $t('business.analytics.selectModelRequired');
     return;
   }
   if (form.value.maxIPPM < 0 || form.value.maxOPPM < 0 || form.value.maxCIPPM < 0) {
-    formError.value = '价格上限不能为负数';
+    formError.value = $t('business.analytics.limitCannotBeNegative');
     return;
   }
   formError.value = '';
   try {
     saving.value = true;
     await upsertPriceCapApi(form.value.model.trim(), form.value.maxIPPM, form.value.maxOPPM, form.value.maxCIPPM);
-    message.success('保存成功');
+    message.success($t('business.analytics.saved'));
     closeModal();
     await fetchCaps();
   } catch (e: any) {
-    message.error('保存失败：' + (e?.message ?? '未知错误'));
+    message.error($t('business.analytics.saveFailed', { error: e?.message ?? $t('business.analytics.unknownError') }));
   } finally {
     saving.value = false;
   }
 };
 
 const confirmDelete = async (cap: PriceCap) => {
-  if (!window.confirm(`确认删除模型 "${cap.model}" 的价格限额？删除后该模型将恢复不限价。`)) return;
+  if (!window.confirm($t('business.analytics.deleteConfirm', { model: cap.model }))) return;
   try {
     deletingModel.value = cap.model;
     await deletePriceCapApi(cap.model);
-    message.success('已删除');
+    message.success($t('business.analytics.deleted'));
     caps.value = caps.value.filter(c => c.id !== cap.id);
   } catch (e: any) {
-    message.error('删除失败：' + (e?.message ?? '未知错误'));
+    message.error($t('business.analytics.deleteFailed', { error: e?.message ?? $t('business.analytics.unknownError') }));
   } finally {
     deletingModel.value = '';
   }

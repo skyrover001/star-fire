@@ -21,6 +21,7 @@ async function handleUpdate(value: string | undefined) {
     },
   });
   await loadLocaleMessages(locale);
+  window.location.reload();
 }
 </script>
 

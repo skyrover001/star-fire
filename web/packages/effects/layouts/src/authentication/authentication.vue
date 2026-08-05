@@ -10,6 +10,7 @@ import Toolbar from './toolbar.vue';
 
 interface Props {
   appName?: string;
+  appNameSuffix?: string;
   logo?: string;
   pageTitle?: string;
   pageDescription?: string;
@@ -22,6 +23,7 @@ interface Props {
 
 withDefaults(defineProps<Props>(), {
   appName: '',
+  appNameSuffix: '',
   copyright: true,
   logo: '',
   pageDescription: '',
@@ -72,8 +74,21 @@ const { authPanelCenter, authPanelLeft, authPanelRight, isDark } =
         class="text-foreground lg:text-foreground ml-4 mt-4 flex flex-1 items-center sm:left-6 sm:top-6"
       >
         <img v-if="logo" :alt="appName" :src="logo" class="mr-2" width="42" />
+        <span
+          v-else
+          class="mr-2 flex size-8 items-center justify-center rounded-lg text-sm text-white"
+          style="background: linear-gradient(135deg, #8b5cf6, #3b82f6)"
+        >
+          ✦
+        </span>
         <p v-if="appName" class="m-0 text-xl font-medium">
           {{ appName }}
+          <span
+            v-if="appNameSuffix"
+            class="text-sm font-normal text-muted-foreground ml-1"
+          >
+            {{ appNameSuffix }}
+          </span>
         </p>
       </div>
     </div>
@@ -89,10 +104,16 @@ const { authPanelCenter, authPanelLeft, authPanelRight, isDark } =
             <img
               :alt="appName"
               :src="sloganImage"
-              class="animate-float h-64 w-2/5"
+              class="animate-float h-64 w-2/5 cursor-pointer"
+              @click="clickLogo"
             />
           </template>
-          <SloganIcon v-else :alt="appName" class="animate-float h-64 w-2/5" />
+          <SloganIcon
+            v-else
+            :alt="appName"
+            class="animate-float h-64 w-2/5 cursor-pointer"
+            @click="clickLogo"
+          />
           <div class="text-1xl text-foreground mt-6 font-sans lg:text-2xl">
             {{ pageTitle }}
           </div>

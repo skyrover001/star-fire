@@ -90,6 +90,27 @@ watch(
 
 <template>
   <BasicLayout @clear-preferences-and-logout="handleLogout">
+    <template #logo>
+      <div class="flex h-full items-center gap-2 px-3">
+        <span
+          class="flex size-8 shrink-0 items-center justify-center rounded-lg text-sm text-white"
+          style="background: linear-gradient(135deg, #8b5cf6, #3b82f6)"
+        >
+          ✦
+        </span>
+        <span v-if="!preferences.sidebar.collapsed" class="text-foreground truncate text-nowrap font-semibold">
+          {{ $t('page.home.brand') }}
+          <span class="text-xs font-normal opacity-70">
+            {{ $t('page.home.brandSuffix') }}
+          </span>
+        </span>
+      </div>
+    </template>
+    <template #side-extra-title>
+      <span class="text-foreground truncate text-nowrap font-semibold">
+        {{ $t('page.home.brand') }}
+      </span>
+    </template>
     <template #user-dropdown>
       <UserDropdown
         :avatar

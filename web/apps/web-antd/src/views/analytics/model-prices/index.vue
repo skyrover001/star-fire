@@ -4,8 +4,8 @@
     <div class="px-6 py-6">
       <div class="flex items-center justify-between">
         <div>
-          <h1 class="text-3xl font-bold text-foreground">价格配置</h1>
-          <p class="mt-2 text-muted-foreground">查看您提供的模型价格（每百万 tokens 价格），价格通过客户端配置设置</p>
+          <h1 class="text-3xl font-bold text-foreground">{{ $t('business.analytics.priceSettings') }}</h1>
+          <p class="mt-2 text-muted-foreground">{{ $t('business.analytics.modelPricesHelp') }}</p>
         </div>
         <button
           class="inline-flex items-center rounded-lg bg-[var(--bg-color-secondary)] border border-[var(--border-color)] px-4 py-2 text-sm font-medium text-[var(--text-primary)] hover:bg-[var(--bg-color-tertiary)]"
@@ -14,7 +14,7 @@
           <svg class="mr-2 h-4 w-4" :class="loading ? 'animate-spin' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
           </svg>
-          刷新
+          {{ $t('business.analytics.refresh') }}
         </button>
       </div>
     </div>
@@ -29,7 +29,7 @@
           <input
             v-model="searchKeyword"
             type="text"
-            placeholder="搜索模型名称或引擎..."
+            :placeholder="$t('business.analytics.searchModels')"
             class="w-full rounded-lg border border-border bg-card pl-10 pr-4 py-2 text-sm text-foreground placeholder:text-muted-foreground focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
           />
         </div>
@@ -37,11 +37,11 @@
           v-model="engineFilter"
           class="rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground focus:border-blue-500 focus:outline-none"
         >
-          <option value="">全部引擎</option>
+          <option value="">{{ $t('business.analytics.allEngines') }}</option>
           <option v-for="engine in availableEngines" :key="engine" :value="engine">{{ engine }}</option>
         </select>
         <div class="text-sm text-muted-foreground">
-          {{ filteredModels.length }} / {{ models.length }} 条
+          {{ filteredModels.length }} / {{ models.length }} {{ $t('business.analytics.records') }}
         </div>
       </div>
 
@@ -52,8 +52,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
           </svg>
           <div class="text-sm text-muted-foreground space-y-1">
-            <p><span class="font-medium text-foreground">IPPM</span> 输入价格 · <span class="font-medium text-foreground">OPPM</span> 输出价格 · <span class="font-medium text-foreground">CIPPM</span> 缓存命中输入价格（均为 ¥/百万tokens）</p>
-            <p>模型价格由客户端配置文件管理，此页面仅供查看。如需修改价格请在客户端设置。</p>
+            <p>{{ $t('business.analytics.modelPricesInfo') }}</p>
+            <p>{{ $t('business.analytics.modelPricesHelp') }}</p>
           </div>
         </div>
       </div>
@@ -62,7 +62,7 @@
       <div v-if="loading && models.length === 0" class="flex justify-center py-16">
         <div class="flex items-center space-x-3 text-muted-foreground">
           <div class="w-6 h-6 border-2 border-blue-500 border-t-transparent rounded-full animate-spin"></div>
-          <span>加载中...</span>
+          <span>{{ $t('business.analytics.loading') }}</span>
         </div>
       </div>
 
@@ -73,8 +73,8 @@
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
           </svg>
         </div>
-        <h3 class="text-lg font-semibold text-foreground mb-2">暂无提供的模型</h3>
-        <p class="text-muted-foreground">当前没有客户端连接或没有提供模型。请确保客户端已启动并注册。</p>
+        <h3 class="text-lg font-semibold text-foreground mb-2">{{ $t('business.analytics.noProvidedModels') }}</h3>
+        <p class="text-muted-foreground">{{ $t('business.analytics.noProvidedModelsDescription') }}</p>
       </div>
 
       <!-- 模型价格列表 -->
@@ -82,13 +82,13 @@
         <table class="w-full">
           <thead>
             <tr class="border-b border-border bg-accent">
-              <th class="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">模型</th>
-              <th class="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">引擎</th>
-              <th class="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">客户端</th>
+              <th class="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.model') }}</th>
+              <th class="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.engine') }}</th>
+              <th class="px-5 py-3 text-left text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.client') }}</th>
               <th class="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">IPPM (¥)</th>
               <th class="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">OPPM (¥)</th>
               <th class="px-5 py-3 text-right text-xs font-semibold text-muted-foreground uppercase tracking-wider">CIPPM (¥)</th>
-              <th class="px-5 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">状态</th>
+              <th class="px-5 py-3 text-center text-xs font-semibold text-muted-foreground uppercase tracking-wider">{{ $t('business.analytics.status') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-border">
@@ -125,11 +125,11 @@
               <td class="px-5 py-3 text-center">
                 <span v-if="item.online" class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
                   <span class="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5"></span>
-                  在线
+                  {{ $t('business.analytics.online') }}
                 </span>
                 <span v-else class="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-red-500/10 text-red-500 border border-red-500/20">
                   <span class="w-1.5 h-1.5 rounded-full bg-red-500 mr-1.5"></span>
-                  离线
+                  {{ $t('business.analytics.offline') }}
                 </span>
               </td>
             </tr>
@@ -138,9 +138,9 @@
         <div class="px-5 py-3 bg-accent border-t border-border">
           <div class="flex justify-between items-center text-xs text-muted-foreground">
             <span>
-              共 {{ filteredModels.length }} 个模型实例，{{ onlineCount }} 个在线
+              {{ $t('business.analytics.modelInstances', { total: filteredModels.length, online: onlineCount }) }}
             </span>
-            <span>价格单位：¥ / 百万 tokens (PPM)</span>
+            <span>{{ $t('business.analytics.priceUnit') }}</span>
           </div>
         </div>
       </div>
@@ -152,6 +152,7 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted } from 'vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 interface UserModel {
   model_name: string;

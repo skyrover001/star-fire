@@ -2,6 +2,7 @@
 import { ref, reactive, onMounted } from 'vue';
 import { message, Modal } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 // 我提供的模型列表
 const providedModels = ref([]);
@@ -31,13 +32,13 @@ const newModelForm = reactive({
 
 // 模型类型选项
 const modelTypes = [
-  { label: '文本生成', value: 'text-generation' },
-  { label: '图像生成', value: 'image-generation' },
-  { label: '语音合成', value: 'text-to-speech' },
-  { label: '语音识别', value: 'speech-to-text' },
-  { label: '图像识别', value: 'image-recognition' },
-  { label: '翻译', value: 'translation' },
-  { label: '其他', value: 'other' },
+  { label: $t('business.myModels.modelTypeTextGeneration'), value: 'text-generation' },
+  { label: $t('business.myModels.modelTypeImageGeneration'), value: 'image-generation' },
+  { label: $t('business.myModels.modelTypeTextToSpeech'), value: 'text-to-speech' },
+  { label: $t('business.myModels.modelTypeSpeechToText'), value: 'speech-to-text' },
+  { label: $t('business.myModels.modelTypeImageRecognition'), value: 'image-recognition' },
+  { label: $t('business.myModels.modelTypeTranslation'), value: 'translation' },
+  { label: $t('business.myModels.modelTypeOther'), value: 'other' },
 ];
 
 // 加载我提供的模型
@@ -48,7 +49,7 @@ const loadProvidedModels = async () => {
     providedModels.value = response.models || [];
   } catch (error) {
     console.error('加载提供的模型失败:', error);
-    message.error('加载模型列表失败');
+    message.error($t('business.myModels.loadModelsFailed'));
   } finally {
     modelsLoading.value = false;
   }
@@ -57,11 +58,11 @@ const loadProvidedModels = async () => {
 // 添加新模型
 const addModel = async () => {
   if (!newModelForm.name.trim()) {
-    message.error('请输入模型名称');
+    message.error($t('business.myModels.modelNameRequired'));
     return;
   }
   if (!newModelForm.endpoint.trim()) {
-    message.error('请输入模型接口地址');
+    message.error($t('business.myModels.endpointRequired'));
     return;
   }
 
@@ -69,13 +70,13 @@ const addModel = async () => {
   try {
     const response = await requestClient.post('/user/provided-models', newModelForm);
     if (response.model) {
-      message.success('模型添加成功');
+      message.success($t('business.myModels.modelAdded'));
       loadProvidedModels();
       closeAddModelModal();
     }
   } catch (error) {
     console.error('添加模型失败:', error);
-    message.error('添加模型失败');
+    message.error($t('business.myModels.addFailed'));
   } finally {
     isAddingModel.value = false;
   }
@@ -84,19 +85,19 @@ const addModel = async () => {
 // 删除模型
 const deleteModel = async (modelId: string) => {
   Modal.confirm({
-    title: '确认删除',
-    content: '删除后模型将无法被其他用户使用，确定要删除吗？',
-    okText: '删除',
+    title: $t('business.myModels.deleteConfirmTitle'),
+    content: $t('business.myModels.deleteConfirmContent'),
+    okText: $t('business.myModels.delete'),
     okType: 'danger',
-    cancelText: '取消',
+    cancelText: $t('business.myModels.cancel'),
     onOk: async () => {
       try {
         await requestClient.delete(`/user/provided-models/${modelId}`);
-        message.success('模型已删除');
+        message.success($t('business.myModels.modelDeleted'));
         loadProvidedModels();
       } catch (error) {
         console.error('删除模型失败:', error);
-        message.error('删除模型失败');
+        message.error($t('business.myModels.deleteFailed'));
       }
     },
   });
@@ -108,11 +109,11 @@ const toggleModelStatus = async (modelId: string, isActive: boolean) => {
     await requestClient.patch(`/user/provided-models/${modelId}`, {
       isActive: !isActive,
     });
-    message.success(isActive ? '模型已下线' : '模型已上线');
+    message.success($t(isActive ? 'business.myModels.modelOffline' : 'business.myModels.modelOnline'));
     loadProvidedModels();
   } catch (error) {
     console.error('切换模型状态失败:', error);
-    message.error('操作失败');
+    message.error($t('business.myModels.operationFailed'));
   }
 };
 
@@ -177,7 +178,7 @@ defineExpose({
 <template>
   <div>
     <div class="mb-4 flex items-center justify-between">
-      <h3 class="text-lg font-semibold text-[var(--text-primary)]">我提供的模型</h3>
+      <h3 class="text-lg font-semibold text-[var(--text-primary)]">{{ $t('business.myModels.providedModels') }}</h3>
       <div class="flex items-center space-x-3">
         <button
           class="inline-flex items-center rounded-lg bg-[var(--color-neutral-700)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--color-neutral-600)] focus:outline-none focus:ring-2 focus:ring-gray-500"
@@ -186,7 +187,7 @@ defineExpose({
           <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
           </svg>
-          刷新
+          {{ $t('business.myModels.refresh') }}
         </button>
         <button
           class="inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -195,7 +196,7 @@ defineExpose({
           <svg class="mr-2 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/>
           </svg>
-          添加模型
+          {{ $t('business.myModels.addModel') }}
         </button>
       </div>
     </div>
@@ -215,26 +216,26 @@ defineExpose({
                 class="ml-2 inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium"
                 :class="getStatusClass(model.isActive)"
               >
-                {{ model.isActive ? '运行中' : '已停止' }}
+                {{ model.isActive ? $t('business.myModels.running') : $t('business.myModels.stopped') }}
               </span>
             </div>
             <p class="text-sm text-[var(--text-secondary)] mb-3">{{ model.description }}</p>
             
             <div class="space-y-2">
               <div class="flex items-center text-sm">
-                <span class="text-[var(--text-secondary)] w-16">类型:</span>
+                <span class="text-[var(--text-secondary)] w-16">{{ $t('business.myModels.type') }}</span>
                 <span class="text-[var(--text-primary)]">{{ modelTypes.find(t => t.value === model.type)?.label || model.type }}</span>
               </div>
               <div class="flex items-center text-sm">
-                <span class="text-[var(--text-secondary)] w-16">版本:</span>
+                <span class="text-[var(--text-secondary)] w-16">{{ $t('business.myModels.version') }}</span>
                 <span class="text-[var(--text-primary)]">{{ model.version }}</span>
               </div>
               <div class="flex items-center text-sm">
-                <span class="text-[var(--text-secondary)] w-16">调用量:</span>
+                <span class="text-[var(--text-secondary)] w-16">{{ $t('business.myModels.calls') }}</span>
                 <span class="text-[var(--text-primary)]">{{ model.totalCalls?.toLocaleString() || 0 }}</span>
               </div>
               <div class="flex items-center text-sm">
-                <span class="text-[var(--text-secondary)] w-16">收入:</span>
+                <span class="text-[var(--text-secondary)] w-16">{{ $t('business.myModels.earnings') }}</span>
                 <span class="text-[var(--text-primary)]">¥{{ model.totalEarnings?.toFixed(2) || '0.00' }}</span>
               </div>
             </div>
@@ -255,7 +256,7 @@ defineExpose({
             class="text-sm text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
             @click="showModelDetail(model)"
           >
-            查看详情
+            {{ $t('business.myModels.viewDetails') }}
           </button>
           <div class="flex items-center space-x-2">
             <button
@@ -263,13 +264,13 @@ defineExpose({
               :class="model.isActive ? 'text-orange-600 dark:text-orange-400' : 'text-green-600 dark:text-green-400'"
               @click="toggleModelStatus(model.id, model.isActive)"
             >
-              {{ model.isActive ? '下线' : '上线' }}
+              {{ model.isActive ? $t('business.myModels.takeOffline') : $t('business.myModels.bringOnline') }}
             </button>
             <button
               class="text-sm text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
               @click="deleteModel(model.id)"
             >
-              删除
+              {{ $t('business.myModels.delete') }}
             </button>
           </div>
         </div>
@@ -281,20 +282,20 @@ defineExpose({
       <svg class="mx-auto h-12 w-12 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4"/>
       </svg>
-      <h3 class="mt-2 text-sm font-medium text-[var(--text-primary)]">暂无提供的模型</h3>
-      <p class="mt-1 text-sm text-[var(--text-secondary)]">添加您的第一个模型开始赚钱</p>
+      <h3 class="mt-2 text-sm font-medium text-[var(--text-primary)]">{{ $t('business.myModels.noProvidedModels') }}</h3>
+      <p class="mt-1 text-sm text-[var(--text-secondary)]">{{ $t('business.myModels.addFirstModel') }}</p>
       <button
         class="mt-4 inline-flex items-center rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700"
         @click="showAddModel"
       >
-        添加模型
+        {{ $t('business.myModels.addModel') }}
       </button>
     </div>
 
     <!-- 加载状态 -->
     <div v-else class="text-center py-12">
       <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
-      <p class="mt-2 text-sm text-[var(--text-secondary)]">加载中...</p>
+      <p class="mt-2 text-sm text-[var(--text-secondary)]">{{ $t('business.myModels.loading') }}</p>
     </div>
 
     <!-- 模型详情对话框 -->
@@ -324,45 +325,45 @@ defineExpose({
         <div class="p-6">
           <div class="space-y-4">
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">描述</label>
-              <p class="text-sm text-gray-600 dark:text-gray-400">{{ selectedModel.description || '无描述' }}</p>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.myModels.description') }}</label>
+              <p class="text-sm text-gray-600 dark:text-gray-400">{{ selectedModel.description || $t('business.myModels.noDescription') }}</p>
             </div>
             
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">类型</label>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.marketplace.modelType') }}</label>
                 <p class="text-sm text-gray-600 dark:text-gray-400">{{ modelTypes.find(t => t.value === selectedModel.type)?.label || selectedModel.type }}</p>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">版本</label>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.myModels.version').replace(':', '') }}</label>
                 <p class="text-sm text-gray-600 dark:text-gray-400">{{ selectedModel.version }}</p>
               </div>
             </div>
             
             <div>
-              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">接口地址</label>
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.myModels.endpoint') }}</label>
               <code class="block bg-gray-100 dark:bg-gray-700 px-3 py-2 rounded text-sm font-mono">{{ selectedModel.endpoint }}</code>
             </div>
             
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">总调用量</label>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.myModels.totalCalls') }}</label>
                 <p class="text-sm text-gray-600 dark:text-gray-400">{{ selectedModel.totalCalls?.toLocaleString() || 0 }}</p>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">总收入</label>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.myModels.totalEarnings') }}</label>
                 <p class="text-sm text-gray-600 dark:text-gray-400">¥{{ selectedModel.totalEarnings?.toFixed(2) || '0.00' }}</p>
               </div>
             </div>
             
             <div class="grid grid-cols-2 gap-4">
               <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">创建时间</label>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.myModels.createdAt') }}</label>
                 <p class="text-sm text-gray-600 dark:text-gray-400">{{ formatDate(selectedModel.createdAt) }}</p>
               </div>
               <div>
-                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">最后调用</label>
-                <p class="text-sm text-gray-600 dark:text-gray-400">{{ selectedModel.lastCalled ? formatDate(selectedModel.lastCalled) : '未调用' }}</p>
+                <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">{{ $t('business.myModels.lastCalled') }}</label>
+                <p class="text-sm text-gray-600 dark:text-gray-400">{{ selectedModel.lastCalled ? formatDate(selectedModel.lastCalled) : $t('business.myModels.neverCalled') }}</p>
               </div>
             </div>
           </div>
@@ -382,7 +383,7 @@ defineExpose({
       >
         <!-- 对话框头部 -->
         <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">添加模型</h3>
+          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">{{ $t('business.myModels.addModelTitle') }}</h3>
           <button
             class="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
             @click="closeAddModelModal"
@@ -399,12 +400,12 @@ defineExpose({
             <div class="space-y-4">
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  模型名称 <span class="text-red-500">*</span>
+                  {{ $t('business.myModels.modelName') }} <span class="text-red-500">*</span>
                 </label>
                 <input
                   v-model="newModelForm.name"
                   type="text"
-                  placeholder="请输入模型名称"
+                  :placeholder="$t('business.myModels.modelNamePlaceholder')"
                   class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                   required
                 />
@@ -412,11 +413,11 @@ defineExpose({
               
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  描述
+                  {{ $t('business.myModels.description') }}
                 </label>
                 <textarea
                   v-model="newModelForm.description"
-                  placeholder="请输入模型描述"
+                  :placeholder="$t('business.myModels.descriptionPlaceholder')"
                   rows="3"
                   class="w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-gray-900 placeholder-gray-500 focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20 dark:border-gray-600 dark:bg-gray-700 dark:text-white dark:placeholder-gray-400"
                 ></textarea>
@@ -425,7 +426,7 @@ defineExpose({
               <div class="grid grid-cols-2 gap-4">
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    模型类型 <span class="text-red-500">*</span>
+                    {{ $t('business.marketplace.modelType') }} <span class="text-red-500">*</span>
                   </label>
                   <select
                     v-model="newModelForm.type"
@@ -440,7 +441,7 @@ defineExpose({
                 
                 <div>
                   <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                    版本
+                    {{ $t('business.myModels.version').replace(':', '') }}
                   </label>
                   <input
                     v-model="newModelForm.version"
@@ -453,7 +454,7 @@ defineExpose({
               
               <div>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
-                  接口地址 <span class="text-red-500">*</span>
+                  {{ $t('business.myModels.endpoint') }} <span class="text-red-500">*</span>
                 </label>
                 <input
                   v-model="newModelForm.endpoint"
@@ -471,7 +472,7 @@ defineExpose({
                   class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
                 />
                 <label class="ml-2 text-sm text-gray-700 dark:text-gray-300">
-                  公开模型（允许其他用户使用）
+                  {{ $t('business.myModels.publicModel') }}
                 </label>
               </div>
             </div>
@@ -482,14 +483,14 @@ defineExpose({
                 class="rounded-lg border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-gray-500 dark:border-gray-600 dark:bg-gray-700 dark:text-gray-300 dark:hover:bg-gray-600"
                 @click="closeAddModelModal"
               >
-                取消
+                {{ $t('business.myModels.cancel') }}
               </button>
               <button
                 type="submit"
                 class="rounded-lg bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
                 :disabled="isAddingModel"
               >
-                {{ isAddingModel ? '添加中...' : '添加' }}
+                {{ isAddingModel ? $t('business.myModels.adding') : $t('business.myModels.add') }}
               </button>
             </div>
           </form>
