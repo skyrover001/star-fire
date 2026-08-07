@@ -74,8 +74,8 @@
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
             </svg>
           </div>
-          <div class="text-2xl font-bold text-purple-500">{{ quantization }}</div>
-          <div class="text-sm text-[var(--text-secondary)]">{{ $t('business.marketplace.quantization') }}</div>
+          <div class="text-2xl font-bold text-purple-500">{{ maxContext }}</div>
+          <div class="text-sm text-[var(--text-secondary)]">{{ $t('business.marketplace.maxContext') }}</div>
         </div>
         <div class="text-center p-4 rounded-lg bg-[var(--hover-bg)] border border-orange-500/20">
           <div class="w-8 h-8 mx-auto mb-2 rounded-lg bg-orange-500/10 flex items-center justify-center">
@@ -99,9 +99,9 @@
           <div><h3 class="text-base font-semibold text-[var(--text-primary)]">{{ $t('business.marketplace.contributorPrices') }}</h3><p class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.priceRangeDescription') }}</p></div>
         </div>
         <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
-          <div class="rounded-lg bg-[var(--hover-bg)] p-3"><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.input') }}</div><div class="mt-1 font-semibold text-emerald-500">￥{{ formatPriceRange(contributorPriceRange.input) }}</div></div>
-          <div class="rounded-lg bg-[var(--hover-bg)] p-3"><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.output') }}</div><div class="mt-1 font-semibold text-blue-500">￥{{ formatPriceRange(contributorPriceRange.output) }}</div></div>
-          <div class="rounded-lg bg-[var(--hover-bg)] p-3"><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.cached') }}</div><div class="mt-1 font-semibold text-amber-500">￥{{ formatPriceRange(contributorPriceRange.cached) }}</div></div>
+          <div class="rounded-lg bg-[var(--hover-bg)] p-3"><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.input') }}</div><div class="mt-1 font-semibold text-emerald-500">{{ formatPricePerMillion(contributorPriceRange.input) }}</div></div>
+          <div class="rounded-lg bg-[var(--hover-bg)] p-3"><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.output') }}</div><div class="mt-1 font-semibold text-blue-500">{{ formatPricePerMillion(contributorPriceRange.output) }}</div></div>
+          <div class="rounded-lg bg-[var(--hover-bg)] p-3"><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.cached') }}</div><div class="mt-1 font-semibold text-amber-500">{{ formatPricePerMillion(contributorPriceRange.cached) }}</div></div>
         </div>
       </section>
       <section class="rounded-xl border border-[var(--border-color)] bg-[var(--content-bg)] p-5">
@@ -180,10 +180,10 @@
                   </h4>
                   <div class="flex items-center space-x-2">
                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
-                      {{ $t('business.marketplace.inputPerMillionShort', { price: clientModel.model.ippm || 10 }) }}
+                      {{ $t('business.marketplace.inputPerMillionShort', { price: clientModel.model.ippm || 0 }) }}
                     </span>
                     <span class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-blue-500/10 text-blue-500 border border-blue-500/20">
-                      {{ $t('business.marketplace.outputPerMillionShort', { price: clientModel.model.oppm || 20 }) }}
+                      {{ $t('business.marketplace.outputPerMillionShort', { price: clientModel.model.oppm || 0 }) }}
                     </span>
                     <span v-if="(clientModel.model.cippm || 0) > 0" class="inline-flex items-center px-2 py-1 rounded-full text-xs font-medium bg-orange-500/10 text-orange-500 border border-orange-500/20">
                       {{ $t('business.marketplace.cachedPerMillionShort', { price: clientModel.model.cippm }) }}
@@ -344,11 +344,11 @@
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                       <div class="text-center p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                        <div class="text-xl font-bold text-emerald-500">￥{{ clientModel.model.ippm || 10 }}</div>
+                        <div class="text-xl font-bold text-emerald-500">${{ clientModel.model.ippm || 0 }}/M</div>
                         <div class="text-xs text-emerald-600 dark:text-emerald-400">{{ $t('business.marketplace.inputPerMillion') }}</div>
                       </div>
                       <div class="text-center p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                        <div class="text-xl font-bold text-blue-500">￥{{ clientModel.model.oppm || 20 }}</div>
+                        <div class="text-xl font-bold text-blue-500">${{ clientModel.model.oppm || 0 }}/M</div>
                         <div class="text-xs text-blue-600 dark:text-blue-400">{{ $t('business.marketplace.outputPerMillion') }}</div>
                       </div>
                     </div>
@@ -368,9 +368,9 @@
                           <span class="text-[var(--text-secondary)]">{{ $t('business.marketplace.modelId') }}:</span>
                           <span class="ml-2 font-mono text-[var(--text-primary)]">{{ clientModel.model.openai_model.id }}</span>
                         </div>
-                        <div v-if="clientModel.model.openai_model.owned_by">
-                          <span class="text-[var(--text-secondary)]">{{ $t('business.marketplace.owner') }}:</span>
-                          <span class="ml-2 font-medium text-[var(--text-primary)]">{{ clientModel.model.openai_model.owned_by }}</span>
+                        <div>
+                          <span class="text-[var(--text-secondary)]">{{ $t('business.marketplace.apiSupportType') }}:</span>
+                          <span class="ml-2 font-medium text-[var(--text-primary)]">{{ $t('business.marketplace.openaiCompletionApi') }}</span>
                         </div>
                       </div>
                     </div>
@@ -455,11 +455,11 @@ const modelUsage = ref({ calls: 0, total_tokens: 0, user_count: 0, client_count:
 const modelName = computed(() => route.query.name as string || '');
 
 const parameterSize = computed(() => modelName.value.split(':')[1] || $t('business.marketplace.parameters'));
-const quantization = computed(() => {
-  const architectures = clientModels.value
-    .map((item) => item.model?.arch || item.model?.quantization)
-    .filter(Boolean);
-  return architectures.length > 0 ? architectures[0] : 'N/A';
+// 支持的最大上下文：默认输入 128K，输出 32K
+const maxContext = computed(() => {
+  const input = 128 * 1024;
+  const output = 32 * 1024;
+  return `${formatTokens(input)} / ${formatTokens(output)}`;
 });
 const supportedModalities = computed(() => isEmbeddingModel()
   ? [$t('business.marketplace.embedding')]
@@ -517,7 +517,7 @@ const getModelDescription = (): string => {
   
   const { type } = modelInfo.value;
   const typeText = type ? type.toUpperCase() : 'Unknown';
-  return `${typeText} • ${$t('business.marketplace.parameters')}: ${parameterSize.value} • ${$t('business.marketplace.quantization')}: ${quantization.value}`;
+  return `${typeText} • ${$t('business.marketplace.parameters')}: ${parameterSize.value} • ${$t('business.marketplace.maxContext')}: ${maxContext.value}`;
 };
 
 const isEmbeddingModel = (): boolean => {
@@ -536,10 +536,15 @@ const getPriceRange = (field: 'ippm' | 'oppm' | 'cippm'): [number, number] | nul
   return prices.length > 0 ? [Math.min(...prices), Math.max(...prices)] : null;
 };
 
-const formatPriceRange = (range: [number, number] | null): string => {
+// 格式化每百万 token 价格（$/M tokens）
+const formatPricePerMillion = (range: [number, number] | null): string => {
   if (!range) return $t('business.marketplace.noPrice');
   const [minimum, maximum] = range;
-  return minimum === maximum ? minimum.toFixed(2) : `${minimum.toFixed(2)} - ${maximum.toFixed(2)}`;
+  if (minimum === 0 && maximum === 0) return $t('business.marketplace.noPrice');
+  const formatted = minimum === maximum
+    ? minimum.toFixed(2)
+    : `${minimum.toFixed(2)} - ${maximum.toFixed(2)}`;
+  return `$${formatted}/M`;
 };
 
 const formatNumber = (value?: number): string => (value || 0).toLocaleString('zh-CN');
