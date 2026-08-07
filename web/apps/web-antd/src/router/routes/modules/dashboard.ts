@@ -15,6 +15,16 @@ const routes: RouteRecordRaw[] = [
     path: '/model-marketplace',
     component: () => import('#/views/modelmarket/index.vue'),
   },
+  // 使用说明页面（隐藏侧边栏导航）
+  {
+    meta: {
+      hideInMenu: true,
+      title: $t('business.navigation.usageGuide'),
+    },
+    name: 'UsageGuide',
+    path: '/usage-guide',
+    component: () => import('#/views/usage-guide/index.vue'),
+  },
   // 模型详情页
   {
     meta: {

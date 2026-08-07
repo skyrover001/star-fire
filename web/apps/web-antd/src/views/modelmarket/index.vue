@@ -4,7 +4,7 @@ import type {
   WorkbenchQuickNavItem,
 } from '@vben/common-ui';
 
-import { computed, ref, watch, onMounted, onUnmounted, onActivated } from 'vue';
+import { ref, watch, onMounted, onUnmounted, onActivated } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
 
 import { openWindow } from '@vben/utils';
@@ -32,7 +32,6 @@ const modelMarketplaceRef = ref(null);
 const modelTrendsRef = ref(null);
 
 // 对话框状态
-const showUsageModal = ref(false);
 const showDownloadModal = ref(false);
 const showTokenModal = ref(false);
 
@@ -172,17 +171,7 @@ function navTo(nav: WorkbenchProjectItem | WorkbenchQuickNavItem) {
   }
 }
 
-// 处理搜索
-const handleSearch = () => {
-  // 搜索逻辑在 ModelMarketplace 组件中处理
-};
-
-// 处理来自子组件的搜索事件
-const handleSearchFromChild = (keyword: string) => {
-  searchKeyword.value = keyword;
-};
-
-// 显示注册Token对话框
+// 关闭使用说明对话框
 const showRegisterToken = async () => {
   showTokenModal.value = true;
   await generateToken();
@@ -323,13 +312,9 @@ const registerToStarFire = async () => {
   }
 };
 
+// 使用说明 - 跳转到独立页面
 const showUsageGuide = () => {
-  showUsageModal.value = true;
-};
-
-// 关闭使用说明对话框
-const closeUsageModal = () => {
-  showUsageModal.value = false;
+  router.push('/usage-guide');
 };
 
 // 关闭客户端下载对话框
@@ -388,25 +373,6 @@ const downloadClient = (platform: 'windows' | 'macos' | 'linux') => {
   }
 };
 
-// 使用说明的Markdown内容
-const usageGuideMarkdown = computed(() => t('business.marketplace.usageGuideMarkdown'));
-
-// 将Markdown转换为HTML（简单实现）
-const usageGuideHtml = computed(() => {
-  return usageGuideMarkdown.value
-    .replace(/^# (.+)$/gm, '<h1 class="text-2xl font-bold mb-4 text-gray-900 dark:text-white">$1</h1>')
-    .replace(/^## (.+)$/gm, '<h2 class="text-xl font-semibold mb-3 mt-6 text-gray-800 dark:text-gray-100">$1</h2>')
-    .replace(/^### (.+)$/gm, '<h3 class="text-lg font-medium mb-2 mt-4 text-gray-700 dark:text-gray-200">$1</h3>')
-    .replace(/^\*\*(.+)\*\*[:：](.+)$/gm, '<p class="mb-2"><strong class="text-gray-900 dark:text-white">$1</strong>：$2</p>')
-    .replace(/^- (.+)$/gm, '<li class="mb-1 text-gray-600 dark:text-gray-300">$1</li>')
-    .replace(/(\d+)\. (.+)$/gm, '<div class="mb-2"><span class="font-medium text-blue-600 dark:text-blue-400">$1.</span> $2</div>')
-    .replace(/`([^`]+)`/g, '<code class="px-2 py-1 bg-gray-100 rounded text-sm font-mono dark:bg-gray-700">$1</code>')
-    .replace(/\*([^*]+)\*/g, '<em>$1</em>')
-    .replace(/\n\n/g, '</p><p class="mb-3 text-gray-600 dark:text-gray-300">')
-    .replace(/^(.+)$/gm, '<p class="mb-3 text-gray-600 dark:text-gray-300">$1</p>')
-    .replace(/---/g, '<hr class="my-6 border-gray-200 dark:border-gray-700">')
-    .replace(/📧|💬|📖|🐛/g, '<span class="mr-1">$&</span>');
-});
 </script>
 
 <template>
@@ -457,27 +423,12 @@ const usageGuideHtml = computed(() => {
 
     <!-- 主内容区域 -->
     <div class="px-6 pb-6">
-      <!-- 搜索区域 -->
-      <div class="mb-6">
-        <div class="relative">
-          <div class="absolute inset-y-0 left-0 flex items-center pl-4">
-            <svg class="h-5 w-5 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </div>
-          <input v-model="searchKeyword" type="text" :placeholder="$t('business.marketplace.marketSearchPlaceholder')"
-            class="w-full rounded-xl border border-[var(--border-color)] bg-[var(--content-bg)] py-4 pl-12 pr-4 text-[var(--text-primary)] placeholder-[var(--text-secondary)] focus:border-blue-500 focus:outline-none focus:ring-2 focus:ring-blue-500/20"
-            @input="handleSearch" />
-        </div>
-      </div>
-
       <!-- 左右分栏布局 -->
       <div class="grid grid-cols-1 xl:grid-cols-4 gap-6">
         <!-- 左侧：模型广场 - 占3/4宽度 -->
         <div class="xl:col-span-3 order-2 xl:order-1">
           <ModelMarketplace ref="modelMarketplaceRef" :search-keyword="searchKeyword"
-            @nav-to="navTo" @search="handleSearchFromChild" />
+            @nav-to="navTo" />
         </div>
 
         <!-- 右侧：模型动态 - 占1/4宽度 -->
@@ -681,31 +632,6 @@ const usageGuideHtml = computed(() => {
               </button>
             </div>
           </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 使用说明对话框 -->
-    <div v-if="showUsageModal"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      @click="closeUsageModal">
-      <div
-        class="relative mx-4 max-h-[80vh] w-full max-w-4xl overflow-hidden rounded-xl bg-white shadow-2xl dark:bg-gray-800"
-        @click.stop>
-        <!-- 对话框头部 -->
-        <div class="flex items-center justify-between border-b border-gray-200 px-6 py-4 dark:border-gray-700">
-          <h3 class="text-xl font-semibold text-gray-900 dark:text-white">{{ $t('business.marketplace.usageGuide') }}</h3>
-          <button
-            class="rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-600 dark:hover:bg-gray-700 dark:hover:text-gray-300"
-            @click="closeUsageModal">
-            <svg class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
-            </svg>
-          </button>
-        </div>
-        <!-- 对话框内容 -->
-        <div class="max-h-[60vh] overflow-y-auto p-6">
-          <div class="prose prose-gray max-w-none dark:prose-invert" v-html="usageGuideHtml"></div>
         </div>
       </div>
     </div>
