@@ -1,6 +1,8 @@
 package models
 
 import (
+	"sort"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -685,6 +687,10 @@ type PublicHomepageStats struct {
 	ActiveUsers int64              `json:"active_users"`
 	ModelStats  []ModelMarketStat  `json:"model_stats"`
 	DailyTrend  []PublicDailyTrend `json:"daily_trend"`
+	// ModelRank 模型调用次数与 tokens 排名（总的，跨所有用户）
+	ModelRank []ModelRankEntry `json:"model_rank"`
+	// ContributorRank 贡献者收益排名（前10，按总收益降序，单位 $）
+	ContributorRank []ContributorRankEntry `json:"contributor_rank"`
 }
 
 type PublicDailyTrend struct {
@@ -693,8 +699,129 @@ type PublicDailyTrend struct {
 	TotalValue  float64 `json:"total_value"`
 }
 
+// ModelRankEntry 模型调用排名条目（总的）
+type ModelRankEntry struct {
+	Model       string `json:"model"`
+	Calls       int64  `json:"calls"`
+	TotalTokens int64  `json:"total_tokens"`
+}
+
+// ContributorRankEntry 贡献者收益排名条目（前10）
+type ContributorRankEntry struct {
+	// DisplayName 脱敏后的用户名（隐藏中间字符）
+	DisplayName string  `json:"display_name"`
+	Income      float64 `json:"income"` // 单位 $
+}
+
+// maskUsername 隐藏用户名中间字符以保护隐私。
+// 规则：长度<=2 时只保留首字符；否则保留首尾各1个字符，中间用 * 填充。
+func maskUsername(name string) string {
+	runes := []rune(strings.TrimSpace(name))
+	n := len(runes)
+	if n == 0 {
+		return "***"
+	}
+	if n == 1 {
+		return string(runes[0]) + "**"
+	}
+	if n == 2 {
+		return string(runes[0]) + "*"
+	}
+	// 保留首尾各1个字符，中间用 * 填充
+	return string(runes[0]) + strings.Repeat("*", n-2) + string(runes[n-1])
+}
+
+// GetModelRank 获取所有模型总的调用次数与 tokens 排名（跨所有用户，无时间过滤）
+func (tdb *TokenUsageDB) GetModelRank() ([]ModelRankEntry, error) {
+	var entries []ModelRankEntry
+	err := tdb.db.Model(&TokenUsage{}).
+		Select(`
+			model,
+			COUNT(*) as calls,
+			SUM(total_tokens) as total_tokens
+		`).
+		Group("model").
+		Order("calls DESC").
+		Scan(&entries).Error
+	if err != nil {
+		return nil, err
+	}
+	return entries, nil
+}
+
+// GetContributorRank 获取贡献者收益排名（前10，按总收益降序，单位 $）。
+// 收益按 client 端收入口径计算：((input_tokens - cached_tokens) * ip_pm + cached_tokens * cippm + output_tokens * oppm) / 1e6。
+// 通过 client 关联到其所属 user，并对用户名做脱敏处理。
+func (tdb *TokenUsageDB) GetContributorRank(limit int, clientDB *ClientDB, userDB *UserDB) ([]ContributorRankEntry, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+
+	type Row struct {
+		ClientID string
+		Income   float64
+	}
+	var rows []Row
+	err := tdb.db.Model(&TokenUsage{}).
+		Select(`
+			client_id,
+			SUM(((input_tokens - cached_tokens) * ip_pm + cached_tokens * cippm + output_tokens * oppm) / 1000000.0) as income
+		`).
+		Group("client_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// 汇总每个 client 的收益，再映射到其所属 user
+	clientIncome := make(map[string]float64, len(rows))
+	for _, r := range rows {
+		clientIncome[r.ClientID] += r.Income
+	}
+
+	// 聚合到用户维度
+	userIncome := make(map[string]float64)
+	for clientID, income := range clientIncome {
+		client, err := clientDB.GetClient(clientID)
+		if err != nil || client == nil {
+			continue
+		}
+		userIncome[client.UserID] += income
+	}
+
+	// 按收益降序排序
+	type kv struct {
+		userID string
+		income float64
+	}
+	sorted := make([]kv, 0, len(userIncome))
+	for uid, income := range userIncome {
+		sorted = append(sorted, kv{userID: uid, income: income})
+	}
+	sort.Slice(sorted, func(i, j int) bool {
+		return sorted[i].income > sorted[j].income
+	})
+
+	if len(sorted) > limit {
+		sorted = sorted[:limit]
+	}
+
+	entries := make([]ContributorRankEntry, 0, len(sorted))
+	for _, s := range sorted {
+		displayName := "***"
+		if user, err := userDB.GetUserByID(s.userID); err == nil {
+			displayName = maskUsername(user.Username)
+		}
+		entries = append(entries, ContributorRankEntry{
+			DisplayName: displayName,
+			Income:      s.income,
+		})
+	}
+	return entries, nil
+}
+
 // GetPublicHomepageStats aggregates all recorded usage without exposing user or client details.
-func (tdb *TokenUsageDB) GetPublicHomepageStats() (*PublicHomepageStats, error) {
+func (tdb *TokenUsageDB) GetPublicHomepageStats(clientDB *ClientDB, userDB *UserDB) (*PublicHomepageStats, error) {
 	endTime := time.Now()
 	startTime := endTime.AddDate(0, 0, -6)
 
@@ -734,13 +861,27 @@ func (tdb *TokenUsageDB) GetPublicHomepageStats() (*PublicHomepageStats, error) 
 		return nil, err
 	}
 
+	// 模型调用次数与 tokens 排名（总的）
+	modelRank, err := tdb.GetModelRank()
+	if err != nil {
+		return nil, err
+	}
+
+	// 贡献者收益排名（前10，单位 $）
+	contributorRank, err := tdb.GetContributorRank(10, clientDB, userDB)
+	if err != nil {
+		return nil, err
+	}
+
 	return &PublicHomepageStats{
-		TotalTokens: totals.TotalTokens,
-		TotalCalls:  totals.TotalCalls,
-		TotalValue:  totals.TotalValue,
-		ActiveUsers: totals.ActiveUsers,
-		ModelStats:  modelStats,
-		DailyTrend:  dailyTrend,
+		TotalTokens:     totals.TotalTokens,
+		TotalCalls:      totals.TotalCalls,
+		TotalValue:      totals.TotalValue,
+		ActiveUsers:     totals.ActiveUsers,
+		ModelStats:      modelStats,
+		DailyTrend:      dailyTrend,
+		ModelRank:       modelRank,
+		ContributorRank: contributorRank,
 	}, nil
 }
 

@@ -725,6 +725,24 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     const firstClientModel = apiModel.client_models?.[0];
     const modelData = firstClientModel?.model;
     const [name, version] = modelName.split(':');
+
+    // 从模型名/标签中解析参数量（如 7b/8b/70b/0.5b），
+    // 忽略 latest、v1、fp16 等非参数量标签
+    const extractParameterSize = (raw: string): string => {
+      const tag = (raw || '').trim().toLowerCase();
+      // 匹配形如 7b / 8b / 70b / 0.5b / 1.5b 的参数量
+      const sizeMatch = tag.match(/^(\d+(?:\.\d+)?)b$/);
+      if (sizeMatch) return `${sizeMatch[1]}B`;
+      // 也支持形如 7b-instruct / 8b-q4 等以参数量开头的标签
+      const prefixMatch = tag.match(/^(\d+(?:\.\d+)?)b[-_]/);
+      if (prefixMatch) return `${prefixMatch[1]}B`;
+      return '';
+    };
+
+    const parameterSize =
+      extractParameterSize(version) ||
+      extractParameterSize(name) ||
+      'Unknown';
     
     // 计算文件大小（从字节转换为可读格式）
     const formatSize = (bytes: string | number): string => {
@@ -826,7 +844,7 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     return {
       id: modelName,
       name: name || modelName,
-      parameterSize: version || 'Unknown',
+      parameterSize,
       modelType: (apiModel.type || 'unknown').toUpperCase(),
       status: getModelStatus(),
       description: `${apiModel.type || 'unknown'} 模型，大小：${formatSize(apiModel.size || '0')}，可用客户端：${clientModels.length}个`,

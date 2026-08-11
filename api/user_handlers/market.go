@@ -27,7 +27,7 @@ func (h *MarketHandler) ModelsHandler(c *gin.Context) {
 
 // PublicHomepageHandler returns public landing-page data without requiring authentication.
 func (h *MarketHandler) PublicHomepageHandler(c *gin.Context) {
-	stats, err := h.server.TokenUsageDB.GetPublicHomepageStats()
+	stats, err := h.server.TokenUsageDB.GetPublicHomepageStats(h.server.ClientDB, h.server.UserDB)
 	if err != nil {
 		c.JSON(500, gin.H{"error": "query public homepage stats failed"})
 		return
