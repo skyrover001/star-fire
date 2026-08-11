@@ -18,6 +18,17 @@ interface ModelMarketStat {
   user_count: number;
 }
 
+interface ModelRankEntry {
+  calls: number;
+  model: string;
+  total_tokens: number;
+}
+
+interface ContributorRankEntry {
+  display_name: string;
+  income: number;
+}
+
 interface PublicDailyTrend {
   date: string;
   total_tokens: number;
@@ -31,6 +42,8 @@ interface HomepageStats {
   total_calls: number;
   total_tokens: number;
   total_value: number;
+  model_rank: ModelRankEntry[];
+  contributor_rank: ContributorRankEntry[];
 }
 
 interface MarketplaceModel {
@@ -75,14 +88,16 @@ const modelStats = computed(() =>
     .slice(0, 7),
 );
 
-const topModels = computed(() =>
-  [...(homepage.value?.stats.model_stats ?? [])]
-    .sort((a, b) => b.calls - a.calls)
-    .slice(0, 5),
-);
-
 const maxBarValue = computed(() =>
   Math.max(1, ...modelStats.value.map((m) => m.calls)),
+);
+
+// 模型调用次数与 tokens 排名（总的，来自后端聚合）
+const modelRank = computed(() => homepage.value?.stats.model_rank ?? []);
+
+// 贡献者收益排名（前10，单位 $）
+const contributorRank = computed(
+  () => homepage.value?.stats.contributor_rank ?? [],
 );
 
 const trendData = computed(() => homepage.value?.stats.daily_trend ?? []);
@@ -919,21 +934,30 @@ watch(currentLang, () => {
           <div class="dash-card">
             <div class="head"><span>{{ $t('page.home.modelRankHead') }}</span></div>
             <div class="rank-list">
-              <div v-for="(m, i) in topModels" :key="m.model" class="rank-item">
+              <div v-for="(m, i) in modelRank.slice(0, 10)" :key="m.model" class="rank-item rank-item-model">
                 <div class="left"><span class="idx">#{{ i + 1 }}</span> {{ m.model }}</div>
-                <span class="value">{{ formatNumber(m.calls) }}</span>
+                <div class="rank-metrics">
+                  <div class="rank-metric">
+                    <span class="rank-metric-num">{{ formatNumber(m.calls) }}</span>
+                    <span class="rank-metric-label">{{ $t('page.home.metricCalls') }}</span>
+                  </div>
+                  <div class="rank-metric">
+                    <span class="rank-metric-num">{{ formatNumber(m.total_tokens) }}</span>
+                    <span class="rank-metric-label">{{ $t('page.home.metricTokens') }}</span>
+                  </div>
+                </div>
               </div>
-              <div v-if="!topModels.length" class="rank-empty">{{ $t('page.home.noData') }}</div>
+              <div v-if="!modelRank.length" class="rank-empty">{{ $t('page.home.noData') }}</div>
             </div>
           </div>
           <div class="dash-card">
             <div class="head"><span>{{ $t('page.home.contributorRankHead') }}</span></div>
             <div class="rank-list">
-              <div v-for="(m, i) in topModels" :key="`c-${m.model}`" class="rank-item">
-                <div class="left"><span class="idx">#{{ i + 1 }}</span> {{ m.model }}</div>
-                <span class="value">{{ formatCurrency(m.total_tokens * 0.01) }}</span>
+              <div v-for="(c, i) in contributorRank" :key="`c-${c.display_name}-${i}`" class="rank-item">
+                <div class="left"><span class="idx">#{{ i + 1 }}</span> {{ c.display_name }}</div>
+                <span class="value">{{ formatCurrency(c.income) }}</span>
               </div>
-              <div v-if="!topModels.length" class="rank-empty">{{ $t('page.home.noData') }}</div>
+              <div v-if="!contributorRank.length" class="rank-empty">{{ $t('page.home.noData') }}</div>
             </div>
           </div>
         </div>
@@ -1150,6 +1174,11 @@ watch(currentLang, () => {
 .rank-item .left { display: flex; align-items: center; gap: 10px; }
 .rank-item .left .idx { font-weight: 600; color: var(--text-muted); font-size: 0.7rem; width: 20px; }
 .rank-item .value { font-weight: 600; color: var(--cyan); }
+.rank-item-model { gap: 12px; }
+.rank-metrics { display: flex; gap: 16px; align-items: center; }
+.rank-metric { display: flex; flex-direction: column; align-items: flex-end; line-height: 1.2; }
+.rank-metric-num { font-weight: 700; font-size: 0.85rem; color: var(--text); }
+.rank-metric-label { font-size: 0.55rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.04em; }
 .rank-empty { color: var(--text-muted); font-size: 0.8rem; text-align: center; padding: 16px; }
 
 /* Footer */
