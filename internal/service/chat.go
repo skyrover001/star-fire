@@ -26,8 +26,6 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
-	fingerPrint := uuid.NewString()
-
 	// 仅在用户未显式提供 reasoning_effort 时才填充默认值，
 	// 避免覆盖调用方（如 hermes/opencode）自带的值。
 	// 注意：不要对空值强制设 "none"，因为某些后端（如 vLLM/GLM-5.1）不支持该参数，
@@ -45,14 +43,8 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 
 	request := extendedRequest.ChatCompletionRequest
 
-	// fmt.Println("request is ..............................", request.Metadata, request.ChatCompletionRequestExtensions, request.ReasoningEffort)
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
-	client := server.LoadBalance(request.Model, userIDStr)
-	if client == nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "No available client"})
-		return
-	}
 
 	// Balance pre-check: reject if balance insufficient (OpenAI-compatible error)
 	balance, _, _ := server.UserDB.GetBalance(userIDStr)
@@ -68,78 +60,175 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		return
 	}
 
-	ippm := 9.0  // 输入tokens价格（未命中缓存部分）
-	oppm := 9.0  // 输出tokens价格
-	cippm := 0.0 // 缓存命中输入tokens价格
-	for _, m := range client.Models {
-		if m.Name == request.Model {
-			ippm = m.IPPM
-			oppm = m.OPPM
-			cippm = m.CIPPM
-			break
-		}
-	}
-
-	log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
-
-	if err := server.ClientFingerprintDB.SaveFingerprint(fingerPrint, client.ID, "preparing"); err != nil {
-		log.Printf("save fingerprint and client relation failed: %v", err)
-	}
-
-	err = client.ControlConn.WriteJSON(public.WSMessage{
-		Type:        public.MESSAGE,
-		Content:     extendedRequest,
-		FingerPrint: fingerPrint,
-	})
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error while writing json to client:" + err.Error()})
-		return
-	}
-
 	if request.Stream {
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")
 		c.Writer.Header().Set("Connection", "keep-alive")
 	}
 
-	waitStart := time.Now()
-	handleChatResponse(c, server, fingerPrint, waitStart, client.ID, ippm, oppm, cippm, request.Model)
+	handleChatWithRetry(c, server, extendedRequest, userIDStr)
 }
 
-// handle chat response
-func handleChatResponse(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string) {
-	// channel 等待 response 连接就绪（替代自旋），最多等 CHAT_MAX_TIME
-	readyCh := server.AddRespClientChan(fingerPrint)
-	select {
-	case <-readyCh:
-	case <-time.After(public.CHAT_MAX_TIME * time.Second):
-		log.Println("Response connection timeout for fingerprint:", fingerPrint)
-		server.RemoveRespClientChan(fingerPrint)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Chat timeout"})
-		return
+// handleChatWithRetry 在"第一个 token 前"对失败的请求进行自动重试。
+// 每次重试重新 LoadBalance（排除已失败的 client）、重新生成 fingerprint、
+// 重新建立响应通道。一旦读到第一条消息（MESSAGE/MESSAGE_STREAM），
+// 即进入正常处理流程，不再重试（此时用户可能已收到内容）。
+func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest public.ExtendedChatRequest, userIDStr string) {
+	request := extendedRequest.ChatCompletionRequest
+	failedClients := map[string]bool{}
+	start := time.Now()
+
+	for attempt := 0; attempt < public.MAX_CHAT_RETRY; attempt++ {
+		// 全局超时检查，避免极端情况下重试耗时过长
+		if time.Since(start) > public.CHAT_RETRY_TOTAL_TIMEOUT*time.Second {
+			break
+		}
+
+		// 1. 选 client（排除已失败的）
+		client := server.LoadBalanceExcluding(request.Model, userIDStr, failedClients)
+		if client == nil {
+			break
+		}
+		failedClients[client.ID] = true
+
+		// 2. 从该 client 提取价格（计费使用实际服务的 client 价格）
+		ippm := 9.0  // 输入tokens价格（未命中缓存部分）
+		oppm := 9.0  // 输出tokens价格
+		cippm := 0.0 // 缓存命中输入tokens价格
+		for _, m := range client.Models {
+			if m.Name == request.Model {
+				ippm = m.IPPM
+				oppm = m.OPPM
+				cippm = m.CIPPM
+				break
+			}
+		}
+
+		// 3. 生成新 fingerprint（每次重试必须重新生成）
+		fingerPrint := uuid.NewString()
+
+		if err := server.ClientFingerprintDB.SaveFingerprint(fingerPrint, client.ID, "preparing"); err != nil {
+			log.Printf("save fingerprint and client relation failed: %v", err)
+		}
+
+		log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
+
+		// 4. 发送请求到 client
+		if err := client.ControlConn.WriteJSON(public.WSMessage{
+			Type:        public.MESSAGE,
+			Content:     extendedRequest,
+			FingerPrint: fingerPrint,
+		}); err != nil {
+			log.Printf("attempt %d: send to client %s failed: %v", attempt, client.ID, err)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		}
+
+		// 5. 等待响应连接就绪（替代自旋），最多等 CHAT_MAX_TIME
+		readyCh := server.AddRespClientChan(fingerPrint)
+		select {
+		case <-readyCh:
+		case <-time.After(public.CHAT_MAX_TIME * time.Second):
+			server.RemoveRespClientChan(fingerPrint)
+			log.Printf("attempt %d: response conn timeout for client %s", attempt, client.ID)
+			abortClientRequest(client, fingerPrint)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		}
+
+		// 6. 获取响应连接
+		respConn, ok := server.GetRespClient(fingerPrint)
+		if !ok {
+			abortClientRequest(client, fingerPrint)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		}
+
+		// 7. 更新 fingerprint 状态为 transmitting
+		if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, client.ID, "transmitting"); err != nil {
+			log.Printf("save fingerprint and client relation failed: %v", err)
+			respConn.Close()
+			server.RemoveRespClient(fingerPrint)
+			abortClientRequest(client, fingerPrint)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		}
+
+		// 8. 读取第一条消息（判断类型）
+		var response public.WSMessage
+		if err := respConn.ReadJSON(&response); err != nil {
+			log.Printf("attempt %d: read first msg from client %s failed: %v", attempt, client.ID, err)
+			respConn.Close()
+			server.RemoveRespClient(fingerPrint)
+			abortClientRequest(client, fingerPrint)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		}
+
+		// 9. 判断第一条消息类型
+		switch response.Type {
+		case public.MESSAGE, public.MESSAGE_STREAM:
+			// 成功！进入正常处理流程
+			handleChatResponseWithFirst(c, server, fingerPrint, time.Now(), client.ID, ippm, oppm, cippm, request.Model, response, respConn)
+			return
+		case public.CLOSE:
+			log.Printf("attempt %d: client %s closed before first token", attempt, client.ID)
+			respConn.Close()
+			server.RemoveRespClient(fingerPrint)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		case public.MODEL_ERROR:
+			log.Printf("attempt %d: model error from client %s: %v", attempt, client.ID, response.Content)
+			respConn.Close()
+			server.RemoveRespClient(fingerPrint)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		default:
+			log.Printf("attempt %d: unexpected first msg type %s from client %s", attempt, response.Type, client.ID)
+			respConn.Close()
+			server.RemoveRespClient(fingerPrint)
+			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			time.Sleep(backoff(attempt))
+			continue
+		}
 	}
 
-	respConn, ok := server.GetRespClient(fingerPrint)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Response connection lost"})
+	// 重试耗尽，返回明确错误
+	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "All clients failed, please retry"})
+}
+
+// backoff 指数退避：attempt=0 -> 100ms, 1 -> 200ms, 2 -> 400ms
+func backoff(attempt int) time.Duration {
+	return time.Duration(public.CHAT_RETRY_BASE_DELAY*(1<<attempt)) * time.Millisecond
+}
+
+// abortClientRequest 通知 client 停止处理指定 fingerprint 的请求（尽力而为）。
+// 用于 server 放弃某 client 时，避免 client 继续生成孤儿 token 浪费算力。
+func abortClientRequest(client *models.Client, fingerPrint string) {
+	if client == nil || client.ControlConn == nil {
 		return
 	}
-
-	// save fingerprint and client relation and connect status to database
-	if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "transmitting"); err != nil {
-		log.Printf("save fingerprint and client relation failed: %v", err)
-		respConn.Close()
-		server.RemoveRespClient(fingerPrint)
-		return
+	client.ControlConnMutex.Lock()
+	defer client.ControlConnMutex.Unlock()
+	if err := client.ControlConn.WriteJSON(public.WSMessage{
+		Type:        public.CLOSE,
+		Content:     public.ABORT,
+		FingerPrint: fingerPrint,
+	}); err != nil {
+		log.Printf("send abort to client %s failed: %v", client.ID, err)
 	}
+}
 
-	var response public.WSMessage
-	err := respConn.ReadJSON(&response)
-	if err != nil {
-		log.Println("Error while reading json from client:", err)
-		return
-	}
-
+// handleChatResponseWithFirst 处理已读取的第一条响应消息（不再重复 ReadJSON）。
+// 由 handleChatWithRetry 在成功读到第一条消息后调用。
+func handleChatResponseWithFirst(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string, response public.WSMessage, respConn *websocket.Conn) {
 	switch response.Type {
 	case public.MESSAGE:
 		handleStandardChatResponse(c, server, fingerPrint, response, clientID, ippm, oppm, cippm, reqModel, respConn)
