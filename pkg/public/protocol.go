@@ -13,7 +13,7 @@ const EMBEDDING_REQUEST = "embedding_request"
 
 const PING = "ping"
 const PONG = "pong"
-const MAXLATENCE = 65535
+const MAXLATENCE = 30000
 const KEEPALIVE_TIME = 5
 const CHAT_MAX_TIME = 180
 

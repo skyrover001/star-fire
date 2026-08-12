@@ -53,7 +53,7 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				Type: public.KEEPALIVE,
 				Content: public.PPMessage{
 					Type:      public.PING,
-					Timestamp: strconv.Itoa(int(time.Now().Unix())),
+					Timestamp: strconv.Itoa(int(time.Now().UnixMilli())),
 				},
 			})
 			client.ControlConnMutex.Unlock()
@@ -73,9 +73,9 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 
 			end := time.Now()
 			timestamp, _ := strconv.ParseInt(pong.Timestamp, 10, 64)
-			latency := end.Unix() - timestamp
+			latency := end.UnixMilli() - timestamp
 			client.Latency = int(latency)
-			fmt.Println("Client latency:", client.Latency)
+			fmt.Println("Client latency (ms):", client.Latency)
 
 			if latency > public.MAXLATENCE {
 				log.Println("Client latency is too high, closing connection")
@@ -187,7 +187,7 @@ func handleKeepAliveMessage(client *models.Client, message public.WSMessage) {
 			return
 		}
 
-		client.Latency = int(time.Now().Unix() - timestamp)
+		client.Latency = int(time.Now().UnixMilli() - timestamp)
 		if client.Latency > public.MAXLATENCE {
 			log.Println("Client latency is too high, closing connection")
 			client.ControlConnMutex.Lock()
@@ -199,7 +199,7 @@ func handleKeepAliveMessage(client *models.Client, message public.WSMessage) {
 			return
 		}
 
-		pong.Timestamp = strconv.Itoa(int(time.Now().Unix()))
+		pong.Timestamp = strconv.Itoa(int(time.Now().UnixMilli()))
 		pong.Type = public.PONG
 		client.PongChan <- &pong
 	}

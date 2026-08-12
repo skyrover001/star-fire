@@ -367,7 +367,7 @@
                   
                   <div class="flex flex-wrap items-center gap-1.5 text-sm">
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-gray-100 dark:bg-gray-800 text-[var(--text-primary)] border border-gray-200 dark:border-gray-700">
-                      <span class="text-xs text-gray-500 mr-1">名称:</span>{{ model.name }}
+                      <span class="text-xs text-gray-500 mr-1">{{ $t('business.marketplace.modelName') }}:</span>{{ model.name }}
                     </span>
                     <!-- 模型类别 -->
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-purple-500/10 text-purple-500 border border-purple-500/20">
@@ -382,7 +382,7 @@
                       <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
                       </svg>
-                      <span class="text-xs">调用 {{ formatNumber(model.totalCalls) }} 次 · {{ formatTokens(model.totalTokens) }}</span>
+                      <span class="text-xs">{{ $t('business.marketplace.callsAndTokens', { calls: formatNumber(model.totalCalls), tokens: formatTokens(model.totalTokens) }) }}</span>
                     </span>
                     <!-- 稳定在线时长标签 -->
                     <span class="inline-flex items-center px-3 py-1 rounded-full bg-green-500/10 text-green-500 border border-green-500/20">
@@ -407,7 +407,7 @@
               <div class="mt-4 flex items-center gap-2 border-t border-[var(--border-color)] pt-4">
                 <button
                   :disabled="isEmbeddingModel(model)"
-                  :title="isEmbeddingModel(model) ? 'Embedding模型不支持对话功能' : '开始对话'"
+                  :title="isEmbeddingModel(model) ? $t('business.marketplace.embeddingChatUnavailable') : $t('business.marketplace.startChat')"
                   class="inline-flex h-9 items-center rounded-lg border px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50"
                   :class="isEmbeddingModel(model) 
                     ? 'bg-gray-500/20 text-gray-500 border-gray-500/30' 
@@ -420,13 +420,13 @@
                     <path v-if="isEmbeddingModel(model)" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728L5.636 5.636m12.728 12.728L18 21l-1.636-.636m1.636-1.636a9 9 0 01-12.728 0"/>
                     <path v-else stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/>
                   </svg>
-                  <span class="relative z-10">{{ isEmbeddingModel(model) ? '不支持对话' : '立即对话' }}</span>
+                  <span class="relative z-10">{{ isEmbeddingModel(model) ? $t('business.marketplace.unsupportedChat') : $t('business.marketplace.chat') }}</span>
                 </button>
                 <button
                   class="inline-flex h-9 items-center rounded-lg bg-blue-500 px-4 text-sm font-medium text-white transition-colors hover:bg-blue-600"
                   @click.stop="handleViewDetails(model)"
                 >
-                  查看详情
+                  {{ $t('business.marketplace.details') }}
                   <svg class="ml-1 h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/>
                   </svg>
@@ -458,11 +458,11 @@
             <svg v-else class="mr-2 h-5 w-5 animate-spin" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
-            <span v-if="!loading">加载更多</span>
-            <span v-else>加载中...</span>
+            <span v-if="!loading">{{ $t('business.marketplace.loadMore') }}</span>
+            <span v-else>{{ $t('business.marketplace.loading') }}</span>
           </button>
           <div class="mt-3 text-sm text-[var(--text-secondary)]">
-            已显示 {{ displayedModels.length }} 条，共 {{ totalModels }} 条记录
+            {{ $t('business.marketplace.displayedRecords', { displayed: displayedModels.length, total: totalModels }) }}
           </div>
         </div>
         
@@ -472,7 +472,7 @@
             <svg class="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/>
             </svg>
-            已加载全部模型
+            {{ $t('business.marketplace.allModelsLoaded') }}
           </div>
         </div>
         
@@ -484,10 +484,10 @@
             </svg>
           </div>
           <h3 class="text-lg font-medium text-[var(--text-primary)] mb-2">
-            暂无模型数据
+            {{ $t('business.marketplace.noModelData') }}
           </h3>
           <p class="text-[var(--text-secondary)]">
-            {{ localSearchKeyword ? '没有找到匹配的模型' : '暂时没有可用的模型' }}
+            {{ localSearchKeyword ? $t('business.marketplace.noMatchingModels') : $t('business.marketplace.noAvailableModels') }}
           </p>
         </div>
         
@@ -499,10 +499,10 @@
             </svg>
           </div>
           <h3 class="text-lg font-medium text-[var(--text-primary)] mb-2">
-            没有找到相关模型
+            {{ $t('business.marketplace.noRelatedModels') }}
           </h3>
           <p class="text-[var(--text-secondary)]">
-            没有找到匹配"{{ localSearchKeyword }}"的模型，请尝试其他关键词
+            {{ $t('business.marketplace.noMatchingModelsWithKeyword', { keyword: localSearchKeyword }) }}
           </p>
         </div>
       </div>
@@ -649,19 +649,20 @@ const clearSearch = () => {
   localSearchKeyword.value = '';
 };
 
-// 重置所有筛选器
-const resetFilters = () => {
-  selectedCategories.value = [];
-  localSearchKeyword.value = '';
-};
+// 搜索关键词监听到分类变化时，重新初始化
+watch([() => localSearchKeyword.value, () => selectedCategories.value], () => {
+  initializeModels();
+});
+
+// 分类筛选选项
 const categoryOptions = [
-  { value: 'LLM', label: '纯文本', icon: '💬' },
-  { value: 'VLM', label: '图文理解', icon: '🖼️' },
-  { value: 'Video', label: '视频理解', icon: '🎬' },
-  { value: 'Embedding', label: 'Embedding', icon: '🔤' },
-  { value: 'Reranker', label: 'Reranker', icon: '⚡' },
-  { value: 'ASR', label: '语音识别', icon: '🎤' },
-  { value: 'TTS', label: '语音合成', icon: '🔊' },
+  { value: 'LLM', label: $t('business.marketplace.categoryLlm'), icon: '💬' },
+  { value: 'VLM', label: $t('business.marketplace.categoryVlm'), icon: '🖼️' },
+  { value: 'Video', label: $t('business.marketplace.categoryVideo'), icon: '🎬' },
+  { value: 'Embedding', label: $t('business.marketplace.categoryEmbedding'), icon: '🔤' },
+  { value: 'Reranker', label: $t('business.marketplace.categoryReranker'), icon: '⚡' },
+  { value: 'ASR', label: $t('business.marketplace.categoryAsr'), icon: '🎤' },
+  { value: 'TTS', label: $t('business.marketplace.categoryTts'), icon: '🔊' },
 ];
 const selectedCategories = ref<string[]>([]);
 
@@ -724,7 +725,7 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     // 获取第一个客户端模型的其他信息作为默认值
     const firstClientModel = apiModel.client_models?.[0];
     const modelData = firstClientModel?.model;
-    const [name, version] = modelName.split(':');
+    const [name, version] = (modelName || '').split(':');
 
     // 从模型名/标签中解析参数量（如 7b/8b/70b/0.5b），
     // 忽略 latest、v1、fp16 等非参数量标签
@@ -740,8 +741,8 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     };
 
     const parameterSize =
-      extractParameterSize(version) ||
-      extractParameterSize(name) ||
+      extractParameterSize(version || '') ||
+      extractParameterSize(name || '') ||
       'Unknown';
     
     // 计算文件大小（从字节转换为可读格式）
@@ -1277,11 +1278,6 @@ onMounted(() => {
   initializeModels();
 });
 
-// 监听搜索关键词变化
-watch(() => localSearchKeyword.value, () => {
-  initializeModels();
-});
-
 // 暴露刷新方法给父组件
 const refreshData = () => {
   console.log('ModelMarketplace 收到刷新指令');
@@ -1343,6 +1339,7 @@ onActivated(() => {
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
 }
 
 /* 自定义滚动条样式 */
@@ -1414,7 +1411,7 @@ onActivated(() => {
   .flex.items-center.space-x-8 {
     flex-direction: column;
     align-items: flex-start;
-    space-x: 0;
+    gap: 0;
   }
   
   .flex.items-center.space-x-8 > * + * {
