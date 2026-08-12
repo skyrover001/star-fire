@@ -185,6 +185,12 @@ func priceEligible(maxIPPM, maxOPPM float64) Predicate {
 // LoadBalance selects a client for model+user using a Predicate → (Score) → Pick pipeline.
 // userID is used to look up per-user price caps; pass an empty string to skip price filtering.
 func (s *Server) LoadBalance(model, userID string) *Client {
+	return s.LoadBalanceExcluding(model, userID, nil)
+}
+
+// LoadBalanceExcluding 与 LoadBalance 相同，但会排除 excludeIDs 中已失败的 client，
+// 避免重试时反复 pick 到同一个失效 client。
+func (s *Server) LoadBalanceExcluding(model, userID string, excludeIDs map[string]bool) *Client {
 	// Resolve price cap (math.MaxFloat64 = no cap configured, i.e. unlimited).
 	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
 	if s.UserPriceCapDB != nil && userID != "" {
@@ -203,6 +209,9 @@ func (s *Server) LoadBalance(model, userID string) *Client {
 	var eligible []*Client
 	var dead []string
 	for id, c := range snapshot {
+		if excludeIDs != nil && excludeIDs[id] {
+			continue
+		}
 		if !clientHealthy(c, model) {
 			dead = append(dead, id)
 			continue

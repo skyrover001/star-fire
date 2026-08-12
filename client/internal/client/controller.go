@@ -1,16 +1,22 @@
 package client
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"net/url"
 	"star-fire/pkg/public"
+	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 )
+
+// requestCancels 维护每个进行中请求的取消函数（fingerprint -> context.CancelFunc），
+// 用于 server 放弃某请求时按 fingerprint 取消对应的推理任务。
+var requestCancels sync.Map
 
 func parseHost(host string) (scheme, hostPart string, err error) {
 	parsed, err := url.Parse(host)
@@ -149,6 +155,16 @@ func (c *Client) handleReconnect(message public.WSMessage) {
 }
 
 func (c *Client) handleChatMessage(message public.WSMessage) {
+	// 处理取消消息：server 放弃该请求时，取消对应的推理任务
+	if message.Type == public.CLOSE && message.Content == public.ABORT {
+		log.Printf("recieve abort message for fingerprint: %v", message.FingerPrint)
+		if cancel, ok := requestCancels.Load(message.FingerPrint); ok {
+			cancel.(context.CancelFunc)()
+			requestCancels.Delete(message.FingerPrint)
+		}
+		return
+	}
+
 	log.Printf("recieve chat message request: %v", message.FingerPrint)
 
 	tmp, _ := json.Marshal(message.Content)
@@ -158,7 +174,16 @@ func (c *Client) handleChatMessage(message public.WSMessage) {
 		return
 	}
 
+	// 为每个请求创建独立的可取消 context，便于按 fingerprint 单独取消
+	ctx, cancel := context.WithCancel(c.ctx)
+	requestCancels.Store(message.FingerPrint, cancel)
+
 	go func() {
+		defer func() {
+			cancel()
+			requestCancels.Delete(message.FingerPrint)
+		}()
+
 		engine, err := c.findEngineForModel(openaiReq.Model)
 		if err != nil {
 			log.Printf("not found support model %s engine: %v", openaiReq.Model, err)
@@ -171,7 +196,7 @@ func (c *Client) handleChatMessage(message public.WSMessage) {
 			return
 		}
 		defer responseConn.Close()
-		if err = engine.HandleChat(c.ctx, message.FingerPrint, &openaiReq, responseConn); err != nil {
+		if err = engine.HandleChat(ctx, message.FingerPrint, &openaiReq, responseConn); err != nil {
 			log.Printf("handle chat message error: %v", err)
 		}
 	}()

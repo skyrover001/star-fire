@@ -17,6 +17,12 @@ const MAXLATENCE = 30000
 const KEEPALIVE_TIME = 5
 const CHAT_MAX_TIME = 180
 
+const MAX_CHAT_RETRY = 3            // 最大重试次数
+const CHAT_RETRY_BASE_DELAY = 100   // 重试基础延迟(ms)，指数退避
+const CHAT_RETRY_TOTAL_TIMEOUT = 10 // 重试总超时(秒)
+
+const ABORT = "abort" // 取消消息标记：server 放弃某请求时通知 client 停止处理
+
 type WSMessage struct {
 	Type        string      `json:"type"`
 	Content     interface{} `json:"content"`
