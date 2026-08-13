@@ -24,6 +24,31 @@ type ModelPrice struct {
 	CachedInputPrice float64 `json:"-"`
 }
 
+type ProxyBackend struct {
+	Name    string `json:"name"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key"`
+	Enabled bool   `json:"enabled"`
+}
+
+func (backend *ProxyBackend) UnmarshalJSON(data []byte) error {
+	type proxyBackendJSON struct {
+		Name    string `json:"name"`
+		BaseURL string `json:"base_url"`
+		APIKey  string `json:"api_key"`
+		Enabled *bool  `json:"enabled"`
+	}
+	var decoded proxyBackendJSON
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	backend.Name = decoded.Name
+	backend.BaseURL = decoded.BaseURL
+	backend.APIKey = decoded.APIKey
+	backend.Enabled = decoded.Enabled == nil || *decoded.Enabled
+	return nil
+}
+
 // UnmarshalJSON 支持字符串或数字格式的价格字段
 func (m *ModelPrice) UnmarshalJSON(data []byte) error {
 	type Alias struct {
@@ -78,7 +103,9 @@ type Config struct {
 	CIPPMMax                        float64
 	OpenAIOnly                      bool // 仅使用 OpenAI 引擎，不包含本地引擎模型
 	ModelPrices                     map[string]ModelPrice
+	RegisteredModels                []string
 	ConfigFile                      string
+	ProxyBackends                   []ProxyBackend
 }
 
 func LoadConfig() *Config {
@@ -116,6 +143,7 @@ func LoadConfig() *Config {
 		_, _ = fmt.Fprintf(os.Stderr, "  %s [选项]\n\n", os.Args[0])
 		_, _ = fmt.Fprintf(os.Stderr, "选项:\n")
 		flag.PrintDefaults()
+		_, _ = fmt.Fprintf(os.Stderr, "\n提示: host/token/engine/api密钥等参数也可写入配置文件（默认 starfire_config.json，用 -config 指定路径），从而减少命令行必填参数。\n")
 		_, _ = fmt.Fprintf(os.Stderr, "\n环境变量:\n")
 		_, _ = fmt.Fprintf(os.Stderr, "  STARFIRE_HOST         StarFire 服务器地址\n")
 		_, _ = fmt.Fprintf(os.Stderr, "  STARFIRE_TOKEN        StarFire 连接令牌\n")
@@ -128,9 +156,14 @@ func LoadConfig() *Config {
 		_, _ = fmt.Fprintf(os.Stderr, "  %s -host=http://localhost:8080 -token=your-token\n", os.Args[0])
 		_, _ = fmt.Fprintf(os.Stderr, "  %s -host=http://localhost:8080 -token=your-token -price-per-million=10.0\n", os.Args[0])
 		_, _ = fmt.Fprintf(os.Stderr, "  %s -host=http://localhost:8080 -token=your-token -engine=openai -openai-key=your-key\n", os.Args[0])
+		_, _ = fmt.Fprintf(os.Stderr, "  %s -config=./starfire_config.json\n", os.Args[0])
 	}
 
 	flag.Parse()
+	explicitFlags := make(map[string]bool)
+	flag.Visit(func(current *flag.Flag) {
+		explicitFlags[current.Name] = true
+	})
 
 	if showHelp {
 		flag.Usage()
@@ -138,42 +171,42 @@ func LoadConfig() *Config {
 	}
 
 	// 环境变量覆盖
-	if host := os.Getenv("STARFIRE_HOST"); host != "" {
+	if host := os.Getenv("STARFIRE_HOST"); host != "" && !explicitFlags["host"] {
 		cfg.StarFireHost = host
 	}
-	if token := os.Getenv("STARFIRE_TOKEN"); token != "" {
+	if token := os.Getenv("STARFIRE_TOKEN"); token != "" && !explicitFlags["token"] {
 		cfg.JoinToken = token
 	}
-	if engine := os.Getenv("STARFIRE_ENGINE"); engine != "" {
+	if engine := os.Getenv("STARFIRE_ENGINE"); engine != "" && !explicitFlags["engine"] {
 		cfg.LocalInferenceType = engine
 	}
-	if ollamaHost := os.Getenv("OLLAMA_HOST"); ollamaHost != "" {
+	if ollamaHost := os.Getenv("OLLAMA_HOST"); ollamaHost != "" && !explicitFlags["ollama-host"] {
 		cfg.OllamaHost = ollamaHost
 	}
-	if openaiKey := os.Getenv("OPENAI_API_KEY"); openaiKey != "" {
+	if openaiKey := os.Getenv("OPENAI_API_KEY"); openaiKey != "" && !explicitFlags["openai-key"] {
 		cfg.OpenAIKey = openaiKey
 	}
-	if openaiURL := os.Getenv("OPENAI_API_BASE"); openaiURL != "" {
+	if openaiURL := os.Getenv("OPENAI_API_BASE"); openaiURL != "" && !explicitFlags["openai-url"] {
 		cfg.OpenAIBaseURL = openaiURL
 	}
-	if priceStr := os.Getenv("STAR_FIRE_INPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
+	if priceStr := os.Getenv("STAR_FIRE_INPUT_TOKEN_PRICE_PER_M"); priceStr != "" && !explicitFlags["ippm"] {
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 			cfg.InputTokenPricePerMillion = price
 		}
 	}
-	if priceStr := os.Getenv("STAR_FIRE_OUTPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
+	if priceStr := os.Getenv("STAR_FIRE_OUTPUT_TOKEN_PRICE_PER_M"); priceStr != "" && !explicitFlags["oppm"] {
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 			cfg.OutputTokenPricePerMillion = price
 		}
 	}
-	if priceStr := os.Getenv("STAR_FIRE_CACHED_INPUT_TOKEN_PRICE_PER_M"); priceStr != "" {
+	if priceStr := os.Getenv("STAR_FIRE_CACHED_INPUT_TOKEN_PRICE_PER_M"); priceStr != "" && !explicitFlags["cippm"] {
 		if price, err := strconv.ParseFloat(priceStr, 64); err == nil {
 			cfg.CachedInputTokenPricePerMillion = price
 		}
 	}
 
 	// 读取配置文件（命令行参数优先级最高，配置文件作为兜底）
-	loadConfigFile(cfg)
+	loadConfigFile(cfg, explicitFlags)
 
 	if cfg.OpenAIBaseURL != "" {
 		cfg.OpenAIBaseURL = normalizeOpenAIURL(cfg.OpenAIBaseURL)
@@ -210,9 +243,10 @@ func ValidateConfig(cfg *Config) error {
 		return fmt.Errorf("无效的引擎类型: %s，支持的类型: ollama, openai, all", cfg.LocalInferenceType)
 	}
 
-	// 如果使用 OpenAI 引擎，检查是否提供了 API 密钥
-	if (cfg.LocalInferenceType == "openai" || cfg.LocalInferenceType == "all") && cfg.OpenAIKey == "" {
-		return fmt.Errorf("使用 OpenAI 引擎时必须提供 API 密钥，请使用 -openai-key 参数或设置 OPENAI_API_KEY 环境变量")
+	// 如果使用 OpenAI 引擎，检查是否提供了 API 密钥。
+	// 密钥可来自：-openai-key 参数、OPENAI_API_KEY 环境变量、配置文件中的 proxy_api_key 或 proxy_backends。
+	if (cfg.LocalInferenceType == "openai" || cfg.LocalInferenceType == "all") && !hasProxyCredentials(cfg) {
+		return fmt.Errorf("使用 OpenAI 引擎时必须提供 API 密钥：请使用 -openai-key 参数、设置 OPENAI_API_KEY 环境变量，或在配置文件（-config）中填写 proxy_api_key / proxy_backends")
 	}
 
 	// 验证价格参数
@@ -226,38 +260,101 @@ func ValidateConfig(cfg *Config) error {
 	return nil
 }
 
-// loadConfigFile 从配置文件读取设置（静默忽略缺失/格式错误）
-func loadConfigFile(cfg *Config) {
+// hasProxyCredentials 判断是否已配置 OpenAI 兼容引擎所需的 API 密钥。
+// 密钥可来自顶层 OpenAIKey，或任一启用且带密钥的代理后端。
+func hasProxyCredentials(cfg *Config) bool {
+	if cfg.OpenAIKey != "" {
+		return true
+	}
+	for _, backend := range cfg.ProxyBackends {
+		if backend.Enabled && backend.APIKey != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// loadConfigFile 从配置文件读取设置（静默忽略缺失/格式错误）。
+// 显式命令行参数和环境变量始终优先于文件。
+func loadConfigFile(cfg *Config, explicitFlags map[string]bool) {
 	data, err := os.ReadFile(cfg.ConfigFile)
 	if err != nil {
 		return // 文件不存在，静默忽略
 	}
 
 	var fileCfg struct {
-		IPPM        string                `json:"ippm"`
-		OPPM        string                `json:"oppm"`
-		CIPPM       string                `json:"cippm"`
-		ModelPrices map[string]ModelPrice `json:"model_prices"`
+		Host             string                `json:"host"`
+		Token            string                `json:"token"`
+		Engine           string                `json:"engine"`
+		ModelMode        string                `json:"model_mode"`
+		OllamaHost       string                `json:"ollama_host"`
+		ProxyBaseURL     string                `json:"proxy_base_url"`
+		ProxyAPIKey      string                `json:"proxy_api_key"`
+		ProxyBackends    []ProxyBackend        `json:"proxy_backends"`
+		OpenAIOnly       bool                  `json:"openai_only"`
+		APPPort          int                   `json:"app_port"`
+		IPPM             interface{}           `json:"ippm"`
+		OPPM             interface{}           `json:"oppm"`
+		CIPPM            interface{}           `json:"cippm"`
+		ModelPrices      map[string]ModelPrice `json:"model_prices"`
+		RegisteredModels []string              `json:"registered_models"`
 	}
 	if err := json.Unmarshal(data, &fileCfg); err != nil {
 		return // 格式错误，静默忽略
 	}
 
-	// 顶层默认价格（仅当命令行未显式指定时使用）
-	if fileCfg.IPPM != "" {
-		if p, err := strconv.ParseFloat(fileCfg.IPPM, 64); err == nil {
-			cfg.InputTokenPricePerMillion = p
+	canUseFile := func(flagName, envName string) bool {
+		return !explicitFlags[flagName] && (envName == "" || os.Getenv(envName) == "")
+	}
+	if fileCfg.Host != "" && canUseFile("host", "STARFIRE_HOST") {
+		cfg.StarFireHost = fileCfg.Host
+	}
+	if fileCfg.Token != "" && canUseFile("token", "STARFIRE_TOKEN") {
+		cfg.JoinToken = fileCfg.Token
+	}
+	if canUseFile("engine", "STARFIRE_ENGINE") {
+		if fileCfg.Engine != "" {
+			cfg.LocalInferenceType = fileCfg.Engine
+		} else if fileCfg.ModelMode == "proxy" {
+			cfg.LocalInferenceType = "all"
+		} else if fileCfg.ModelMode == "ollama" {
+			cfg.LocalInferenceType = "ollama"
 		}
 	}
-	if fileCfg.OPPM != "" {
-		if p, err := strconv.ParseFloat(fileCfg.OPPM, 64); err == nil {
-			cfg.OutputTokenPricePerMillion = p
+	if fileCfg.OllamaHost != "" && canUseFile("ollama-host", "OLLAMA_HOST") {
+		cfg.OllamaHost = fileCfg.OllamaHost
+	}
+	if fileCfg.ProxyBaseURL != "" && canUseFile("openai-url", "OPENAI_API_BASE") {
+		cfg.OpenAIBaseURL = fileCfg.ProxyBaseURL
+	}
+	if fileCfg.ProxyAPIKey != "" && canUseFile("openai-key", "OPENAI_API_KEY") {
+		cfg.OpenAIKey = fileCfg.ProxyAPIKey
+	}
+	if len(fileCfg.ProxyBackends) > 0 && !explicitFlags["openai-url"] && !explicitFlags["openai-key"] && os.Getenv("OPENAI_API_BASE") == "" && os.Getenv("OPENAI_API_KEY") == "" {
+		cfg.ProxyBackends = fileCfg.ProxyBackends
+		for index := range cfg.ProxyBackends {
+			if cfg.ProxyBackends[index].BaseURL != "" {
+				cfg.ProxyBackends[index].BaseURL = normalizeOpenAIURL(cfg.ProxyBackends[index].BaseURL)
+			}
 		}
 	}
-	if fileCfg.CIPPM != "" {
-		if p, err := strconv.ParseFloat(fileCfg.CIPPM, 64); err == nil {
-			cfg.CachedInputTokenPricePerMillion = p
-		}
+	if fileCfg.OpenAIOnly && !explicitFlags["openai-only"] {
+		cfg.OpenAIOnly = true
+	}
+	if fileCfg.APPPort > 0 && !explicitFlags["port"] {
+		cfg.APPPort = fileCfg.APPPort
+	}
+	cfg.RegisteredModels = append([]string(nil), fileCfg.RegisteredModels...)
+
+	// 顶层默认价格（仅当命令行和环境变量未显式指定时使用）
+	if fileCfg.IPPM != nil && canUseFile("ippm", "STAR_FIRE_INPUT_TOKEN_PRICE_PER_M") {
+		cfg.InputTokenPricePerMillion = toFloat(fileCfg.IPPM)
+	}
+	if fileCfg.OPPM != nil && canUseFile("oppm", "STAR_FIRE_OUTPUT_TOKEN_PRICE_PER_M") {
+		cfg.OutputTokenPricePerMillion = toFloat(fileCfg.OPPM)
+	}
+	if fileCfg.CIPPM != nil && canUseFile("cippm", "STAR_FIRE_CACHED_INPUT_TOKEN_PRICE_PER_M") {
+		cfg.CachedInputTokenPricePerMillion = toFloat(fileCfg.CIPPM)
 	}
 
 	// 每个模型的价格配置

@@ -28,7 +28,7 @@ func HandleClientConnection(client *models.Client, server *models.Server) {
 
 	// 连接断开，主动清理该 client 注册的所有模型
 	for _, m := range client.Models {
-		server.RemoveClient(m.Name, client.ID)
+		server.RemoveClientInstance(m.Name, client)
 	}
 }
 
@@ -91,12 +91,10 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				var trends []*models.Trend
 				for _, m := range client.Models {
 					if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
-						log.Println("OPPM price is too high, set starfire platform default value!")
-						m.OPPM = server.Conf.AllModelOutPutMaxPrice
+						log.Printf("warning: model %s OPPM %.6f exceeds platform limit %.6f", m.Name, m.OPPM, server.Conf.AllModelOutPutMaxPrice)
 					}
 					if m.IPPM > server.Conf.AllModelInputMaxPrice {
-						log.Println("IPPM price is too high, set starfire platform default value!")
-						m.IPPM = server.Conf.AllModelInputMaxPrice
+						log.Printf("warning: model %s IPPM %.6f exceeds platform limit %.6f", m.Name, m.IPPM, server.Conf.AllModelInputMaxPrice)
 					}
 					server.RegisterModel(m, client)
 					fmt.Println("Client available model:", m.Name, m)
@@ -186,10 +184,11 @@ func handleKeepAliveMessage(client *models.Client, message public.WSMessage) {
 			log.Println("Error parsing pong.Timestamp:", err)
 			return
 		}
+		timestamp = normalizeUnixMillis(timestamp)
 
 		client.Latency = int(time.Now().UnixMilli() - timestamp)
 		if client.Latency > public.MAXLATENCE {
-			log.Println("Client latency is too high, closing connection")
+			log.Printf("Client latency is too high (%dms), closing connection", client.Latency)
 			client.ControlConnMutex.Lock()
 			if client.ControlConn != nil {
 				client.ControlConn.Close()
@@ -203,6 +202,13 @@ func handleKeepAliveMessage(client *models.Client, message public.WSMessage) {
 		pong.Type = public.PONG
 		client.PongChan <- &pong
 	}
+}
+
+func normalizeUnixMillis(timestamp int64) int64 {
+	if timestamp > 0 && timestamp < 1_000_000_000_000 {
+		return timestamp * 1000
+	}
+	return timestamp
 }
 
 // handle client register message
@@ -226,12 +232,10 @@ func handleRegisterMessage(client *models.Client, server *models.Server, message
 		for _, m := range client.Models {
 			fmt.Println("Registering model:", m.Name, "Type:", m.Type, "IPPM:", m.IPPM, "OPPM:", m.OPPM, server.Conf.AllModelOutPutMaxPrice, server.Conf.AllModelInputMaxPrice)
 			if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
-				log.Println("OPPM price is too high, set starfire platform default value!")
-				m.OPPM = server.Conf.AllModelOutPutMaxPrice
+				log.Printf("warning: model %s OPPM %.6f exceeds platform limit %.6f", m.Name, m.OPPM, server.Conf.AllModelOutPutMaxPrice)
 			}
 			if m.IPPM > server.Conf.AllModelInputMaxPrice {
-				log.Println("IPPM price is too high, set starfire platform default value!")
-				m.IPPM = server.Conf.AllModelInputMaxPrice
+				log.Printf("warning: model %s IPPM %.6f exceeds platform limit %.6f", m.Name, m.IPPM, server.Conf.AllModelInputMaxPrice)
 			}
 			model := public.Model{
 				Name:  m.Name,

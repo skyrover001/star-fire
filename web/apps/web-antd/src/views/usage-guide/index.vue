@@ -166,7 +166,7 @@ curl {server_host}/v1/embeddings \\
 
 ## 6. 价格说明
 
-模型调用费用按 Token 用量计算，单位：**美元 / 百万 Tokens（$/M）**。
+模型调用费用按 Token 用量计算，单位：**人民币 / 百万 Tokens（¥/M）**。
 
 - **IPPM**：输入 Token 价格（未命中缓存部分）
 - **OPPM**：输出 Token 价格
@@ -360,7 +360,7 @@ curl {server_host}/v1/embeddings \\
 
 ## 6. Pricing
 
-Model usage is billed per token, in **USD per million tokens ($/M)**.
+Model usage is billed per token, in **CNY per million tokens (¥/M)**.
 
 - **IPPM**: Input token price (uncached portion)
 - **OPPM**: Output token price

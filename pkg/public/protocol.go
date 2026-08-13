@@ -10,6 +10,7 @@ const CLOSE = "close"
 const MODEL_ERROR = "model_error"
 const EMBEDDING_RESPONSE = "embedding_response"
 const EMBEDDING_REQUEST = "embedding_request"
+const MODEL_PRICE_UPDATE = "model_price_update"
 
 const PING = "ping"
 const PONG = "pong"
@@ -33,6 +34,13 @@ type PPMessage struct {
 	Type            string   `json:"type"`
 	Timestamp       string   `json:"timestamp"`
 	AvailableModels []*Model `json:"update_model"`
+}
+
+type ModelPriceUpdate struct {
+	Model string  `json:"model"`
+	IPPM  float64 `json:"ippm"`
+	OPPM  float64 `json:"oppm"`
+	CIPPM float64 `json:"cippm"`
 }
 
 func ISStrINArray(str string, arr []string) bool {

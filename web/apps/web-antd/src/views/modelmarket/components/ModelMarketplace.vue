@@ -216,7 +216,7 @@
               </span>
             </div>
 
-            <!-- 价格区间：输入 / 输出 / 缓存输入（$/M tokens） -->
+            <!-- 价格区间：输入 / 输出 / 缓存输入（¥/M tokens） -->
             <div v-if="model.priceRange" class="mb-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5">
               <div class="mb-1.5 flex items-center text-xs font-medium text-emerald-600">
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -391,7 +391,7 @@
                       </svg>
                       <span class="text-xs">{{ model.contributorCount || 0 }} {{ $t('business.marketplace.contributors') }} · {{ formatDuration(model.onlineTime) }}</span>
                     </span>
-                    <!-- 价格区间：输入 / 输出 / 缓存输入（$/M tokens） -->
+                    <!-- 价格区间：输入 / 输出 / 缓存输入（¥/M tokens） -->
                     <span v-if="model.priceRange" class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                       <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -1096,7 +1096,7 @@ const getStatusText = (status: ModelItem['status']) => {
   return texts[status];
 };
 
-// 格式化每百万 token 价格（$/M tokens）
+// 格式化每百万 token 价格（¥/M tokens）
 const formatPricePerMillion = (range: [number, number] | undefined): string => {
   if (!range) return 'N/A';
   const [minimum, maximum] = range;
@@ -1105,7 +1105,7 @@ const formatPricePerMillion = (range: [number, number] | undefined): string => {
   const formatted = minimum === maximum
     ? minimum.toFixed(2)
     : `${minimum.toFixed(2)}-${maximum.toFixed(2)}`;
-  return `$${formatted}/M`;
+  return `¥${formatted}/M`;
 };
 
 const isEmbeddingModelName = (name: string, type?: string): boolean => {

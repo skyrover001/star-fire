@@ -96,12 +96,15 @@ Run `make install` to compile and install. After completion, you will find execu
 
 **Per-model pricing via configuration file**
 
-The client reads `starfire_config.json` from the current directory by default, or you can specify a path with `-config`. The config file supports setting a price for each model individually:
+The client reads `starfire_config.json` from the current directory by default, or you can specify a path with `-config`. Besides per-model prices, `host`, `token`, `engine`, and the OpenAI/proxy credentials can also live in the config file, so you can start with just `-config` and no other required flags:
 
 ```json
 {
   "host": "http://your-server.com",
   "token": "your-registration-token",
+  "engine": "openai",
+  "proxy_base_url": "https://api.openai.com/v1",
+  "proxy_api_key": "sk-your-api-key",
   "ippm": "3.8",
   "oppm": "8.3",
   "model_prices": {

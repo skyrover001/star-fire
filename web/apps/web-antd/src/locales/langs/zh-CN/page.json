@@ -151,7 +151,7 @@
     "trendHead": "📈 总交易量与趋势",
     "last7d": "近7日",
     "tokensTraded": "交易 Token",
-    "valueUsd": "价值 (USD)",
+    "valueCny": "价值 (人民币)",
     "distributionHead": "📊 模型调用分布",
     "modelRankHead": "🏆 模型调用排名",
     "contributorRankHead": "🏆 贡献者收益排名",

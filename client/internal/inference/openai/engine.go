@@ -47,7 +47,7 @@ func (e *Engine) Initialize(ctx context.Context, conf *config.Config) error {
 		clientConfig.BaseURL = e.baseURL
 	}
 	e.client = openai.NewClientWithConfig(clientConfig)
-	fmt.Println("openai client created", e.client, clientConfig.BaseURL, clientConfig.APIType, e.apiKey, e.baseURL)
+	log.Printf("openai client created for %s", clientConfig.BaseURL)
 	timeoutCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
 
@@ -76,9 +76,6 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 			Size:        "unknown",
 			Arch:        model.Object,
 			Engine:      "openai",
-			IPPM:        conf.InputTokenPricePerMillion,
-			OPPM:        conf.OutputTokenPricePerMillion,
-			CIPPM:       conf.CachedInputTokenPricePerMillion,
 			OpenAIModel: model,
 		}
 		publicModels = append(publicModels, publicModel)

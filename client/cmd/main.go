@@ -15,6 +15,51 @@ import (
 	"time"
 )
 
+const (
+	initialReconnectDelay = 3 * time.Second
+	maxReconnectDelay     = 60 * time.Second
+	stableConnectionTime  = time.Minute
+)
+
+type reconnectBackoff struct {
+	current time.Duration
+}
+
+func newReconnectBackoff() *reconnectBackoff {
+	return &reconnectBackoff{current: initialReconnectDelay}
+}
+
+func (backoff *reconnectBackoff) Next() time.Duration {
+	delay := backoff.current
+	backoff.current *= 2
+	if backoff.current > maxReconnectDelay {
+		backoff.current = maxReconnectDelay
+	}
+	return delay
+}
+
+func (backoff *reconnectBackoff) Reset() {
+	backoff.current = initialReconnectDelay
+}
+
+func isPermanentRegistrationError(err error) bool {
+	if err == nil {
+		return false
+	}
+	message := strings.ToLower(err.Error())
+	return strings.Contains(message, "401 unauthorized") ||
+		strings.Contains(message, "403 forbidden")
+}
+
+func waitForReconnect(quit <-chan struct{}, delay time.Duration) bool {
+	select {
+	case <-time.After(delay):
+		return true
+	case <-quit:
+		return false
+	}
+}
+
 func main() {
 	// 首先创建一个临时日志文件用于调试
 	if isChild() {
@@ -98,6 +143,9 @@ func runClient(cfg *configs.Config) {
 		close(quit)
 	}()
 
+	backoff := newReconnectBackoff()
+
+retryClient:
 	for {
 		select {
 		case <-quit:
@@ -106,10 +154,9 @@ func runClient(cfg *configs.Config) {
 		default:
 			c, err := client.NewClient(cfg)
 			if err != nil {
-				log.Printf("创建客户端失败: %v，5秒后重试", err)
-				select {
-				case <-time.After(5 * time.Second):
-				case <-quit:
+				delay := backoff.Next()
+				log.Printf("创建客户端失败: %v，%v后重试", err, delay)
+				if !waitForReconnect(quit, delay) {
 					log.Println("程序退出")
 					return
 				}
@@ -117,19 +164,15 @@ func runClient(cfg *configs.Config) {
 			}
 
 			if err := client.RegisterClient(c, cfg.StarFireHost, cfg.JoinToken); err != nil {
-				log.Printf("注册客户端失败: %v，5秒后重试", err)
-				if strings.Contains(err.Error(), "401 Unauthorized") {
+				if isPermanentRegistrationError(err) {
 					fmt.Println("注册码错误，请重新获取注册码！")
-					return
-				}
-				if strings.Contains(err.Error(), "No connection could be made because the target machine actively refused it") {
-					fmt.Println("远程服务错误，请登录starfire官方网站，并确认服务正常!")
+					_ = c.Close()
 					return
 				}
 				_ = c.Close()
-				select {
-				case <-time.After(5 * time.Second):
-				case <-quit:
+				delay := backoff.Next()
+				log.Printf("注册客户端失败: %v，%v后重试", err, delay)
+				if !waitForReconnect(quit, delay) {
 					log.Println("程序退出")
 					return
 				}
@@ -138,26 +181,31 @@ func runClient(cfg *configs.Config) {
 
 			log.Printf("客户端已成功连接到 %s", cfg.StarFireHost)
 
-			// 启动消息处理
-			done := make(chan bool)
-			go func() {
-				c.HandleMessages()
-				done <- true
-			}()
+			for {
+				connectedAt := time.Now()
+				done := make(chan struct{}, 1)
+				go func() {
+					c.HandleMessages()
+					done <- struct{}{}
+				}()
 
-			select {
-			case <-quit:
-				log.Println("正在关闭连接...")
-				_ = c.Close()
-				return
-			case <-done:
-				log.Println("连接断开，正在重连...")
-				_ = c.Close()
 				select {
-				case <-time.After(3 * time.Second):
 				case <-quit:
-					log.Println("程序退出")
+					log.Println("正在关闭连接...")
+					_ = c.Close()
 					return
+				case <-done:
+					_ = c.Close()
+					if time.Since(connectedAt) >= stableConnectionTime {
+						backoff.Reset()
+					}
+					delay := backoff.Next()
+					log.Printf("连接断开，%v后重连...", delay)
+					if !waitForReconnect(quit, delay) {
+						log.Println("程序退出")
+						return
+					}
+					continue retryClient
 				}
 			}
 		}

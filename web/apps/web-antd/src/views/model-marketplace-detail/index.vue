@@ -344,15 +344,15 @@
                     </div>
                     <div class="grid grid-cols-3 gap-4">
                       <div class="text-center p-3 rounded-lg bg-emerald-500/10 border border-emerald-500/20">
-                        <div class="text-xl font-bold text-emerald-500">${{ clientModel.model.ippm || 0 }}/M</div>
+                        <div class="text-xl font-bold text-emerald-500">¥{{ clientModel.model.ippm || 0 }}/M</div>
                         <div class="text-xs text-emerald-600 dark:text-emerald-400">{{ $t('business.marketplace.inputPerMillion') }}</div>
                       </div>
                       <div class="text-center p-3 rounded-lg bg-blue-500/10 border border-blue-500/20">
-                        <div class="text-xl font-bold text-blue-500">${{ clientModel.model.oppm || 0 }}/M</div>
+                        <div class="text-xl font-bold text-blue-500">¥{{ clientModel.model.oppm || 0 }}/M</div>
                         <div class="text-xs text-blue-600 dark:text-blue-400">{{ $t('business.marketplace.outputPerMillion') }}</div>
                       </div>
                       <div class="text-center p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                        <div class="text-xl font-bold text-amber-500">${{ clientModel.model.cippm || 0 }}/M</div>
+                        <div class="text-xl font-bold text-amber-500">¥{{ clientModel.model.cippm || 0 }}/M</div>
                         <div class="text-xs text-amber-600 dark:text-amber-400">{{ $t('business.marketplace.inputPerMillion') }} ({{ $t('business.marketplace.cached') }})</div>
                       </div>
                     </div>
@@ -540,7 +540,7 @@ const getPriceRange = (field: 'ippm' | 'oppm' | 'cippm'): [number, number] | nul
   return prices.length > 0 ? [Math.min(...prices), Math.max(...prices)] : null;
 };
 
-// 格式化每百万 token 价格（$/M tokens）
+// 格式化每百万 token 价格（¥/M tokens）
 const formatPricePerMillion = (range: [number, number] | null): string => {
   if (!range) return $t('business.marketplace.noPrice');
   const [minimum, maximum] = range;
@@ -548,7 +548,7 @@ const formatPricePerMillion = (range: [number, number] | null): string => {
   const formatted = minimum === maximum
     ? minimum.toFixed(2)
     : `${minimum.toFixed(2)} - ${maximum.toFixed(2)}`;
-  return `$${formatted}/M`;
+  return `¥${formatted}/M`;
 };
 
 const formatNumber = (value?: number): string => (value || 0).toLocaleString('zh-CN');

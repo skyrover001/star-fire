@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
 	"sync"
 
@@ -49,8 +50,9 @@ func RegisterClient(c *Client, host, token string) error {
 		return fmt.Errorf("WebSocket connet error: %w", err)
 	}
 
+	c.wsMu.Lock()
 	c.controlConn = conn
-	_ = c.refreshModels()
+	c.wsMu.Unlock()
 
 	testInfo, _ := json.Marshal(c)
 	log.Println("register info:", string(testInfo), "c.models:", c.Models)
@@ -70,8 +72,16 @@ func RegisterClient(c *Client, host, token string) error {
 	return nil
 }
 
+// HandleMessages processes messages until the active connection ends.
 func (c *Client) HandleMessages() {
-	defer c.controlConn.Close()
+	c.wsMu.Lock()
+	conn := c.controlConn
+	c.wsMu.Unlock()
+	defer func() {
+		c.wsMu.Lock()
+		_ = conn.Close()
+		c.wsMu.Unlock()
+	}()
 
 	// 创建消息通道
 	messageCh := make(chan public.WSMessage, 1)
@@ -81,7 +91,7 @@ func (c *Client) HandleMessages() {
 	go func() {
 		for {
 			var message public.WSMessage
-			err := c.controlConn.ReadJSON(&message)
+			err := conn.ReadJSON(&message)
 			if err != nil {
 				errorCh <- err
 				return
@@ -109,9 +119,16 @@ func (c *Client) HandleMessages() {
 				c.handleEmbeddingMessage(message)
 			case public.RECONNECT:
 				c.handleReconnect(message)
+				continue
 			case public.INCOME:
 				c.handleIncome(message)
+			case public.MODEL_PRICE_UPDATE:
+				c.handleModelPriceUpdate(message)
 			case public.CLOSE:
+				if message.Content == public.ABORT {
+					c.handleAbort(message.FingerPrint)
+					continue
+				}
 				log.Println("server close message:", message.Content)
 				return
 			default:
@@ -126,13 +143,14 @@ func (c *Client) handleKeepAlive(message public.WSMessage) {
 	_ = c.refreshModels()
 	// for test update model price
 	log.Println("update model price...")
-	for _, model := range c.Models {
+	models := c.modelsSnapshot()
+	for _, model := range models {
 		fmt.Println("model:", model.Name, "price:", model.OPPM, "inputPrice:", model.IPPM)
 	}
 	pong := public.PPMessage{
 		Type:            public.PONG,
 		Timestamp:       message.Content.(map[string]interface{})["timestamp"].(string),
-		AvailableModels: c.Models,
+		AvailableModels: models,
 	}
 	response := public.WSMessage{
 		Type:    public.KEEPALIVE,
@@ -149,22 +167,51 @@ func (c *Client) handleKeepAlive(message public.WSMessage) {
 }
 
 func (c *Client) handleReconnect(message public.WSMessage) {
-	// update fingerprint
-	log.Printf("recieve reconnect message: %v", message.FingerPrint)
+	log.Println("received replacement registration credential")
 	c.cfg.JoinToken = message.FingerPrint
 }
 
-func (c *Client) handleChatMessage(message public.WSMessage) {
-	// 处理取消消息：server 放弃该请求时，取消对应的推理任务
-	if message.Type == public.CLOSE && message.Content == public.ABORT {
-		log.Printf("recieve abort message for fingerprint: %v", message.FingerPrint)
-		if cancel, ok := requestCancels.Load(message.FingerPrint); ok {
-			cancel.(context.CancelFunc)()
-			requestCancels.Delete(message.FingerPrint)
-		}
+func (c *Client) handleModelPriceUpdate(message public.WSMessage) {
+	data, err := json.Marshal(message.Content)
+	if err != nil {
+		log.Printf("marshal model price update error: %v", err)
 		return
 	}
 
+	var update public.ModelPriceUpdate
+	if err := json.Unmarshal(data, &update); err != nil || update.Model == "" {
+		log.Printf("invalid model price update: %v", err)
+		return
+	}
+
+	c.modelsMu.Lock()
+	defer c.modelsMu.Unlock()
+	for _, model := range c.Models {
+		if model.Name == update.Model {
+			model.IPPM = update.IPPM
+			model.OPPM = update.OPPM
+			model.CIPPM = update.CIPPM
+		}
+	}
+	if c.cfg.ModelPrices == nil {
+		c.cfg.ModelPrices = make(map[string]config.ModelPrice)
+	}
+	c.cfg.ModelPrices[update.Model] = config.ModelPrice{
+		InputPrice:       update.IPPM,
+		OutputPrice:      update.OPPM,
+		CachedInputPrice: update.CIPPM,
+	}
+	log.Printf("model price updated by server: %s %.6f/%.6f/%.6f", update.Model, update.IPPM, update.OPPM, update.CIPPM)
+}
+
+func (c *Client) handleAbort(fingerprint string) {
+	log.Printf("recieve abort message for fingerprint: %v", fingerprint)
+	if cancel, ok := requestCancels.LoadAndDelete(fingerprint); ok {
+		cancel.(context.CancelFunc)()
+	}
+}
+
+func (c *Client) handleChatMessage(message public.WSMessage) {
 	log.Printf("recieve chat message request: %v", message.FingerPrint)
 
 	tmp, _ := json.Marshal(message.Content)

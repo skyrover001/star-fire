@@ -318,7 +318,7 @@ func (s *Server) RegisterModel(model *public.Model, client *Client) {
 
 	oldMap := s.clients.Load().(map[string]map[string]*Client)
 	if inner, exists := oldMap[model.Name]; exists {
-		if _, exists := inner[client.ID]; exists {
+		if current, exists := inner[client.ID]; exists && current == client {
 			log.Println("model:", model.Name, "already registered for client:", client.ID)
 			return
 		}
@@ -506,6 +506,24 @@ func (s *Server) RemoveClient(modelName string, clientID string) {
 	s.clients.Store(newMap)
 }
 
+func (s *Server) RemoveClientInstance(modelName string, client *Client) {
+	s.clientsMu.Lock()
+	defer s.clientsMu.Unlock()
+
+	oldMap := s.clients.Load().(map[string]map[string]*Client)
+	inner, exists := oldMap[modelName]
+	if !exists || inner[client.ID] != client {
+		return
+	}
+
+	newMap := copyClientsMap(oldMap)
+	delete(newMap[modelName], client.ID)
+	if len(newMap[modelName]) == 0 {
+		delete(newMap, modelName)
+	}
+	s.clients.Store(newMap)
+}
+
 func (s *Server) GetClientByModel(model, clientID string) *Client {
 	allClients := s.clients.Load().(map[string]map[string]*Client)
 	modelClients := allClients[model]
@@ -598,6 +616,23 @@ func (s *Server) UpdateModelPrice(userID, modelName string, ippm, oppm, cippm fl
 		if err := s.ClientDB.SaveClient(client); err != nil {
 			log.Printf("save client %s price to db failed: %v", client.ID, err)
 		}
+
+		client.ControlConnMutex.Lock()
+		if client.ControlConn != nil {
+			message := public.WSMessage{
+				Type: public.MODEL_PRICE_UPDATE,
+				Content: public.ModelPriceUpdate{
+					Model: modelName,
+					IPPM:  ippm,
+					OPPM:  oppm,
+					CIPPM: cippm,
+				},
+			}
+			if err := client.ControlConn.WriteJSON(message); err != nil {
+				log.Printf("push model price update to client %s failed: %v", client.ID, err)
+			}
+		}
+		client.ControlConnMutex.Unlock()
 	}
 
 	return len(updated), nil
