@@ -11,6 +11,7 @@ import (
 	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -21,6 +22,7 @@ import (
 type Engine struct {
 	client    *api.Client
 	models    map[string]api.ProcessModelResponse
+	modelsMu  sync.RWMutex
 	ollamaURL string
 
 	thinkingStarted map[string]bool // fingerprint -> 是否已经开始思考
@@ -69,6 +71,7 @@ func (e *Engine) Initialize(ctx context.Context, conf *config.Config) error {
 
 func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public.Model, error) {
 	var allModels []*public.Model
+	modelsSnapshot := make(map[string]api.ProcessModelResponse)
 
 	// 1. 首先获取所有已下载的模型（用于发现embedding模型）
 	allDownloadedResp, err := e.client.List(ctx)
@@ -88,8 +91,6 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 	if runningResp != nil {
 		for _, model := range runningResp.Models {
 			runningModels[model.Name] = model
-			// 将运行中的模型信息存储到内部map中
-			e.models[model.Name] = model
 		}
 	}
 
@@ -103,7 +104,7 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 			isRunning = true
 			// 使用运行中模型的详细信息
 			processModel := runningModel
-			e.models[model.Name] = processModel
+			modelsSnapshot[model.Name] = processModel
 		} else {
 			// 对于非运行中的模型，创建基本信息
 			processModel := api.ProcessModelResponse{
@@ -111,46 +112,45 @@ func (e *Engine) ListModels(ctx context.Context, conf *config.Config) ([]*public
 				Size:   model.Size,
 				Digest: model.Digest,
 			}
-			e.models[model.Name] = processModel
+			modelsSnapshot[model.Name] = processModel
 		}
 
-		// 4. 决定是否注册模型
-		shouldRegister := false
+		// 4. 只注册当前正在运行的模型
 		modelType := "LLM"
 
 		if isEmbedding {
-			// Embedding模型：无论是否运行都注册
-			shouldRegister = true
 			modelType = "embedding"
-			log.Printf("Found Ollama embedding model: %s (running: %v)", model.Name, isRunning)
-		} else if isRunning {
-			// 普通模型：只注册运行中的
-			shouldRegister = true
+		}
+		if isRunning {
 			log.Printf("Found running Ollama model: %s", model.Name)
 		} else {
-			// 普通模型且未运行：不注册
 			log.Printf("Skipping non-running model: %s", model.Name)
 		}
 
-		// 5. 如果决定注册，添加到结果列表
-		if shouldRegister {
+		// 5. embedding/reranker 模型无需启动；其他模型必须正在运行
+		if shouldRegisterOllamaModel(model.Name, isRunning) {
 			publicModel := &public.Model{
 				Name:   model.Name,
 				Type:   modelType,
 				Size:   fmt.Sprintf("%d", model.Size),
 				Engine: "ollama",
 				Arch:   model.Details.QuantizationLevel,
-				IPPM:   conf.InputTokenPricePerMillion,       // 每百万输入tokens价格
-				OPPM:   conf.OutputTokenPricePerMillion,      // 每百万输出tokens价格
-				CIPPM:  conf.CachedInputTokenPricePerMillion, // 每百万缓存命中输入tokens价格
 			}
 			allModels = append(allModels, publicModel)
 		}
 	}
 
+	e.modelsMu.Lock()
+	e.models = modelsSnapshot
+	e.modelsMu.Unlock()
+
 	log.Printf("Ollama registered %d models (%d embedding models)",
 		len(allModels), countEmbeddingModels(allModels))
 	return allModels, nil
+}
+
+func shouldRegisterOllamaModel(modelName string, isRunning bool) bool {
+	return isRunning || isOllamaEmbeddingModel(modelName)
 }
 
 // countEmbeddingModels 统计embedding模型数量
@@ -784,13 +784,12 @@ func (e *Engine) SupportsEmbedding(modelName string) bool {
 	}
 
 	// 检查模型是否已下载
-	_, exists := e.models[modelName]
-	return exists
+	return e.hasModel(modelName)
 }
 
 func (e *Engine) SupportsModel(modelName string, conf *config.Config) bool {
 	// 检查模型是否在已下载的模型列表中
-	if _, exists := e.models[modelName]; exists {
+	if e.hasModel(modelName) {
 		return true
 	}
 
@@ -805,6 +804,12 @@ func (e *Engine) SupportsModel(modelName string, conf *config.Config) bool {
 	}
 
 	// 再次检查模型是否存在
+	return e.hasModel(modelName)
+}
+
+func (e *Engine) hasModel(modelName string) bool {
+	e.modelsMu.RLock()
+	defer e.modelsMu.RUnlock()
 	_, exists := e.models[modelName]
 	return exists
 }

@@ -113,8 +113,8 @@ function formatNumber(n = 0) {
 }
 
 function formatCurrency(n = 0) {
-  if (n >= 1_000) return `$${(n / 1_000).toFixed(1)}K`;
-  return `$${n.toFixed(0)}`;
+  if (n >= 1_000) return `¥${(n / 1_000).toFixed(1)}K`;
+  return `¥${n.toFixed(0)}`;
 }
 
 function formatCompact(n = 0) {
@@ -906,7 +906,7 @@ watch(currentLang, () => {
               </div>
               <div class="stat-box">
                 <div class="num">{{ formatCurrency(homepage?.stats.total_value) }}</div>
-                <div class="lbl">{{ $t('page.home.valueUsd') }}</div>
+                <div class="lbl">{{ $t('page.home.valueCny') }}</div>
               </div>
             </div>
             <canvas ref="trendCanvas" class="trend-canvas"></canvas>

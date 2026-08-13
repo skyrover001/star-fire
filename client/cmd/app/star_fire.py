@@ -20,6 +20,9 @@ from datetime import datetime
 import locale
 import socket
 import struct
+import time
+
+from i18n import I18n, LANGUAGE_NAMES, refresh_widget_texts
 
 # 导入音效模块
 try:
@@ -114,6 +117,10 @@ def play_money_sound():
         threading.Thread(target=_play, daemon=True).start()
     except:
         pass
+
+
+def calculate_restart_delay(attempt):
+    return min(3 * (2 ** max(attempt, 0)), 60)
 
 
 # ============ Toast 通知类 ============
@@ -281,10 +288,26 @@ def parse_income_message(line):
         match = re.search(pattern, line, re.IGNORECASE)
         if match:
             amount = match.group(1)
-            currency = match.group(2)
-            return True, amount, currency
+            return True, amount, '¥'
     
     return False, None, None
+
+
+def calculate_income_record(item):
+    """Calculate one usage record's income across Go JSON naming variants."""
+    def value(*keys, default=0):
+        for key in keys:
+            if key in item and item[key] is not None:
+                return item[key]
+        return default
+
+    ippm = float(value('ippm', 'IPPM', 'ip_pm'))
+    oppm = float(value('oppm', 'OPPM'))
+    cippm = float(value('cippm', 'CIPPM'))
+    input_tokens = int(value('input_tokens', 'InputTokens'))
+    output_tokens = int(value('output_tokens', 'OutputTokens'))
+    cached_tokens = min(input_tokens, int(value('cached_tokens', 'CachedTokens')))
+    return ((input_tokens - cached_tokens) * ippm + cached_tokens * cippm + output_tokens * oppm) / 1_000_000
 
 
 # ============ TCP服务器类 ============
@@ -413,6 +436,11 @@ class IncomeTCPServer:
             except:
                 pass
         return True, "TCP服务器已停止"
+
+    def get_client_count(self):
+        """返回当前已连接的客户端数量"""
+        with self.clients_lock:
+            return len(self.clients)
     
     def send_to_all_clients(self, message):
         """向所有已连接的客户端发送消息"""
@@ -465,6 +493,7 @@ class IncomeTCPServer:
 class SplashScreen:
     """启动画面，在主程序加载时显示"""
     def __init__(self):
+        self.i18n = I18n()
         self.root = tk.Tk()
         self.root.overrideredirect(True)
         
@@ -500,7 +529,7 @@ class SplashScreen:
         
         subtitle_label = tk.Label(
             main_frame,
-            text="算力分享应用",
+            text=self.i18n.translate_source("算力分享应用"),
             font=('Arial', 12),
             bg='#2C3E50',
             fg='#BDC3C7'
@@ -517,7 +546,7 @@ class SplashScreen:
         
         self.status_label = tk.Label(
             main_frame,
-            text="正在启动...",
+            text=self.i18n.translate_source("正在启动..."),
             font=('Arial', 10),
             bg='#2C3E50',
             fg='#95A5A6'
@@ -536,7 +565,7 @@ class SplashScreen:
         self.root.update()
     
     def update_status(self, text):
-        self.status_label.config(text=text)
+        self.status_label.config(text=self.i18n.translate_source(text))
         self.root.update()
     
     def close(self):
@@ -547,7 +576,12 @@ class SplashScreen:
 class StarFireAPP:
     def __init__(self, root):
         self.root = root
-        self.root.title("StarFire MaaS 算力分享APP")
+        self.config_file = "starfire_config.json"
+        self.load_config()
+        self.i18n = I18n(self.config.get('language'))
+        self.config['language'] = self.i18n.language
+
+        self.root.title(self.i18n.translate_source("StarFire MaaS 算力分享APP"))
         self.root.geometry("1000x700")
         self.root.resizable(True, True)
         
@@ -568,8 +602,13 @@ class StarFireAPP:
         self.running_models = set()
         self.starfire_process = None
         self.starfire_running = False
+        self.user_stopped = True
+        self.restart_attempt = 0
+        self.restart_after_id = None
+        self.starfire_started_at = None
         self.total_income = 0.0  # 累计收益
         self.pending_price_message = None  # 待发送的价格配置消息
+        self.pending_backend_message = None
         
         # 创建TCP服务器并自动启动
         self.tcp_server = IncomeTCPServer(
@@ -590,14 +629,12 @@ class StarFireAPP:
             'chat': []
         }
         
-        self.config_file = "starfire_config.json"
-        self.load_config()
-        
         # 初始化模型价格窗口引用
         self.model_price_window = None
         self.model_price_tree = None
         
         self.create_widgets()
+        self.refresh_translations()
         self.check_ollama()
         self.check_running_models()
     
@@ -609,11 +646,14 @@ class StarFireAPP:
             'jwt_token': '',  # JWT token
             'ippm': '3.8',   # 默认输入价格 3.8 元 / 百万 tokens
             'oppm': '8.3',   # 默认输出价格 8.3 元 / 百万 tokens
-            'model_mode': 'ollama',  # ollama, vllm, proxy, llamacpp
+            'model_mode': 'ollama',  # ollama, proxy, llamacpp
             'proxy_base_url': 'http://localhost:8000/v1',
             'proxy_api_key': '',
+            'proxy_backends': [],
             'ollama_num_parallel': '',  # Ollama并发请求数
-            'model_prices': {}  # 每个模型的价格配置 {model_name: {ippm: xx, oppm: xx, cippm: xx}}
+            'model_prices': {},  # 每个模型的价格配置 {model_name: {ippm: xx, oppm: xx, cippm: xx}}
+            'registered_models': [],  # 用户明确选择注册的模型，默认不注册任何模型
+            'language': None
         }
         
         try:
@@ -623,17 +663,32 @@ class StarFireAPP:
                     self.config.update(saved_config)
         except:
             pass
+
+        if not self.config.get('proxy_backends') and self.config.get('proxy_api_key'):
+            self.config['proxy_backends'] = [{
+                'name': 'default',
+                'base_url': self.config.get('proxy_base_url', ''),
+                'api_key': self.config.get('proxy_api_key', ''),
+                'enabled': True,
+            }]
+        elif self.config.get('proxy_backends'):
+            first = self.config['proxy_backends'][0]
+            self.config['proxy_base_url'] = first.get('base_url', self.config['proxy_base_url'])
+            self.config['proxy_api_key'] = first.get('api_key', self.config['proxy_api_key'])
+
+        if self.config.get('model_mode') == 'vllm':
+            self.config['model_mode'] = 'ollama'
         
         # 备份原始配置,用于检测修改
         self.original_config = self.config.copy()
     
-    def save_config(self):
+    def save_config(self, backup=True):
         try:
             # 仅在手动保存时备份配置到历史目录
             # 判断是否是自动保存(通过检查调用栈)
             import traceback
             stack = traceback.extract_stack()
-            is_auto_save = any('auto_save_config' in frame.name for frame in stack)
+            is_auto_save = not backup or any('auto_save_config' in frame.name for frame in stack)
             
             if not is_auto_save:
                 # 手动保存时才备份到历史目录
@@ -726,7 +781,7 @@ class StarFireAPP:
             self.proxy_config_frame.pack(fill=tk.X, pady=(10, 0))
             self.ollama_config_frame.pack_forget()
             self.status_label.config(
-                text="✓ 代理模式 - 请配置 Base URL 和 API Key",
+                text=self._text("✓ 代理模式 - 请配置 Base URL 和 API Key", "✓ Proxy mode - configure Base URL and API Key"),
                 foreground="blue"
             )
             # 在代理模式下允许刷新以显示代理模型，但禁用运行/停止
@@ -749,21 +804,11 @@ class StarFireAPP:
             self.refresh_btn.config(state=tk.NORMAL)
             self.check_ollama()
             self.log("已切换到 Ollama 模式", "blue")
-        elif mode == 'vllm':
-            self.proxy_config_frame.pack_forget()
-            self.ollama_config_frame.pack_forget()
-            self.status_label.config(
-                text="vLLM 模式开发中...",
-                foreground="orange"
-            )
-            self.refresh_btn.config(state=tk.DISABLED)
-            self.run_btn.config(state=tk.DISABLED)
-            self.stop_btn.config(state=tk.DISABLED)
         elif mode == 'llamacpp':
             self.proxy_config_frame.pack_forget()
             self.ollama_config_frame.pack_forget()
             self.status_label.config(
-                text="llama.cpp 模式开发中...",
+                text=self._text("llama.cpp 模式开发中...", "llama.cpp support is coming soon..."),
                 foreground="orange"
             )
             self.refresh_btn.config(state=tk.DISABLED)
@@ -784,6 +829,116 @@ class StarFireAPP:
                         self.refresh_model_price_list(self.model_price_tree, self.model_price_window)
                 except Exception as e2:
                     self.starfire_log(f"自动刷新模型价格窗口失败: {str(e2)}", "red")
+
+    def get_proxy_backends(self, enabled_only=False):
+        backends = []
+        for index, item in enumerate(self.config.get('proxy_backends', [])):
+            if not isinstance(item, dict):
+                continue
+            backend = {
+                'name': str(item.get('name') or f'backend-{index + 1}').strip(),
+                'base_url': str(item.get('base_url', '')).strip(),
+                'api_key': str(item.get('api_key', '')).strip(),
+                'enabled': bool(item.get('enabled', True)),
+            }
+            if backend['base_url'] and backend['api_key'] and (backend['enabled'] or not enabled_only):
+                backends.append(backend)
+
+        return backends
+
+    def refresh_proxy_backend_tree(self):
+        if not hasattr(self, 'proxy_backend_tree'):
+            return
+        for item in self.proxy_backend_tree.get_children():
+            self.proxy_backend_tree.delete(item)
+        for index, backend in enumerate(self.get_proxy_backends()):
+            status = self._text("启用", "Enabled") if backend['enabled'] else self._text("停用", "Disabled")
+            self.proxy_backend_tree.insert(
+                '', tk.END, iid=str(index),
+                values=(backend['name'], backend['base_url'], status)
+            )
+
+    def on_proxy_backend_select(self, event=None):
+        selection = self.proxy_backend_tree.selection()
+        if not selection:
+            return
+        index = int(selection[0])
+        backends = self.get_proxy_backends()
+        if index >= len(backends):
+            return
+        backend = backends[index]
+        for entry, value in (
+            (self.proxy_name_entry, backend['name']),
+            (self.proxy_base_url_entry, backend['base_url']),
+            (self.proxy_api_key_entry, backend['api_key']),
+        ):
+            entry.delete(0, tk.END)
+            entry.insert(0, value)
+        self.proxy_enabled_var.set(backend['enabled'])
+
+    def add_or_update_proxy_backend(self):
+        name = self.proxy_name_entry.get().strip()
+        base_url = self.proxy_base_url_entry.get().strip()
+        api_key = self.proxy_api_key_entry.get().strip()
+        if not name or not base_url or not api_key:
+            self._message('showwarning', "配置不完整", "Incomplete Configuration", "请填写名称、Base URL 和 API Key！", "Enter a name, Base URL, and API Key.")
+            return
+        is_valid, error = validate_url(base_url)
+        if not is_valid:
+            self._message('showwarning', "提示", "Notice", "Base URL格式错误: {error}", "Invalid Base URL: {error}", error=error)
+            return
+
+        backend = {
+            'name': name,
+            'base_url': base_url,
+            'api_key': api_key,
+            'enabled': self.proxy_enabled_var.get(),
+        }
+        backends = self.get_proxy_backends()
+        for index, current in enumerate(backends):
+            if current['name'] == name:
+                backends[index] = backend
+                break
+        else:
+            backends.append(backend)
+        self.config['proxy_backends'] = backends
+        self.config['proxy_base_url'] = base_url
+        self.config['proxy_api_key'] = api_key
+        self.save_config()
+        self.refresh_proxy_backend_tree()
+        if self.starfire_running:
+            self.send_proxy_backends_to_starfire()
+
+    def remove_proxy_backend(self):
+        selection = self.proxy_backend_tree.selection()
+        if not selection:
+            self._message('showwarning', "提示", "Notice", "请先选择一个后端", "Select a backend first.")
+            return
+        index = int(selection[0])
+        backends = self.get_proxy_backends()
+        if index < len(backends):
+            del backends[index]
+        self.config['proxy_backends'] = backends
+        self.save_config()
+        self.refresh_proxy_backend_tree()
+        if self.starfire_running:
+            self.send_proxy_backends_to_starfire()
+
+    def set_selected_proxy_backends_enabled(self, enabled):
+        selections = self.proxy_backend_tree.selection()
+        if not selections:
+            self._message('showwarning', "提示", "Notice", "请先选择一个或多个后端", "Select one or more backends first.")
+            return
+        backends = self.get_proxy_backends()
+        for item_id in selections:
+            index = int(item_id)
+            if index < len(backends):
+                backends[index]['enabled'] = enabled
+        self.config['proxy_backends'] = backends
+        self.save_config()
+        self.refresh_proxy_backend_tree()
+        if self.starfire_running:
+            self.send_proxy_backends_to_starfire()
     
     def create_widgets(self):
         main_paned = ttk.PanedWindow(self.root, orient=tk.HORIZONTAL)
@@ -818,13 +973,12 @@ class StarFireAPP:
         
         ttk.Radiobutton(
             modes_container,
-            text="vLLM (开发中)",
+            text="代理模式",
             variable=self.model_mode_var,
-            value="vllm",
-            command=self.on_mode_change,
-            state=tk.DISABLED
+            value="proxy",
+            command=self.on_mode_change
         ).pack(side=tk.LEFT, padx=10)
-        
+
         ttk.Radiobutton(
             modes_container,
             text="llama.cpp (开发中)",
@@ -834,19 +988,15 @@ class StarFireAPP:
             state=tk.DISABLED
         ).pack(side=tk.LEFT, padx=10)
         
-        ttk.Radiobutton(
-            modes_container,
-            text="代理模式",
-            variable=self.model_mode_var,
-            value="proxy",
-            command=self.on_mode_change
-        ).pack(side=tk.LEFT, padx=10)
-        
         # 代理模式配置（初始隐藏）
         self.proxy_config_frame = ttk.Frame(mode_frame)
         
         proxy_url_frame = ttk.Frame(self.proxy_config_frame)
         proxy_url_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(proxy_url_frame, text="名称:", width=10).pack(side=tk.LEFT)
+        self.proxy_name_entry = ttk.Entry(proxy_url_frame, width=14)
+        self.proxy_name_entry.insert(0, 'default')
+        self.proxy_name_entry.pack(side=tk.LEFT, padx=(5, 10))
         ttk.Label(proxy_url_frame, text="Base URL:", width=10).pack(side=tk.LEFT)
         def validate_proxy_url_on_blur():
             """Base URL失焦验证"""
@@ -879,6 +1029,53 @@ class StarFireAPP:
         
         toggle_proxy_btn = ttk.Button(proxy_key_frame, text="🔒", width=3, command=toggle_proxy_key)
         toggle_proxy_btn.pack(side=tk.LEFT, padx=(5, 0))
+
+        self.proxy_enabled_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(
+            proxy_key_frame,
+            text="启用",
+            variable=self.proxy_enabled_var
+        ).pack(side=tk.LEFT, padx=(8, 0))
+
+        proxy_backend_buttons = ttk.Frame(self.proxy_config_frame)
+        proxy_backend_buttons.pack(fill=tk.X, pady=(5, 2))
+        ttk.Button(
+            proxy_backend_buttons,
+            text="新增/更新",
+            command=self.add_or_update_proxy_backend
+        ).pack(side=tk.LEFT, padx=(0, 5))
+        ttk.Button(
+            proxy_backend_buttons,
+            text="删除",
+            command=self.remove_proxy_backend
+        ).pack(side=tk.LEFT)
+        ttk.Button(
+            proxy_backend_buttons,
+            text="启用选中",
+            command=lambda: self.set_selected_proxy_backends_enabled(True)
+        ).pack(side=tk.LEFT, padx=(10, 5))
+        ttk.Button(
+            proxy_backend_buttons,
+            text="停用选中",
+            command=lambda: self.set_selected_proxy_backends_enabled(False)
+        ).pack(side=tk.LEFT)
+
+        self.proxy_backend_tree = ttk.Treeview(
+            self.proxy_config_frame,
+            columns=('name', 'url', 'enabled'),
+            show='headings',
+            height=3,
+            selectmode='extended'
+        )
+        self.proxy_backend_tree.heading('name', text='名称')
+        self.proxy_backend_tree.heading('url', text='Base URL')
+        self.proxy_backend_tree.heading('enabled', text='状态')
+        self.proxy_backend_tree.column('name', width=100)
+        self.proxy_backend_tree.column('url', width=240)
+        self.proxy_backend_tree.column('enabled', width=70, anchor=tk.CENTER)
+        self.proxy_backend_tree.pack(fill=tk.X, pady=(3, 0))
+        self.proxy_backend_tree.bind('<<TreeviewSelect>>', self.on_proxy_backend_select)
+        self.refresh_proxy_backend_tree()
         
         # 根据当前模式显示/隐藏代理配置
         if self.model_mode_var.get() == 'proxy':
@@ -1045,6 +1242,20 @@ class StarFireAPP:
             text="🌟 Starfire 算力注册",
             font=("Arial", 12, "bold")
         ).pack(anchor=tk.W)
+
+        language_frame = ttk.Frame(starfire_title)
+        language_frame.pack(anchor=tk.E)
+        ttk.Label(language_frame, text="语言:").pack(side=tk.LEFT, padx=(0, 5))
+        self.language_var = tk.StringVar(value=LANGUAGE_NAMES[self.i18n.language])
+        self.language_combo = ttk.Combobox(
+            language_frame,
+            textvariable=self.language_var,
+            values=list(LANGUAGE_NAMES.values()),
+            state="readonly",
+            width=12
+        )
+        self.language_combo.pack(side=tk.LEFT)
+        self.language_combo.bind('<<ComboboxSelected>>', self.on_language_change)
         
         config_frame = ttk.LabelFrame(right_frame, text="⚙️ 配置参数", padding="15")
         config_frame.pack(fill=tk.X, padx=10, pady=5)
@@ -1125,20 +1336,29 @@ class StarFireAPP:
         )
         self.latest_income_label.pack(side=tk.LEFT, padx=(5, 0))
         
-        # 模型价格设置按钮
+        # 模型配置入口
         model_price_frame = ttk.Frame(config_frame)
         model_price_frame.pack(fill=tk.X, pady=(10, 0))
-        
-        ttk.Button(
+
+        self.model_config_btn = tk.Button(
             model_price_frame,
-            text="📋 模型价格设置",
+            text="⚙ 模型配置",
             command=self.open_model_price_window,
-            width=20
-        ).pack(side=tk.LEFT, padx=5)
-        
+            bg="#2563EB",
+            fg="white",
+            activebackground="#1D4ED8",
+            activeforeground="white",
+            font=("Arial", 11, "bold"),
+            relief=tk.FLAT,
+            padx=18,
+            pady=8,
+            cursor="hand2"
+        )
+        self.model_config_btn.pack(side=tk.LEFT, padx=5)
+
         ttk.Label(
             model_price_frame,
-            text="为每个模型单独设置价格",
+            text="选择注册模型并配置价格",
             foreground="gray",
             font=("Arial", 8)
         ).pack(side=tk.LEFT, padx=5)
@@ -1271,6 +1491,59 @@ class StarFireAPP:
                     self.load_models()
         except Exception as e:
             self.log(f"启动时加载代理模型失败: {str(e)}", "red")
+
+    def _sync_form_to_config(self):
+        self.config['host'] = self.host_entry.get().strip()
+        self.config['username'] = self.username_entry.get().strip()
+        self.config['password'] = self.password_entry.get().strip()
+        self.config['model_mode'] = self.model_mode_var.get()
+        self.config['proxy_base_url'] = self.proxy_base_url_entry.get().strip()
+        self.config['proxy_api_key'] = self.proxy_api_key_entry.get().strip()
+        self.config['ollama_num_parallel'] = self.ollama_num_parallel_entry.get().strip()
+
+    def on_language_change(self, event=None):
+        selected_name = self.language_var.get()
+        language = next(
+            (code for code, name in LANGUAGE_NAMES.items() if name == selected_name),
+            self.i18n.language
+        )
+        if language == self.i18n.language:
+            return
+
+        self._sync_form_to_config()
+        self.i18n.set_language(language)
+        self.config['language'] = language
+        self.save_config()
+        self.refresh_translations()
+
+    def refresh_translations(self):
+        self.root.title(self.i18n.translate_source("StarFire MaaS 算力分享APP"))
+        refresh_widget_texts(self.root, self.i18n)
+
+        headings = {
+            "分类": "分类",
+            "模型名称": "模型名称",
+            "大小": "大小",
+            "修改时间": "修改时间",
+        }
+        for column, source_text in headings.items():
+            self.model_tree.heading(column, text=self.i18n.translate_source(source_text))
+        self.proxy_backend_tree.heading('name', text=self.i18n.translate_source('名称'))
+        self.proxy_backend_tree.heading('url', text='Base URL')
+        self.proxy_backend_tree.heading('enabled', text=self.i18n.translate_source('状态'))
+        self.refresh_proxy_backend_tree()
+
+    def _text(self, chinese, english, **kwargs):
+        return self.i18n.select(chinese, english, **kwargs)
+
+    def _message(self, kind, title_zh, title_en, message_zh, message_en, parent=None, **kwargs):
+        show = getattr(messagebox, kind)
+        options = {'parent': parent} if parent is not None else {}
+        return show(
+            self._text(title_zh, title_en),
+            self._text(message_zh, message_en, **kwargs),
+            **options
+        )
     
     def log(self, message, color=None):
         self.log_text.config(state=tk.NORMAL)
@@ -1304,17 +1577,10 @@ class StarFireAPP:
             _log()
     
     def save_config_action(self):
-        self.config['host'] = self.host_entry.get().strip()
-        self.config['username'] = self.username_entry.get().strip()
-        self.config['password'] = self.password_entry.get().strip()
-        self.config['model_mode'] = self.model_mode_var.get()
-        self.config['proxy_base_url'] = self.proxy_base_url_entry.get().strip()
-        self.config['proxy_api_key'] = self.proxy_api_key_entry.get().strip()
-        self.config['ollama_num_parallel'] = self.ollama_num_parallel_entry.get().strip()
-        
+        self._sync_form_to_config()
         self.save_config()
         self.starfire_log("✓ 配置已保存", "green")
-        messagebox.showinfo("成功", "配置已保存！")
+        self._message('showinfo', "成功", "Success", "配置已保存！", "Configuration saved.")
     
     def login_to_server(self):
         """登录到服务器获取JWT token"""
@@ -1324,16 +1590,16 @@ class StarFireAPP:
         
         is_valid, err_msg = validate_host(host)
         if not is_valid:
-            messagebox.showwarning("提示", f"服务器地址格式错误: {err_msg}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080")
+            self._message('showwarning', "提示", "Notice", "服务器地址格式错误: {error}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080", "Invalid server URL: {error}\n\nExamples:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080", error=err_msg)
             return
         
         if not all([host, username, password]):
-            messagebox.showwarning("提示", "请填写服务器地址、用户名和密码！")
+            self._message('showwarning', "提示", "Notice", "请填写服务器地址、用户名和密码！", "Enter the server URL, username, and password.")
             return
         
         # 创建本地验证对话框
         captcha_window = tk.Toplevel(self.root)
-        captcha_window.title("安全验证")
+        captcha_window.title(self._text("安全验证", "Security Check"))
         captcha_window.transient(self.root)
         captcha_window.grab_set()
         captcha_window.resizable(False, False)
@@ -1421,12 +1687,12 @@ class StarFireAPP:
             try:
                 user_answer = int(answer_entry.get().strip())
             except ValueError:
-                messagebox.showwarning("提示", "请输入有效的数字！", parent=captcha_window)
+                self._message('showwarning', "提示", "Notice", "请输入有效的数字！", "Enter a valid number.", parent=captcha_window)
                 return
             
             # 验证算术题答案
             if user_answer != correct_answer:
-                messagebox.showerror("错误", "验证码错误，请重试！", parent=captcha_window)
+                self._message('showerror', "错误", "Error", "验证码错误，请重试！", "Incorrect answer. Try again.", parent=captcha_window)
                 refresh_captcha()
                 return
             
@@ -1460,13 +1726,13 @@ class StarFireAPP:
                             
                             def _update_ui():
                                 self.login_status_label.config(
-                                    text=" ● 已登录 ",
+                                    text=self._text(" ● 已登录 ", " ● Signed in "),
                                     bg="#90EE90",
                                     fg="darkgreen"
                                 )
                                 self.fetch_income_btn.config(state=tk.NORMAL)
                                 self.starfire_log(f"✓ 登录成功！", "green")
-                                messagebox.showinfo("成功", "登录成功！")
+                                self._message('showinfo', "成功", "Success", "登录成功！", "Signed in successfully.")
                                 # 自动获取收益
                                 self.fetch_income_data()
                             
@@ -1475,12 +1741,12 @@ class StarFireAPP:
                             print("result:", result)
                             error_msg = result.get('message', '登录失败')
                             self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
-                            self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
+                            self.root.after(0, lambda: self._message('showerror', "错误", "Error", "{error}", "{error}", error=error_msg))
                             
                 except Exception as e:
                     error_msg = f"登录失败: {str(e)}"
                     self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
-                    self.root.after(0, lambda: messagebox.showerror("错误", error_msg))
+                    self.root.after(0, lambda: self._message('showerror', "错误", "Error", "{error}", "{error}", error=error_msg))
             
             threading.Thread(target=_login, daemon=True).start()
         
@@ -1489,6 +1755,7 @@ class StarFireAPP:
         
         ttk.Button(btn_frame, text="✓ 登录", command=do_login, width=10).pack(side=tk.LEFT, padx=8)
         ttk.Button(btn_frame, text="✗ 取消", command=captcha_window.destroy, width=10).pack(side=tk.LEFT, padx=8)
+        refresh_widget_texts(captcha_window, self.i18n)
         
         answer_entry.bind('<Return>', lambda e: do_login())
     
@@ -1498,12 +1765,12 @@ class StarFireAPP:
         host = self.host_entry.get().strip()
         
         if not jwt_token:
-            messagebox.showwarning("提示", "请先登录！")
+            self._message('showwarning', "提示", "Notice", "请先登录！", "Sign in first.")
             return
         
         is_valid, err_msg = validate_host(host)
         if not is_valid:
-            messagebox.showwarning("提示", f"服务器地址格式错误: {err_msg}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080")
+            self._message('showwarning', "提示", "Notice", "服务器地址格式错误: {error}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080", "Invalid server URL: {error}\n\nExamples:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080", error=err_msg)
             return
         
         def _fetch():
@@ -1511,55 +1778,34 @@ class StarFireAPP:
                 import urllib.request
                 
                 base_url = f"http://{host}" if not host.startswith('http') else host
-                income_url = f"{base_url}/api/user/income"
-                
-                req = urllib.request.Request(income_url)
-                req.add_header('Authorization', f'Bearer {jwt_token}')
-                
-                with urllib.request.urlopen(req, timeout=10) as response:
-                    result = json.loads(response.read().decode('utf-8'))
-                    
-                    if response.status == 201 or response.status == 200:
-                        data_list = result.get('data', [])
-                        
-                        # 计算总收益: sum(((input - cached) * ippm + cached * cippm + oppm * output) / 1000000)
-                        total_revenue = 0.0
-                        for item in data_list:
-                            ippm = float(item.get('IPPM', 0))
-                            oppm = float(item.get('OPPM', 0))
-                            cippm = float(item.get('CIPPM', 0))
-                            input_tokens = int(item.get('InputTokens', 0))
-                            output_tokens = int(item.get('OutputTokens', 0))
-                            cached_tokens = int(item.get('CachedTokens', 0))
-                            
-                            non_cached = input_tokens - cached_tokens
-                            revenue = (non_cached * ippm + cached_tokens * cippm + oppm * output_tokens) / 1000000
-                            total_revenue += revenue
-                        
-                        # 更新UI
-                        def _update():
-                            self.total_income = total_revenue
-                            self.total_income_label.config(text=f"{total_revenue:.6f} ¥")
-                            
-                            if data_list:
-                                latest = data_list[0]
-                                latest_ippm = float(latest.get('IPPM', 0))
-                                latest_oppm = float(latest.get('OPPM', 0))
-                                latest_cippm = float(latest.get('CIPPM', 0))
-                                latest_input = int(latest.get('InputTokens', 0))
-                                latest_output = int(latest.get('OutputTokens', 0))
-                                latest_cached = int(latest.get('CachedTokens', 0))
-                                latest_non_cached = latest_input - latest_cached
-                                latest_revenue = (latest_non_cached * latest_ippm + latest_cached * latest_cippm + latest_oppm * latest_output) / 1000000
-                                self.latest_income_label.config(text=f"{latest_revenue:.6f} ¥")
-                            
-                            self.starfire_log(f"✓ 已刷新收益数据，总收益: {total_revenue:.6f} ¥ ({len(data_list)} 条记录)", "green")
-                        
-                        self.root.after(0, _update)
-                    else:
-                        print("result:", result)
-                        error_msg = result.get('message', '获取收益失败')
-                        self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
+                headers = {'Authorization': f'Bearer {jwt_token}'}
+
+                total_req = urllib.request.Request(f"{base_url}/api/user/income/total", headers=headers)
+                with urllib.request.urlopen(total_req, timeout=10) as response:
+                    total_result = json.loads(response.read().decode('utf-8'))
+
+                latest_req = urllib.request.Request(f"{base_url}/api/user/income?page=1&size=1", headers=headers)
+                with urllib.request.urlopen(latest_req, timeout=10) as response:
+                    latest_result = json.loads(response.read().decode('utf-8'))
+
+                total_revenue = float(total_result.get('total_income', 0))
+                data_list = latest_result.get('data', [])
+                latest_revenue = calculate_income_record(data_list[0]) if data_list else 0.0
+
+                def _update():
+                    self.total_income = total_revenue
+                    self.total_income_label.config(text=f"{total_revenue:.6f} ¥")
+                    self.latest_income_label.config(text=f"{latest_revenue:.6f} ¥")
+                    self.starfire_log(
+                        self._text(
+                            "✓ 已刷新收益，总收益: {total:.6f} ¥",
+                            "✓ Earnings refreshed. Total: {total:.6f} ¥",
+                            total=total_revenue
+                        ),
+                        "green"
+                    )
+
+                self.root.after(0, _update)
                         
             except Exception as e:
                 error_msg = f"获取收益失败: {str(e)}"
@@ -1582,14 +1828,12 @@ class StarFireAPP:
             base_url = f"http://{host}" if not host.startswith('http') else host
             token_url = f"{base_url}/api/user/register-token"
             
-            print("Fetching register token from:", token_url," with JWT:", jwt_token)
             req = urllib.request.Request(token_url,method="POST",data=b'')
             req.add_header('Authorization', f'Bearer {jwt_token}')
             
             with urllib.request.urlopen(req, timeout=10) as response:
                 result = json.loads(response.read().decode('utf-8'))
                 
-                print("Register token response:", result)
                 if response.status == 200 or response.status == 201:
                     token = result['token']
                     self.starfire_log(f"✓ 获取注册token成功", "green")
@@ -1625,18 +1869,14 @@ class StarFireAPP:
         except Exception as e:
             self.starfire_log(f"❌ 获取Ollama模型列表失败: {str(e)}", "red")
 
-        # 获取代理模型
-        try:
-            base_url = self.proxy_base_url_entry.get().strip()
-            api_key = self.proxy_api_key_entry.get().strip()
-            if base_url and api_key:
-                base_url = self.proxy_base_url_entry.get().strip().rstrip('/')
-                api_key = self.proxy_api_key_entry.get().strip()
-                if base_url:
-                    models_url = f"{base_url}/models"
+        # 获取所有启用代理后端的模型，同名模型自然去重
+        for backend in self.get_proxy_backends(enabled_only=True):
+            try:
+                base_url = backend['base_url'].rstrip('/')
+                models_url = f"{base_url}/models"
                 import urllib.request
                 req = urllib.request.Request(models_url)
-                req.add_header('Authorization', f'Bearer {api_key}')
+                req.add_header('Authorization', f"Bearer {backend['api_key']}")
                 with urllib.request.urlopen(req, timeout=10) as response:
                     data = json.loads(response.read().decode('utf-8'))
                     if 'data' in data:
@@ -1645,20 +1885,20 @@ class StarFireAPP:
                     elif 'models' in data:
                         for m in data['models']:
                             models[m] = 'openai'
-        except Exception as e:
-            self.starfire_log(f"❌ 获取代理模型失败: {str(e)}", "red")
+            except Exception as e:
+                self.starfire_log(f"❌ 获取代理后端 {backend['name']} 模型失败: {str(e)}", "red")
 
         return models
     
     def open_model_price_window(self):
-        """打开模型价格设置窗口"""
+        """打开模型配置窗口"""
         # 创建新窗口
         price_window = tk.Toplevel(self.root)
-        price_window.title("模型价格设置")
+        price_window.title(self._text("模型配置", "Model Configuration"))
         price_window.transient(self.root)
         
         # 居中显示
-        pw_w, pw_h = 720, 500
+        pw_w, pw_h = 980, 560
         price_window.withdraw()
         price_window.update_idletasks()
         px = (price_window.winfo_screenwidth() - pw_w) // 2
@@ -1674,10 +1914,9 @@ class StarFireAPP:
         info_frame.pack(fill=tk.X)
         ttk.Label(
             info_frame,
-            text=(
-                "💡 为每个模型单独设置输入/输出价格；"
-                "如未设置则使用默认价格 (输入 < 10 元/百万 tokens，输出 < 20 元/百万 tokens)。\n"
-                "关闭窗口即自动保存并同步到 Starfire ，无需手动发送。"
+            text=self._text(
+                "💡 默认不注册任何模型。请选择模型并配置价格；Ollama 普通模型仅显示运行中的模型。",
+                "💡 No models are registered by default. Select models and configure pricing; regular Ollama models must be running."
             ),
             foreground="blue",
             font=("Arial", 9),
@@ -1690,14 +1929,34 @@ class StarFireAPP:
         
         ttk.Button(
             button_frame,
-            text="🔄 刷新模型列表",
+            text=self._text("🔄 刷新模型", "🔄 Refresh Models"),
             command=lambda: self.refresh_model_price_list(tree, price_window)
         ).pack(side=tk.LEFT, padx=5)
         
         ttk.Button(
             button_frame,
-            text="💾 保存所有价格",
+            text=self._text("💾 保存模型配置", "💾 Save Configuration"),
             command=lambda: self.save_all_model_prices(tree, price_window)
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            button_frame,
+            text=self._text("注册选中", "Register Selected"),
+            command=lambda: self.set_model_rows_registered(tree, True)
+        ).pack(side=tk.LEFT, padx=(15, 5))
+        ttk.Button(
+            button_frame,
+            text=self._text("取消注册选中", "Unregister Selected"),
+            command=lambda: self.set_model_rows_registered(tree, False)
+        ).pack(side=tk.LEFT, padx=5)
+        ttk.Button(
+            button_frame,
+            text=self._text("全部注册", "Register All"),
+            command=lambda: self.set_model_rows_registered(tree, True, all_rows=True)
+        ).pack(side=tk.LEFT, padx=(15, 5))
+        ttk.Button(
+            button_frame,
+            text=self._text("全部取消", "Clear All"),
+            command=lambda: self.set_model_rows_registered(tree, False, all_rows=True)
         ).pack(side=tk.LEFT, padx=5)
         
         # 模型列表区域
@@ -1705,20 +1964,24 @@ class StarFireAPP:
         list_frame.pack(fill=tk.BOTH, expand=True)
         
         # 创建表格
-        columns = ("模型名称", "引擎", "输入价格(¥/M)", "输出价格(¥/M)", "缓存输入价格(¥/M)")
-        tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15)
+        columns = ("注册", "模型名称", "引擎", "输入价格(¥/M)", "输出价格(¥/M)", "缓存输入价格(¥/M)", "价格状态")
+        tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15, selectmode='extended')
         
+        tree.heading("注册", text="注册")
         tree.heading("模型名称", text="模型名称")
         tree.heading("引擎", text="引擎")
         tree.heading("输入价格(¥/M)", text="输入价格(¥/M)")
         tree.heading("输出价格(¥/M)", text="输出价格(¥/M)")
         tree.heading("缓存输入价格(¥/M)", text="缓存输入价格(¥/M)")
+        tree.heading("价格状态", text="价格状态")
         
-        tree.column("模型名称", width=250)
+        tree.column("注册", width=70, anchor=tk.CENTER)
+        tree.column("模型名称", width=220)
         tree.column("引擎", width=80, anchor=tk.CENTER)
         tree.column("输入价格(¥/M)", width=120, anchor=tk.CENTER)
         tree.column("输出价格(¥/M)", width=120, anchor=tk.CENTER)
         tree.column("缓存输入价格(¥/M)", width=140, anchor=tk.CENTER)
+        tree.column("价格状态", width=110, anchor=tk.CENTER)
         
         scrollbar = ttk.Scrollbar(list_frame, orient=tk.VERTICAL, command=tree.yview)
         tree.configure(yscrollcommand=scrollbar.set)
@@ -1732,6 +1995,20 @@ class StarFireAPP:
         # 记录表格引用
         self.model_price_tree = tree
 
+        price_headings = {
+            "注册": "Register",
+            "模型名称": "Model",
+            "引擎": "Engine",
+            "输入价格(¥/M)": "Input Price (¥/M)",
+            "输出价格(¥/M)": "Output Price (¥/M)",
+            "缓存输入价格(¥/M)": "Cached Input (¥/M)",
+            "价格状态": "Price Status",
+        }
+        if self.i18n.language == 'en_US':
+            for column, text in price_headings.items():
+                tree.heading(column, text=text)
+        refresh_widget_texts(price_window, self.i18n)
+
         # 加载模型列表
         self.refresh_model_price_list(tree, price_window)
 
@@ -1742,6 +2019,16 @@ class StarFireAPP:
             self.model_price_window = None
             price_window.destroy()
         price_window.protocol("WM_DELETE_WINDOW", on_close)
+
+    def set_model_rows_registered(self, tree, registered, all_rows=False):
+        rows = tree.get_children() if all_rows else tree.selection()
+        if not rows:
+            return
+        status = self._text("已选择", "Selected") if registered else self._text("未选择", "Not selected")
+        for item in rows:
+            values = list(tree.item(item)['values'])
+            values[0] = status
+            tree.item(item, values=values)
     
     def refresh_model_price_list(self, tree, window):
         """刷新模型价格列表"""
@@ -1753,11 +2040,12 @@ class StarFireAPP:
         models_dict = self.get_all_available_models()
         
         if not models_dict:
-            messagebox.showwarning("提示", "未找到可用模型！", parent=window)
+            self._message('showwarning', "提示", "Notice", "未找到可用模型！", "No available models found.", parent=window)
             return
         
         # 获取已保存的价格配置（确保是同一个引用，便于就地更新）
         model_prices = self.config.setdefault('model_prices', {})
+        registered_models = set(self.config.get('registered_models', []))
 
         # 全局默认价格（确保为字符串，便于显示）
         # 强制使用 3.8 和 8.3 作为默认值，忽略配置文件中的旧全局设置
@@ -1765,8 +2053,6 @@ class StarFireAPP:
         default_oppm = '8.3'
         default_cippm = '1.0'
 
-        config_changed = False
-        
         # 填充数据
         for model, engine in sorted(models_dict.items()):
             entry = model_prices.get(model, {})
@@ -1782,37 +2068,9 @@ class StarFireAPP:
             if not cippm:
                 cippm = default_cippm
 
-            if entry:
-                # 统一写回标准化后的数值
-                if entry.get('ippm') != ippm:
-                    entry['ippm'] = ippm
-                    config_changed = True
-                if entry.get('oppm') != oppm:
-                    entry['oppm'] = oppm
-                    config_changed = True
-                if entry.get('cippm') != cippm:
-                    entry['cippm'] = cippm
-                    config_changed = True
-                if entry.get('engine') != engine:
-                    entry['engine'] = engine
-                    config_changed = True
-            else:
-                model_prices[model] = {
-                    'ippm': ippm,
-                    'oppm': oppm,
-                    'cippm': cippm,
-                    'engine': engine
-                }
-                config_changed = True
-
-            tree.insert("", tk.END, values=(model, str(engine), ippm, oppm, cippm))
-        
-        if config_changed:
-            self.save_config()
-            self.starfire_log(
-                f"✓ 已同步模型价格默认值 (输入: {default_ippm}, 输出: {default_oppm}, 缓存输入: {default_cippm})",
-                "green"
-            )
+            registration = self._text("已选择", "Selected") if model in registered_models else self._text("未选择", "Not selected")
+            price_status = self._text("已设置", "Configured") if entry else self._text("默认，请设置", "Default - review")
+            tree.insert("", tk.END, values=(registration, model, str(engine), ippm, oppm, cippm, price_status))
         
         self.starfire_log(f"✓ 已加载 {len(models_dict)} 个模型的价格配置", "green")
     
@@ -1825,8 +2083,8 @@ class StarFireAPP:
         column = tree.identify_column(event.x)
         row_id = tree.identify_row(event.y)
         
-        # 不允许编辑模型名称和引擎列
-        if not row_id or column in ("#1", "#2"):
+        # 仅价格列允许编辑
+        if not row_id or column not in ("#4", "#5", "#6"):
             return
         
         # 获取单元格位置
@@ -1865,9 +2123,10 @@ class StarFireAPP:
                 # 验证是有效数字
                 float(new_value)
                 values[col_index] = new_value
+                values[6] = self._text("已设置", "Configured")
                 tree.item(row_id, values=values)
             except ValueError:
-                messagebox.showerror("错误", "请输入有效的数字！", parent=parent_window)
+                self._message('showerror', "错误", "Error", "请输入有效的数字！", "Enter a valid number.", parent=parent_window)
                 edit_entry.focus()
                 return
             
@@ -1907,7 +2166,7 @@ class StarFireAPP:
             return
         
         edit_window = tk.Toplevel(self.root)
-        edit_window.title("编辑价格")
+        edit_window.title(self._text("编辑价格", "Edit Price"))
         edit_window.geometry("300x150")
         edit_window.transient(self.root)
         
@@ -1933,72 +2192,65 @@ class StarFireAPP:
                 tree.item(row_id, values=values)
                 edit_window.destroy()
             except ValueError:
-                messagebox.showerror("错误", "请输入有效的数字！", parent=edit_window)
+                self._message('showerror', "错误", "Error", "请输入有效的数字！", "Enter a valid number.", parent=edit_window)
         
         ttk.Button(frame, text="保存", command=save_price).pack(pady=5)
+        refresh_widget_texts(edit_window, self.i18n)
         
         price_entry.bind('<Return>', lambda e: save_price())
     
     def save_all_model_prices(self, tree, window, auto=False):
         """保存所有模型价格到配置"""
         model_prices = {}
+        registered_models = []
+        selected_text = self._text("已选择", "Selected")
+        configured_text = self._text("已设置", "Configured")
+        default_price_count = 0
         for item in tree.get_children():
             values = tree.item(item)['values']
-            model_name = values[0]
-            engine = values[1]
-            ippm = values[2]
-            oppm = values[3]
-            cippm = values[4] if len(values) > 4 else '1.0'
-            model_prices[model_name] = {
-                'engine': str(engine),
-                'ippm': str(ippm),
-                'oppm': str(oppm),
-                'cippm': str(cippm)
-            }
+            if values[0] != selected_text:
+                continue
+            model_name = values[1]
+            registered_models.append(model_name)
+            if values[6] == configured_text:
+                model_prices[model_name] = {
+                    'engine': str(values[2]),
+                    'ippm': str(values[3]),
+                    'oppm': str(values[4]),
+                    'cippm': str(values[5])
+                }
+            else:
+                default_price_count += 1
+        self.config['registered_models'] = registered_models
         self.config['model_prices'] = model_prices
         self.save_config()
         self.send_prices_to_starfire()
-        self.starfire_log(f"✓ 已保存并同步 {len(model_prices)} 个模型的价格配置", "green")
+        self.starfire_log(f"✓ 已选择注册 {len(registered_models)} 个模型", "green")
+        if default_price_count:
+            self.starfire_log(f"⚠️ {default_price_count} 个模型未设置价格，当前使用默认价格", "orange")
         # 仅非自动保存时弹窗
         if not auto:
-            messagebox.showinfo("成功", f"已保存 {len(model_prices)} 个模型的价格配置！", parent=window)
+            self._message('showinfo', "成功", "Success", "已选择注册 {count} 个模型。", "Selected {count} models for registration.", parent=window, count=len(registered_models))
     
     def send_prices_to_starfire(self):
         """通过TCP发送价格配置到starfire.exe"""
         try:
             model_prices = self.config.get('model_prices', {})
             available_models = self.get_all_available_models()
+            registered_models = self.config.get('registered_models', [])
             models_data = []
             
-            if model_prices:
-                for model_name, prices in model_prices.items():
-                    # 使用配置中存储的引擎类型，如果没有则从可用模型中获取
-                    engine = str(prices.get('engine') or available_models.get(model_name, 'ollama'))
-                    models_data.append({
-                        'model': model_name,
-                        'engine': engine,
-                        'ippm': str(prices.get('ippm', self.config.get('ippm', '3.8'))),
-                        'oppm': str(prices.get('oppm', self.config.get('oppm', '8.3'))),
-                        'cippm': str(prices.get('cippm', '1.0'))
-                    })
-            else:
-                # 如果没有配置任何模型价格，使用当前模式的引擎作为默认
-                model_mode = self.model_mode_var.get()
-                engine_map = {
-                    'ollama': 'ollama',
-                    'proxy': 'openai',
-                    'vllm': 'vllm',
-                    'llamacpp': 'llama.cpp'
-                }
-                default_engine = engine_map.get(model_mode, 'ollama')
-                self.starfire_log("⚠️ 没有配置模型价格，将发送默认价格配置", "orange")
+            for model_name in registered_models:
+                prices = model_prices.get(model_name, {})
                 models_data.append({
-                    'model': '*',
-                    'engine': default_engine,
-                    'ippm': str(self.config.get('ippm', '3.8')),
-                    'oppm': str(self.config.get('oppm', '8.3')),
-                    'cippm': '1.0'
+                    'model': model_name,
+                    'engine': str(prices.get('engine') or available_models.get(model_name, 'ollama')),
+                    'ippm': str(prices.get('ippm', '3.8')),
+                    'oppm': str(prices.get('oppm', '8.3')),
+                    'cippm': str(prices.get('cippm', '1.0'))
                 })
+            if not registered_models:
+                self.starfire_log("⚠️ 当前未选择任何注册模型", "orange")
             
             message = {
                 'id': 'model_price_config',
@@ -2034,9 +2286,29 @@ class StarFireAPP:
         except Exception as e:
             self.starfire_log(f"❌ 准备价格配置失败: {str(e)}", "red")
             self.starfire_log(f"详细错误: {traceback.format_exc()}", "red")
+
+    def send_proxy_backends_to_starfire(self):
+        backends = self.get_proxy_backends(enabled_only=True)
+        message = json.dumps({
+            'type': 'proxy_backends',
+            'data': backends,
+            'timestamp': int(time.time() * 1000),
+        }, ensure_ascii=False)
+        self.pending_backend_message = message
+        if self.tcp_server and self.tcp_server.get_client_count() > 0:
+            sent = self.tcp_server.send_to_all_clients(message)
+            self.starfire_log(f"✓ 已同步 {len(backends)} 个启用的代理后端到 {sent} 个客户端", "green")
+            return sent
+        self.starfire_log(f"✓ 已缓存 {len(backends)} 个代理后端配置，等待客户端连接", "blue")
+        return 0
     
     def on_closing(self):
         """窗口关闭时的清理工作"""
+        self.user_stopped = True
+        if self.restart_after_id is not None:
+            self.root.after_cancel(self.restart_after_id)
+            self.restart_after_id = None
+
         # 停止TCP服务器
         if hasattr(self, 'tcp_server'):
             self.tcp_server.stop()
@@ -2052,37 +2324,52 @@ class StarFireAPP:
         # 关闭窗口
         self.root.destroy()
     
-    def start_starfire(self):
+    def start_starfire(self, automatic=False):
+        if not automatic:
+            self.user_stopped = False
+            self.restart_attempt = 0
+            if self.restart_after_id is not None:
+                self.root.after_cancel(self.restart_after_id)
+                self.restart_after_id = None
+
         host = self.host_entry.get().strip()
         
         is_valid, err_msg = validate_host(host)
         if not is_valid:
-            messagebox.showwarning("提示", f"服务器地址格式错误: {err_msg}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080")
+            self._message('showwarning', "提示", "Notice", "服务器地址格式错误: {error}\n\n正确格式示例:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080", "Invalid server URL: {error}\n\nExamples:\n• http://111.228.58.164\n• https://chat.example.com\n• http://123.12.1.123:8080", error=err_msg)
             return
-        
+
+        if not self.config.get('registered_models'):
+            self._message(
+                'showwarning', "请先配置模型", "Configure Models First",
+                "尚未选择要注册的模型。请先点击“模型配置”，选择至少一个模型并保存。",
+                "No models are selected. Open Model Configuration, select at least one model, and save."
+            )
+            return
+
         # 获取注册token
         token = self.get_register_token()
         if not token:
-            messagebox.showwarning("配置不完整", "请先登录以获取注册Token！")
+            self._message('showwarning', "配置不完整", "Incomplete Configuration", "请先登录以获取注册Token！", "Sign in to obtain a registration token.")
             return
         
         model_mode = self.model_mode_var.get()
-        
+
         if not host:
-            messagebox.showwarning("配置不完整", "请填写服务器地址！")
+            self._message('showwarning', "配置不完整", "Incomplete Configuration", "请填写服务器地址！", "Enter the server URL.")
             return
         
         # 代理模式需要额外检查配置
         if model_mode == 'proxy':
-            proxy_url = self.proxy_base_url_entry.get().strip()
-            proxy_key = self.proxy_api_key_entry.get().strip()
-            if not all([proxy_url, proxy_key]):
-                messagebox.showwarning("配置不完整", "代理模式需要配置 Base URL 和 API Key！")
+            proxy_backends = self.get_proxy_backends(enabled_only=True)
+            if not proxy_backends:
+                self._message('showwarning', "配置不完整", "Incomplete Configuration", "代理模式需要配置 Base URL 和 API Key！", "Proxy mode requires a Base URL and API Key.")
                 return
-            print("123 proxy_url:", proxy_url)
+            proxy_url = proxy_backends[0]['base_url']
+            proxy_key = proxy_backends[0]['api_key']
             is_valid, err_msg = validate_url(proxy_url)
             if not is_valid:
-                messagebox.showwarning("提示", f"Base URL格式错误: {err_msg}\n\n正确格式示例:\n• https://chat.example.com/v1\n• http://123.12.1.123:8080/v1\n• https://chat.example.com/v1/\n• http://123.12.1.123:8080/chat/v1/")
+                self._message('showwarning', "提示", "Notice", "Base URL格式错误: {error}\n\n正确格式示例:\n• https://chat.example.com/v1\n• http://123.12.1.123:8080/v1\n• https://chat.example.com/v1/\n• http://123.12.1.123:8080/chat/v1/", "Invalid Base URL: {error}\n\nExamples:\n• https://chat.example.com/v1\n• http://123.12.1.123:8080/v1\n• https://chat.example.com/v1/\n• http://123.12.1.123:8080/chat/v1/", error=err_msg)
                 return
         
         #starfire_exe = "starfire.exe" if platform.system() == "Windows" else "./starfire"
@@ -2093,28 +2380,25 @@ class StarFireAPP:
             starfire_exe = get_resource_path("starfire")
         
         if not os.path.exists(starfire_exe):
-            messagebox.showerror(
-                "文件不存在",
-                f"未找到 {starfire_exe}\n请将 starfire 可执行文件放在程序同一目录下"
-            )
+            self._message('showerror', "文件不存在", "File Not Found", "未找到 {path}\n请将 starfire 可执行文件放在程序同一目录下", "Could not find {path}\nPlace the starfire executable in the application folder.", path=starfire_exe)
             return
         
         try:
+            self._sync_form_to_config()
+            self.save_config(backup=False)
+
             # 基础命令参数（不传递ippm/oppm，价格由配置文件通过TCP发送）
             cmd = [
                 starfire_exe,
                 "-host", host,
-                "-token", token
+                "-token", token,
+                "-config", os.path.abspath(self.config_file)
             ]
             
             # 根据模型模式添加额外参数
             if model_mode == 'proxy':
-                proxy_url = self.proxy_base_url_entry.get().strip()
-                proxy_key = self.proxy_api_key_entry.get().strip()
                 cmd.extend([
-                    "-engine", "all",
-                    "-openai-url", proxy_url,
-                    "-openai-key", proxy_key
+                    "-engine", "all"
                 ])
             
             self.starfire_log("=" * 50, "blue")
@@ -2155,11 +2439,12 @@ class StarFireAPP:
                 )
             
             self.starfire_running = True
+            self.starfire_started_at = time.monotonic()
             
             self.start_starfire_btn.config(state=tk.DISABLED)
             self.stop_starfire_btn.config(state=tk.NORMAL)
             self.starfire_status_label.config(
-                text=" ● 运行中 ",
+                text=self._text(" ● 运行中 ", " ● Running "),
                 bg="#90EE90",
                 fg="darkgreen"
             )
@@ -2168,24 +2453,31 @@ class StarFireAPP:
             self.starfire_log("开始接收日志输出...\n", "gray")
             
             # 自动准备价格配置，starfire.exe通过TCP连接后会自动发送
+            if model_mode == 'proxy':
+                self.send_proxy_backends_to_starfire()
             self.send_prices_to_starfire()
             self.starfire_log("✓ 价格配置已准备，等待starfire.exe连接后自动同步", "blue")
             
-            threading.Thread(target=self._read_starfire_output, daemon=True).start()
+            threading.Thread(
+                target=self._read_starfire_output,
+                args=(self.starfire_process,),
+                daemon=True
+            ).start()
             
         except Exception as e:
             self.starfire_log(f"✗ 启动失败: {str(e)}", "red")
-            messagebox.showerror("启动失败", f"无法启动 Starfire:\n{str(e)}")
+            self._message('showerror', "启动失败", "Startup Failed", "无法启动 Starfire:\n{error}", "Could not start StarFire:\n{error}", error=str(e))
     
-    def _read_starfire_output(self):
+    def _read_starfire_output(self, process):
+        return_code = None
         try:
             if platform.system() == "Windows":
-                while self.starfire_running and self.starfire_process:
+                while self.starfire_running and process:
                     line_bytes = b''
-                    while self.starfire_running and self.starfire_process:
-                        byte = self.starfire_process.stdout.read(1)
+                    while self.starfire_running and process:
+                        byte = process.stdout.read(1)
                         if not byte:
-                            if self.starfire_process.poll() is not None:
+                            if process.poll() is not None:
                                 break
                             continue
                         
@@ -2224,11 +2516,11 @@ class StarFireAPP:
                             else:
                                 self.starfire_log(line)
                     
-                    if self.starfire_process.poll() is not None:
+                    if process.poll() is not None:
                         break
             else:
-                while self.starfire_running and self.starfire_process:
-                    line = self.starfire_process.stdout.readline()
+                while self.starfire_running and process:
+                    line = process.stdout.readline()
                     
                     if line:
                         line = line.rstrip()
@@ -2250,11 +2542,11 @@ class StarFireAPP:
                             self.starfire_log(line, "blue")
                         else:
                             self.starfire_log(line)
-                    elif self.starfire_process.poll() is not None:
+                    elif process.poll() is not None:
                         break
             
-            if self.starfire_process:
-                return_code = self.starfire_process.returncode
+            if process:
+                return_code = process.poll()
                 self.starfire_log("\n" + "=" * 50, "gray")
                 
                 if return_code == 0:
@@ -2268,8 +2560,33 @@ class StarFireAPP:
             self.starfire_log(f"\n✗ 读取输出时出错: {str(e)}", "red")
         finally:
             self.root.after(0, self._reset_starfire_ui)
+            if not self.user_stopped and return_code not in (None, 0):
+                self.root.after(0, self._schedule_starfire_restart)
+
+    def _schedule_starfire_restart(self):
+        if self.user_stopped or self.restart_after_id is not None:
+            return
+
+        if self.starfire_started_at and time.monotonic() - self.starfire_started_at >= 60:
+            self.restart_attempt = 0
+
+        delay = calculate_restart_delay(self.restart_attempt)
+        self.restart_attempt += 1
+        self.starfire_log(f"Starfire 进程异常退出，{delay} 秒后自动重启...", "orange")
+
+        def restart():
+            self.restart_after_id = None
+            if not self.user_stopped and not self.starfire_running:
+                self.start_starfire(automatic=True)
+
+        self.restart_after_id = self.root.after(delay * 1000, restart)
     
     def stop_starfire(self):
+        self.user_stopped = True
+        if self.restart_after_id is not None:
+            self.root.after_cancel(self.restart_after_id)
+            self.restart_after_id = None
+
         if self.starfire_process:
             try:
                 self.starfire_log("\n" + "=" * 50, "orange")
@@ -2299,6 +2616,14 @@ class StarFireAPP:
         """处理TCP服务器接收到的消息"""
         if msg_type == 'connect':
             self.starfire_log(f"🔗 {content}", "blue")
+
+            if self.pending_backend_message and self.tcp_server:
+                try:
+                    sent_count = self.tcp_server.send_to_all_clients(self.pending_backend_message)
+                    if sent_count > 0:
+                        self.starfire_log(f"📤 已发送代理后端配置到 {sent_count} 个客户端", "green")
+                except Exception as e:
+                    self.starfire_log(f"❌ 发送代理后端配置失败: {str(e)}", "red")
             
             # 当客户端连接时，如果有待发送的价格配置，立即发送
             if self.pending_price_message and self.tcp_server:
@@ -2337,7 +2662,7 @@ class StarFireAPP:
                     total = float(data.get('total_income', 0))
                     model = data.get('model', '')
                     usage = data.get('usage', {})
-                    currency = data.get('currency', '¥')
+                    currency = '¥'
                     
                     # 调试日志
                     self.starfire_log(f"🔍 解析收益: amount={amount}, total_income={total}", "gray")
@@ -2368,7 +2693,7 @@ class StarFireAPP:
                 # 兼容旧格式: 只有type和amount,没有total_income
                 elif 'type' in data and data['type'] == 'income' and 'total_income' not in data:
                     amount = data.get('amount', '0')
-                    currency = data.get('currency', '¥')
+                    currency = '¥'
                     message = data.get('message', '')
                     
                     # 更新累计收益
@@ -2410,6 +2735,7 @@ class StarFireAPP:
     
     def show_income_toast(self, amount, currency, model='', usage=None):
         """显示收益通知"""
+        currency = '¥'
         # 格式化金额显示
         if isinstance(amount, (int, float)):
             amount_str = f"{amount:.6f}" if amount < 0.01 else f"{amount:.2f}"
@@ -2468,7 +2794,7 @@ class StarFireAPP:
         self.start_starfire_btn.config(state=tk.NORMAL)
         self.stop_starfire_btn.config(state=tk.DISABLED)
         self.starfire_status_label.config(
-            text=" ● 未运行 ",
+            text=self._text(" ● 未运行 ", " ● Stopped "),
             bg="#D3D3D3",
             fg="gray"
         )
@@ -2492,7 +2818,7 @@ class StarFireAPP:
             if result.returncode == 0:
                 version = result.stdout.strip()
                 self.status_label.config(
-                    text=f"✓ Ollama 已安装 ({version})", 
+                    text=self._text("✓ Ollama 已安装 ({version})", "✓ Ollama installed ({version})", version=version),
                     foreground="green"
                 )
                 self.log(f"检测到 Ollama: {version}", "green")
@@ -2503,7 +2829,7 @@ class StarFireAPP:
             self.show_install_prompt()
         except Exception as e:
             self.status_label.config(
-                text=f"✗ 检查失败: {str(e)}", 
+                text=self._text("✗ 检查失败: {error}", "✗ Check failed: {error}", error=str(e)),
                 foreground="red"
             )
             self.log(f"错误: {str(e)}", "red")
@@ -2514,14 +2840,17 @@ class StarFireAPP:
             return
         
         self.status_label.config(
-            text="✗ 未检测到 Ollama", 
+            text=self._text("✗ 未检测到 Ollama", "✗ Ollama not detected"),
             foreground="red"
         )
         self.log("未检测到 Ollama 安装", "red")
         
-        response = messagebox.askyesno(
+        response = self._message(
+            'askyesno',
             "Ollama 未安装",
-            "未检测到 Ollama 安装。\n\n是否前往官网下载安装？"
+            "Ollama Not Installed",
+            "未检测到 Ollama 安装。\n\n是否前往官网下载安装？",
+            "Ollama was not detected.\n\nOpen the official download page?"
         )
         
         if response:
@@ -2614,7 +2943,7 @@ class StarFireAPP:
                 models = [name for name, engine in all_models.items() if engine == 'openai']
                 if not models:
                     self.log("代理模式下未获取到模型", "orange")
-                    messagebox.showinfo("提示", "代理模式未获取到模型\n请检查 Base URL 与 API Key")
+                    self._message('showinfo', "提示", "Notice", "代理模式未获取到模型\n请检查 Base URL 与 API Key", "No proxy models were returned.\nCheck the Base URL and API Key.")
                     return
 
                 category_count = {}
@@ -2656,7 +2985,7 @@ class StarFireAPP:
                     
                     if len(lines) <= 1:
                         self.log("未找到已安装的模型", "orange")
-                        messagebox.showinfo("提示", "未找到已安装的模型\n请先使用 'ollama pull <model>' 下载模型")
+                        self._message('showinfo', "提示", "Notice", "未找到已安装的模型\n请先使用 'ollama pull <model>' 下载模型", "No installed models found.\nUse 'ollama pull <model>' to download one.")
                         return
                     
                     category_count = {}
@@ -2694,17 +3023,17 @@ class StarFireAPP:
                 else:
                     error_msg = result.stderr.strip()
                     self.log(f"获取模型列表失败: {error_msg}", "red")
-                    messagebox.showerror("错误", f"获取模型列表失败:\n{error_msg}")
+                    self._message('showerror', "错误", "Error", "获取模型列表失败:\n{error}", "Failed to load models:\n{error}", error=error_msg)
         
         except Exception as e:
             self.log(f"加载模型列表时出错: {str(e)}", "red")
-            messagebox.showerror("错误", f"加载模型列表失败:\n{str(e)}")
+            self._message('showerror', "错误", "Error", "加载模型列表失败:\n{error}", "Failed to load models:\n{error}", error=str(e))
     
     def run_model(self):
         selection = self.model_tree.selection()
         
         if not selection:
-            messagebox.showwarning("提示", "请先选择一个模型")
+            self._message('showwarning', "提示", "Notice", "请先选择一个模型", "Select a model first.")
             return
         
         item = self.model_tree.item(selection[0])
@@ -2712,7 +3041,7 @@ class StarFireAPP:
         category = item['values'][0]
         
         if model_name in self.running_models:
-            messagebox.showinfo("提示", f"模型 {model_name} 已经在运行中")
+            self._message('showinfo', "提示", "Notice", "模型 {model} 已经在运行中", "Model {model} is already running.", model=model_name)
             return
         
         self.log(f"\n{'='*50}", "blue")
@@ -2768,14 +3097,14 @@ class StarFireAPP:
         selection = self.model_tree.selection()
         
         if not selection:
-            messagebox.showwarning("提示", "请先选择一个模型")
+            self._message('showwarning', "提示", "Notice", "请先选择一个模型", "Select a model first.")
             return
         
         item = self.model_tree.item(selection[0])
         model_name = item['values'][1]
         
         if model_name not in self.running_models:
-            messagebox.showinfo("提示", f"模型 {model_name} 未在运行中")
+            self._message('showinfo', "提示", "Notice", "模型 {model} 未在运行中", "Model {model} is not running.", model=model_name)
             return
         
         try:
@@ -2812,7 +3141,7 @@ class StarFireAPP:
         host = self.host_entry.get().strip()
         
         if not host:
-            messagebox.showwarning("提示", "请先填写服务器地址！")
+            self._message('showwarning', "提示", "Notice", "请先填写服务器地址！", "Enter the server URL first.")
             return
         
         # 动态拼接URL

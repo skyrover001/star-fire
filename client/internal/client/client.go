@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"slices"
 	"star-fire/client/internal/config"
 	"star-fire/client/internal/inference"
 	"star-fire/client/internal/inference/ollama"
@@ -25,10 +26,13 @@ import (
 type Client struct {
 	ID              string `json:"id"`
 	engines         []inference.Engine
+	enginesMu       sync.RWMutex
+	lifecycleMu     sync.Mutex
 	controlConn     *websocket.Conn
 	starFireHost    string
 	joinToken       string
 	Models          []*public.Model `json:"models"`
+	modelsMu        sync.RWMutex
 	ctx             context.Context
 	cancel          context.CancelFunc
 	cfg             *config.Config
@@ -39,6 +43,8 @@ type Client struct {
 	}
 	AppClient net.Conn
 	wsMu      sync.Mutex // 保护 WebSocket 并发写入
+	routingMu sync.Mutex
+	routingRR map[string]int
 }
 
 func NewClient(cfg *config.Config) (*Client, error) {
@@ -50,6 +56,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		cancel:       cancel,
 		engines:      []inference.Engine{},
 		Models:       []*public.Model{},
+		routingRR:    make(map[string]int),
 		cfg:          cfg,
 		ModelPriceScope: make(map[string]struct {
 			inputPriceMax       float64
@@ -103,14 +110,9 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 		c.engines = append(c.engines, ollamaEngine)
 
 	case "openai":
-		if cfg.OpenAIKey == "" {
-			return fmt.Errorf("not set OpenAIKey")
+		if err := c.initializeProxyEngines(cfg); err != nil {
+			return err
 		}
-		openaiEngine, err := openai.NewEngine(c.ctx, cfg.OpenAIKey, cfg.OpenAIBaseURL, cfg)
-		if err != nil {
-			return fmt.Errorf("init openai engine error: %w", err)
-		}
-		c.engines = append(c.engines, openaiEngine)
 
 		// 如果不是 OpenAIOnly 模式，也尝试初始化本地 Ollama 引擎
 		if !cfg.OpenAIOnly {
@@ -128,12 +130,9 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 
 	case "all":
 		// 先初始化 OpenAI（如果配置了）
-		if cfg.OpenAIKey != "" {
-			openaiEngine, err := openai.NewEngine(c.ctx, cfg.OpenAIKey, cfg.OpenAIBaseURL, cfg)
-			if err != nil {
-				log.Printf("init openai engine error: %v", err)
-			} else {
-				c.engines = append(c.engines, openaiEngine)
+		if cfg.OpenAIKey != "" || len(cfg.ProxyBackends) > 0 {
+			if err := c.initializeProxyEngines(cfg); err != nil {
+				log.Printf("init proxy engines error: %v", err)
 			}
 		}
 
@@ -160,80 +159,105 @@ func (c *Client) initializeEngines(cfg *config.Config) error {
 	return nil
 }
 
-func (c *Client) refreshModels() error {
-	// 创建一个 map 来快速查找现有模型（使用 engine+model 作为 key）
-	existingModels := make(map[string]*public.Model)
-	for _, model := range c.Models {
-		key := fmt.Sprintf("%s:%s", model.Engine, model.Name)
-		existingModels[key] = model
+func (c *Client) initializeProxyEngines(cfg *config.Config) error {
+	backends := cfg.ProxyBackends
+	if len(backends) == 0 {
+		backends = []config.ProxyBackend{{
+			Name: "default", BaseURL: cfg.OpenAIBaseURL, APIKey: cfg.OpenAIKey, Enabled: true,
+		}}
 	}
 
+	engines, err := c.buildProxyEngines(cfg, backends)
+	if err != nil {
+		return err
+	}
+	c.engines = append(c.engines, engines...)
+	return nil
+}
+
+func (c *Client) buildProxyEngines(cfg *config.Config, backends []config.ProxyBackend) ([]inference.Engine, error) {
+	engines := make([]inference.Engine, 0, len(backends))
+	for _, backend := range backends {
+		if !backend.Enabled || backend.BaseURL == "" || backend.APIKey == "" {
+			continue
+		}
+		baseURL := strings.TrimRight(backend.BaseURL, "/")
+		if !strings.HasSuffix(baseURL, "/v1") {
+			baseURL += "/v1"
+		}
+		engine, err := openai.NewEngine(c.ctx, backend.APIKey, baseURL, cfg)
+		if err != nil {
+			log.Printf("init proxy backend %q error: %v", backend.Name, err)
+			continue
+		}
+		engines = append(engines, engine)
+	}
+	if len(engines) == 0 {
+		return nil, fmt.Errorf("no proxy backend available")
+	}
+	return engines, nil
+}
+
+func (c *Client) refreshModels() error {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+	return c.refreshModelsLocked()
+}
+
+func (c *Client) refreshModelsLocked() error {
 	// 收集所有引擎的新模型列表
 	newModels := make([]*public.Model, 0)
-	newModelKeys := make(map[string]bool)
+	discoveredNames := make(map[string]struct{})
+	registeredNames := make(map[string]struct{}, len(c.cfg.RegisteredModels))
+	discoverySucceeded := false
+	for _, name := range c.cfg.RegisteredModels {
+		registeredNames[name] = struct{}{}
+	}
 
-	log.Println("c.engines:", c.engines, len(c.engines))
-	for _, engine := range c.engines {
+	c.enginesMu.RLock()
+	engines := append([]inference.Engine(nil), c.engines...)
+	c.enginesMu.RUnlock()
+	log.Println("c.engines:", engines, len(engines))
+	for _, engine := range engines {
 		models, err := engine.ListModels(c.ctx, c.cfg)
 		if err != nil {
 			log.Printf("get models from %s error: %v", engine.Name(), err)
 			continue
 		}
+		discoverySucceeded = true
 
 		// 为每个模型检查是否支持embedding
 		for _, model := range models {
-			key := fmt.Sprintf("%s:%s", model.Engine, model.Name)
-			newModelKeys[key] = true
-
+			if _, selected := registeredNames[model.Name]; !selected {
+				continue
+			}
+			if _, exists := discoveredNames[model.Name]; exists {
+				continue
+			}
+			discoveredNames[model.Name] = struct{}{}
 			// 标记embedding支持
 			if c.isEmbeddingModel(model.Name) && c.engineSupportsEmbedding(engine, model.Name) {
 				log.Printf("Found embedding model: %s from engine: %s", model.Name, engine.Name())
 				model.Type = "embedding" // 设置模型类型为embedding
 			}
 
-			// 检查是否已存在该模型
-			if existingModel, exists := existingModels[key]; exists {
-				// 模型已存在，保留价格信息，更新其他信息
-				log.Printf("🔄 Updating existing model: %s/%s (preserving prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
-					model.Engine, model.Name, existingModel.IPPM, existingModel.OPPM, existingModel.CIPPM)
-
-				// 保留价格信息
-				model.IPPM = existingModel.IPPM
-				model.OPPM = existingModel.OPPM
-				model.CIPPM = existingModel.CIPPM
-			} else {
-				// 新模型，检查是否有配置文件中的单独定价
-				if price, ok := c.cfg.ModelPrices[model.Name]; ok {
-					model.IPPM = price.InputPrice
-					model.OPPM = price.OutputPrice
-					model.CIPPM = price.CachedInputPrice
-					log.Printf("➕ New model discovered: %s/%s (config prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
-						model.Engine, model.Name, model.IPPM, model.OPPM, model.CIPPM)
-				} else {
-					// 新模型，使用默认价格
-					log.Printf("➕ New model discovered: %s/%s (default prices: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
-						model.Engine, model.Name, model.IPPM, model.OPPM, model.CIPPM)
-				}
-			}
-
 			newModels = append(newModels, model)
 		}
 	}
-
-	// 检查被移除的模型
-	for key, model := range existingModels {
-		if !newModelKeys[key] {
-			log.Printf("➖ Model removed: %s/%s", model.Engine, model.Name)
-		}
+	if !discoverySucceeded && len(registeredNames) > 0 {
+		log.Println("⚠️ Model discovery failed for all engines; preserving current model list")
+		return nil
 	}
 
-	// 更新模型列表
-	c.Models = newModels
+	c.modelsMu.Lock()
+	c.Models = mergeModelPrices(c.Models, newModels, c.cfg)
+	modelCount := len(c.Models)
+	c.modelsMu.Unlock()
 
 	if c.cfg.OpenAIOnly {
-		log.Printf("📊 OpenAI-only mode: discovered %d models (OpenAI + running local models)", len(c.Models))
+		log.Printf("📊 OpenAI-only mode: discovered %d models (OpenAI + running local models)", modelCount)
 	} else {
-		log.Printf("📊 Discovery %d models (including all local models)", len(c.Models))
+		log.Printf("📊 Discovery %d models (including all local models)", modelCount)
 	}
 
 	// 记录发现的embedding模型
@@ -247,6 +271,42 @@ func (c *Client) refreshModels() error {
 	log.Printf("Total embedding models found: %d", embeddingCount)
 
 	return nil
+}
+
+func mergeModelPrices(existing, discovered []*public.Model, cfg *config.Config) []*public.Model {
+	existingModels := make(map[string]*public.Model, len(existing))
+	for _, model := range existing {
+		existingModels[model.Name] = model
+	}
+
+	for _, model := range discovered {
+		if price, ok := cfg.ModelPrices[model.Name]; ok {
+			model.IPPM = price.InputPrice
+			model.OPPM = price.OutputPrice
+			model.CIPPM = price.CachedInputPrice
+		} else if current, ok := existingModels[model.Name]; ok {
+			model.IPPM = current.IPPM
+			model.OPPM = current.OPPM
+			model.CIPPM = current.CIPPM
+		} else {
+			model.IPPM = cfg.InputTokenPricePerMillion
+			model.OPPM = cfg.OutputTokenPricePerMillion
+			model.CIPPM = cfg.CachedInputTokenPricePerMillion
+		}
+	}
+	return discovered
+}
+
+func (c *Client) modelsSnapshot() []*public.Model {
+	c.modelsMu.RLock()
+	defer c.modelsMu.RUnlock()
+
+	models := make([]*public.Model, 0, len(c.Models))
+	for _, model := range c.Models {
+		copy := *model
+		models = append(models, &copy)
+	}
+	return models
 }
 
 // isEmbeddingModel 检查模型名称是否为embedding模型
@@ -364,17 +424,69 @@ func (c *Client) engineSupportsEmbedding(engine inference.Engine, modelName stri
 }
 
 func (c *Client) findEngineForModel(modelName string) (inference.Engine, error) {
-	for _, engine := range c.engines {
+	c.enginesMu.RLock()
+	engines := append([]inference.Engine(nil), c.engines...)
+	c.enginesMu.RUnlock()
+	var candidates []inference.Engine
+	for _, engine := range engines {
 		if engine.SupportsModel(modelName, c.cfg) {
-			return engine, nil
+			candidates = append(candidates, engine)
+		}
+	}
+	if len(candidates) == 0 {
+		return nil, fmt.Errorf("no engine supports model: %s", modelName)
+	}
+
+	c.routingMu.Lock()
+	index := c.routingRR[modelName] % len(candidates)
+	c.routingRR[modelName] = (index + 1) % len(candidates)
+	c.routingMu.Unlock()
+	return candidates[index], nil
+}
+
+func (c *Client) applyProxyBackends(backends []config.ProxyBackend) error {
+	c.lifecycleMu.Lock()
+	defer c.lifecycleMu.Unlock()
+
+	if slices.Equal(c.cfg.ProxyBackends, backends) {
+		log.Printf("proxy backend configuration unchanged; skipping rebuild")
+		return nil
+	}
+
+	proxyEngines := make([]inference.Engine, 0)
+	if len(backends) > 0 {
+		var err error
+		proxyEngines, err = c.buildProxyEngines(c.cfg, backends)
+		if err != nil {
+			return err
 		}
 	}
 
-	return nil, fmt.Errorf("no enging support model: %s", modelName)
+	c.enginesMu.Lock()
+	engines := make([]inference.Engine, 0, len(c.engines)+len(proxyEngines))
+	for _, engine := range c.engines {
+		if engine.Name() != "openai" {
+			engines = append(engines, engine)
+		}
+	}
+	c.engines = append(engines, proxyEngines...)
+	c.enginesMu.Unlock()
+
+	c.cfg.ProxyBackends = append([]config.ProxyBackend(nil), backends...)
+	c.routingMu.Lock()
+	c.routingRR = make(map[string]int)
+	c.routingMu.Unlock()
+	if err := c.refreshModelsLocked(); err != nil {
+		return err
+	}
+	c.pushModelUpdate()
+	return nil
 }
 
 // SetModelPrice 设置模型价格信息，支持按模型定价
 func (c *Client) SetModelPrice(engine string, inputTokenPrice float64, outputTokenPrice float64, cachedInputTokenPrice float64, modelName string) interface{} {
+	c.modelsMu.Lock()
+	defer c.modelsMu.Unlock()
 	type TIP struct {
 		InputPrice       float64 `json:"inputPriceMax"`
 		OutputPrice      float64 `json:"outputPriceMax"`
@@ -451,6 +563,15 @@ func (c *Client) SetModelPrice(engine string, inputTokenPrice float64, outputTok
 
 			log.Printf("✅ Model price updated: %s/%s (new: ippm=%.6f, oppm=%.6f, cippm=%.6f)",
 				engine, modelName, c.Models[i].IPPM, c.Models[i].OPPM, c.Models[i].CIPPM)
+			if c.cfg.ModelPrices == nil {
+				c.cfg.ModelPrices = make(map[string]config.ModelPrice)
+			}
+			c.cfg.ModelPrices[modelName] = config.ModelPrice{
+				Engine:           engine,
+				InputPrice:       c.Models[i].IPPM,
+				OutputPrice:      c.Models[i].OPPM,
+				CachedInputPrice: c.Models[i].CIPPM,
+			}
 			break
 		}
 	}
@@ -475,29 +596,30 @@ func (c *Client) getModelPriceScope(modelName string) (float64, float64, float64
 
 // pushModelUpdate 主动推送模型价格更新到 server（不等心跳）
 func (c *Client) pushModelUpdate() {
+	c.wsMu.Lock()
+	defer c.wsMu.Unlock()
 	if c.controlConn == nil {
 		log.Println("⚠️ WebSocket not connected, skip pushing model update")
 		return
 	}
 
+	models := c.modelsSnapshot()
 	pong := public.PPMessage{
 		Type:            public.PONG,
-		Timestamp:       strconv.Itoa(int(time.Now().Unix())),
-		AvailableModels: c.Models,
+		Timestamp:       strconv.FormatInt(time.Now().UnixMilli(), 10),
+		AvailableModels: models,
 	}
 	response := public.WSMessage{
 		Type:    public.KEEPALIVE,
 		Content: pong,
 	}
 
-	c.wsMu.Lock()
 	err := c.controlConn.WriteJSON(response)
-	c.wsMu.Unlock()
 
 	if err != nil {
 		log.Printf("❌ Push model update error: %v", err)
 	} else {
-		log.Printf("✅ Pushed model price update to server (%d models)", len(c.Models))
+		log.Printf("✅ Pushed model price update to server (%d models)", len(models))
 	}
 }
 
@@ -505,6 +627,9 @@ func (c *Client) pushModelUpdate() {
 func (c *Client) WriteWSMessage(msg public.WSMessage) error {
 	c.wsMu.Lock()
 	defer c.wsMu.Unlock()
+	if c.controlConn == nil {
+		return fmt.Errorf("WebSocket not connected")
+	}
 	return c.controlConn.WriteJSON(msg)
 }
 
@@ -577,12 +702,15 @@ func (c *Client) Close() error {
 	}
 
 	// 关闭 WebSocket 连接
+	c.wsMu.Lock()
 	if c.controlConn != nil {
 		if err := c.controlConn.Close(); err != nil {
 			errors = append(errors, fmt.Errorf("close WebSocket connection error: %w", err))
 		}
+		c.controlConn = nil
 		log.Println("WebSocket connection closed")
 	}
+	c.wsMu.Unlock()
 
 	if len(errors) > 0 {
 		return fmt.Errorf("close client errors: %v", errors)
@@ -721,13 +849,37 @@ func (c *Client) receiveTCPMessages() {
 // handleTCPMessage 处理接收到的TCP消息
 func (c *Client) handleTCPMessage(data []byte) {
 	// 尝试解析为模型价格消息
-	log.Printf("📥 Received TCP message: %s", string(data))
 	// 定义完整的消息结构
 	type TcpMessageWithPrices struct {
 		Type      string              `json:"type"`
 		Data      []ModelPriceMessage `json:"data"`
 		TimeStamp int64               `json:"timestamp"`
 		ID        string              `json:"id"`
+	}
+	type tcpMessageType struct {
+		Type string `json:"type"`
+	}
+	var envelope tcpMessageType
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		log.Printf("unmarshal TCP message error: %v", err)
+		return
+	}
+	log.Printf("📥 Received TCP message: type=%s", envelope.Type)
+	if envelope.Type == "proxy_backends" {
+		var message struct {
+			Type string                `json:"type"`
+			Data []config.ProxyBackend `json:"data"`
+		}
+		if err := json.Unmarshal(data, &message); err != nil {
+			log.Printf("unmarshal proxy backends error: %v", err)
+			return
+		}
+		if err := c.applyProxyBackends(message.Data); err != nil {
+			log.Printf("apply proxy backends error: %v", err)
+			return
+		}
+		log.Printf("applied %d proxy backend configurations", len(message.Data))
+		return
 	}
 
 	var messages TcpMessageWithPrices
@@ -744,7 +896,8 @@ func (c *Client) handleTCPMessage(data []byte) {
 	log.Printf("Processing price config: ID=%s, Timestamp=%d, Models=%d",
 		messages.ID, messages.TimeStamp, len(messages.Data))
 
-	// 更新每个模型的价格
+	registeredModels := make([]string, 0, len(messages.Data))
+	modelPrices := make(map[string]config.ModelPrice, len(messages.Data))
 	for _, priceMsg := range messages.Data {
 		// 验证消息字段
 		if priceMsg.Engine == "" || priceMsg.Model == "" {
@@ -752,17 +905,21 @@ func (c *Client) handleTCPMessage(data []byte) {
 			continue
 		}
 
-		log.Printf("📊 Updating price: engine=%s, model=%s, ippm=%.6f, oppm=%.6f, cippm=%.6f",
-			priceMsg.Engine, priceMsg.Model, priceMsg.InputPrice, priceMsg.OutputPrice, priceMsg.CachedInputPrice)
-
-		// 调用 SetModelPrice 方法更新价格
-		result := c.SetModelPrice(priceMsg.Engine, priceMsg.InputPrice, priceMsg.OutputPrice, priceMsg.CachedInputPrice, priceMsg.Model)
-		if result != nil {
-			log.Printf("✓ Model price updated: %s/%s - %v", priceMsg.Engine, priceMsg.Model, result)
-		} else {
-			log.Printf("✓ Model price updated: %s/%s", priceMsg.Engine, priceMsg.Model)
+		registeredModels = append(registeredModels, priceMsg.Model)
+		modelPrices[priceMsg.Model] = config.ModelPrice{
+			Engine: priceMsg.Engine, InputPrice: priceMsg.InputPrice,
+			OutputPrice: priceMsg.OutputPrice, CachedInputPrice: priceMsg.CachedInputPrice,
 		}
 	}
+	c.lifecycleMu.Lock()
+	c.cfg.RegisteredModels = registeredModels
+	c.cfg.ModelPrices = modelPrices
+	if err := c.refreshModelsLocked(); err != nil {
+		c.lifecycleMu.Unlock()
+		log.Printf("refresh selected models error: %v", err)
+		return
+	}
+	c.lifecycleMu.Unlock()
 
 	log.Printf("✅ Price configuration applied successfully for %d models", len(messages.Data))
 

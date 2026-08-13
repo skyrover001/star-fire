@@ -42,12 +42,15 @@ MaaS层个人算力服务平台
 
    **通过配置文件设置每个模型的价格**
 
-   客户端默认读取当前目录下的 `starfire_config.json`，也可用 `-config` 指定路径。配置文件支持为每个模型单独设置价格：
+   客户端默认读取当前目录下的 `starfire_config.json`，也可用 `-config` 指定路径。除模型价格外，`host`、`token`、`engine` 以及 OpenAI/代理密钥也可写入配置文件，从而减少命令行必填参数（只需 `-config` 即可启动）：
 
    ```json
    {
      "host": "http://your-server.com",
      "token": "your-registration-token",
+     "engine": "openai",
+     "proxy_base_url": "https://api.openai.com/v1",
+     "proxy_api_key": "sk-your-api-key",
      "ippm": "3.8",
      "oppm": "8.3",
      "model_prices": {

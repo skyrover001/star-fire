@@ -29,7 +29,6 @@ func NewClientHandler(server *models.Server, registerTokenService *service.Regis
 // RegisterClient
 func (h *ClientHandler) RegisterClient(c *gin.Context) {
 	tokenString := c.GetHeader("X-Registration-Token")
-	log.Printf("Token from server: %s", tokenString)
 	id := c.Param("id")
 
 	if tokenString == "" {
@@ -37,8 +36,8 @@ func (h *ClientHandler) RegisterClient(c *gin.Context) {
 		return
 	}
 	user, err := h.registerTokenService.ValidateRegisterToken(tokenString)
-	fmt.Println("user:", user, "err:", err, " id:", id, " token:", tokenString)
 	if err != nil {
+		log.Printf("registration token validation failed for client %s: %v", id, err)
 		c.JSON(401, gin.H{"error": "Invalid registration token: " + err.Error()})
 		return
 	}
