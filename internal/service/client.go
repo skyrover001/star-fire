@@ -49,11 +49,13 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				client.Status = "offline"
 				return
 			}
+			pingTime := time.Now().UnixMilli()
+			client.LastPingTime = pingTime
 			err := client.ControlConn.WriteJSON(public.WSMessage{
 				Type: public.KEEPALIVE,
 				Content: public.PPMessage{
 					Type:      public.PING,
-					Timestamp: strconv.Itoa(int(time.Now().UnixMilli())),
+					Timestamp: strconv.Itoa(int(pingTime)),
 				},
 			})
 			client.ControlConnMutex.Unlock()
@@ -71,13 +73,13 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				return
 			}
 
-			end := time.Now()
-			timestamp, _ := strconv.ParseInt(pong.Timestamp, 10, 64)
-			latency := end.UnixMilli() - timestamp
-			client.Latency = int(latency)
-			fmt.Println("Client latency (ms):", client.Latency)
+			latency, isHeartbeatResponse := heartbeatLatency(client, pong)
+			if isHeartbeatResponse {
+				client.SetLatency(int(latency))
+				fmt.Println("Client latency (ms):", client.GetLatency())
+			}
 
-			if latency > public.MAXLATENCE {
+			if isHeartbeatResponse && latency > public.MAXLATENCE {
 				log.Println("Client latency is too high, closing connection")
 				client.ControlConnMutex.Lock()
 				if client.ControlConn != nil {
@@ -86,42 +88,49 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				client.ControlConnMutex.Unlock()
 				client.Status = "offline"
 				return
-			} else {
-				client.Models = pong.AvailableModels
-				var trends []*models.Trend
-				for _, m := range client.Models {
-					if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
-						log.Printf("warning: model %s OPPM %.6f exceeds platform limit %.6f", m.Name, m.OPPM, server.Conf.AllModelOutPutMaxPrice)
-					}
-					if m.IPPM > server.Conf.AllModelInputMaxPrice {
-						log.Printf("warning: model %s IPPM %.6f exceeds platform limit %.6f", m.Name, m.IPPM, server.Conf.AllModelInputMaxPrice)
-					}
-					server.RegisterModel(m, client)
-					fmt.Println("Client available model:", m.Name, m)
-					// add trend for client keep alive
-					trends = append(trends, &models.Trend{
-						Name:        fmt.Sprintf("%s_%s", client.User.Username, "keep alive model: "+m.Name),
-						Description: "用户 " + client.User.Username + " 保持模型: " + m.Name + " 在线",
-						CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
-						UpdatedAt:   "",
-						DeletedAt:   "",
-						Active:      true,
-						User:        client.User,
-					})
-				}
-				// batch save all trends in a single transaction (throttled: every 60s)
-				if time.Since(lastTrendSave) >= 60*time.Second && len(trends) > 0 {
-					if err := server.TrendDB.SaveTrends(trends); err != nil {
-						log.Println("Error saving trends:", err)
-					} else {
-						log.Printf("Trends saved successfully: %d records", len(trends))
-					}
-					lastTrendSave = time.Now()
-				}
-				client.Status = "online"
 			}
+
+			client.Models = pong.AvailableModels
+			var trends []*models.Trend
+			for _, m := range client.Models {
+				if m.OPPM > server.Conf.AllModelOutPutMaxPrice {
+					log.Printf("warning: model %s OPPM %.6f exceeds platform limit %.6f", m.Name, m.OPPM, server.Conf.AllModelOutPutMaxPrice)
+				}
+				if m.IPPM > server.Conf.AllModelInputMaxPrice {
+					log.Printf("warning: model %s IPPM %.6f exceeds platform limit %.6f", m.Name, m.IPPM, server.Conf.AllModelInputMaxPrice)
+				}
+				server.RegisterModel(m, client)
+				fmt.Println("Client available model:", m.Name, m)
+				// add trend for client keep alive
+				trends = append(trends, &models.Trend{
+					Name:        fmt.Sprintf("%s_%s", client.User.Username, "keep alive model: "+m.Name),
+					Description: "用户 " + client.User.Username + " 保持模型: " + m.Name + " 在线",
+					CreatedAt:   time.Now().Format("2006-01-02 15:04:05"),
+					UpdatedAt:   "",
+					DeletedAt:   "",
+					Active:      true,
+					User:        client.User,
+				})
+			}
+			// batch save all trends in a single transaction (throttled: every 60s)
+			if time.Since(lastTrendSave) >= 60*time.Second && len(trends) > 0 {
+				if err := server.TrendDB.SaveTrends(trends); err != nil {
+					log.Println("Error saving trends:", err)
+				} else {
+					log.Printf("Trends saved successfully: %d records", len(trends))
+				}
+				lastTrendSave = time.Now()
+			}
+			client.Status = "online"
 		}
 	}
+}
+
+func heartbeatLatency(client *models.Client, pong *public.PPMessage) (int64, bool) {
+	if client.LastPingTime <= 0 || pong.Timestamp != strconv.FormatInt(client.LastPingTime, 10) {
+		return 0, false
+	}
+	return time.Now().UnixMilli() - client.LastPingTime, true
 }
 
 // handle client messages
@@ -178,37 +187,8 @@ func handleKeepAliveMessage(client *models.Client, message public.WSMessage) {
 			log.Println("Error mapping content to PPMessage struct:", err)
 			return
 		}
-
-		timestamp, err := strconv.ParseInt(pong.Timestamp, 10, 64)
-		if err != nil {
-			log.Println("Error parsing pong.Timestamp:", err)
-			return
-		}
-		timestamp = normalizeUnixMillis(timestamp)
-
-		client.Latency = int(time.Now().UnixMilli() - timestamp)
-		if client.Latency > public.MAXLATENCE {
-			log.Printf("Client latency is too high (%dms), closing connection", client.Latency)
-			client.ControlConnMutex.Lock()
-			if client.ControlConn != nil {
-				client.ControlConn.Close()
-			}
-			client.ControlConnMutex.Unlock()
-			client.Status = "offline"
-			return
-		}
-
-		pong.Timestamp = strconv.Itoa(int(time.Now().UnixMilli()))
-		pong.Type = public.PONG
 		client.PongChan <- &pong
 	}
-}
-
-func normalizeUnixMillis(timestamp int64) int64 {
-	if timestamp > 0 && timestamp < 1_000_000_000_000 {
-		return timestamp * 1000
-	}
-	return timestamp
 }
 
 // handle client register message

@@ -1,4 +1,6 @@
 import json
+import os
+import tempfile
 import unittest
 from unittest import mock
 
@@ -7,6 +9,25 @@ import star_fire
 
 
 class I18nTests(unittest.TestCase):
+    def test_save_config_preserves_replacement_token_from_child_process(self):
+        app = object.__new__(star_fire.StarFireAPP)
+        app.config = {'token': 'old-token', 'host': 'http://example.test'}
+        app.original_config = app.config.copy()
+        app.log = mock.Mock()
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            app.config_file = os.path.join(temp_dir, 'starfire_config.json')
+            with open(app.config_file, 'w', encoding='utf-8') as config_file:
+                json.dump({'token': 'replacement-token', 'host': 'http://example.test'}, config_file)
+
+            app.save_config(backup=False)
+
+            with open(app.config_file, 'r', encoding='utf-8') as config_file:
+                saved = json.load(config_file)
+
+        self.assertEqual(saved['token'], 'replacement-token')
+        self.assertEqual(app.config['token'], 'replacement-token')
+
     def test_income_message_currency_is_normalized_to_rmb(self):
         self.assertEqual(
             star_fire.parse_income_message('income: 1.25 USD'),

@@ -169,6 +169,9 @@ func (c *Client) handleKeepAlive(message public.WSMessage) {
 func (c *Client) handleReconnect(message public.WSMessage) {
 	log.Println("received replacement registration credential")
 	c.cfg.JoinToken = message.FingerPrint
+	if err := config.SaveJoinToken(c.cfg.ConfigFile, message.FingerPrint); err != nil {
+		log.Printf("persist replacement registration credential failed: %v", err)
+	}
 }
 
 func (c *Client) handleModelPriceUpdate(message public.WSMessage) {

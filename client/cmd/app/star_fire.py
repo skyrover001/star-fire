@@ -684,6 +684,15 @@ class StarFireAPP:
     
     def save_config(self, backup=True):
         try:
+            if os.path.exists(self.config_file):
+                try:
+                    with open(self.config_file, 'r', encoding='utf-8') as f:
+                        disk_token = json.load(f).get('token')
+                    if disk_token:
+                        self.config['token'] = disk_token
+                except (OSError, ValueError, TypeError):
+                    pass
+
             # 仅在手动保存时备份配置到历史目录
             # 判断是否是自动保存(通过检查调用栈)
             import traceback

@@ -1,23 +1,29 @@
 package service
 
-import "testing"
+import (
+	"strconv"
+	"testing"
+	"time"
 
-func TestNormalizeUnixMillis(t *testing.T) {
-	tests := []struct {
-		name      string
-		timestamp int64
-		want      int64
-	}{
-		{name: "seconds", timestamp: 1_786_586_146, want: 1_786_586_146_000},
-		{name: "milliseconds", timestamp: 1_786_586_146_123, want: 1_786_586_146_123},
-		{name: "zero", timestamp: 0, want: 0},
+	"star-fire/internal/models"
+	"star-fire/pkg/public"
+)
+
+func TestHeartbeatLatencyIgnoresUnsolicitedModelUpdate(t *testing.T) {
+	client := &models.Client{}
+	pong := &public.PPMessage{Timestamp: strconv.FormatInt(time.Now().UnixMilli(), 10)}
+
+	if latency, matched := heartbeatLatency(client, pong); matched || latency != 0 {
+		t.Fatalf("unsolicited model update matched heartbeat: latency=%d matched=%v", latency, matched)
 	}
+}
 
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			if got := normalizeUnixMillis(test.timestamp); got != test.want {
-				t.Fatalf("normalizeUnixMillis(%d) = %d, want %d", test.timestamp, got, test.want)
-			}
-		})
+func TestHeartbeatLatencyMatchesCurrentPing(t *testing.T) {
+	client := &models.Client{LastPingTime: time.Now().Add(-10 * time.Millisecond).UnixMilli()}
+	pong := &public.PPMessage{Timestamp: strconv.FormatInt(client.LastPingTime, 10)}
+
+	latency, matched := heartbeatLatency(client, pong)
+	if !matched || latency < 0 || latency > 1000 {
+		t.Fatalf("current heartbeat not matched: latency=%d matched=%v", latency, matched)
 	}
 }
