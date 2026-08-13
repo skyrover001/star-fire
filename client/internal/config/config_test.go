@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/json"
 	"flag"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
 )
 
@@ -14,6 +16,29 @@ func writeTestConfig(t *testing.T, content string) string {
 		t.Fatalf("write config: %v", err)
 	}
 	return path
+}
+
+func TestSaveJoinTokenPreservesOtherSettings(t *testing.T) {
+	configPath := writeTestConfig(t, `{"token":"old-token","host":"https://server.test","registered_models":["model-a"]}`)
+
+	if err := SaveJoinToken(configPath, "new-token"); err != nil {
+		t.Fatalf("save join token: %v", err)
+	}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		t.Fatalf("read config: %v", err)
+	}
+	var saved struct {
+		Token            string   `json:"token"`
+		Host             string   `json:"host"`
+		RegisteredModels []string `json:"registered_models"`
+	}
+	if err := json.Unmarshal(data, &saved); err != nil {
+		t.Fatalf("parse saved config: %v", err)
+	}
+	if saved.Token != "new-token" || saved.Host != "https://server.test" || !reflect.DeepEqual(saved.RegisteredModels, []string{"model-a"}) {
+		t.Fatalf("unexpected saved config: %#v", saved)
+	}
 }
 
 func TestLoadConfigExplicitFlagsBeatEnvironmentAndFile(t *testing.T) {

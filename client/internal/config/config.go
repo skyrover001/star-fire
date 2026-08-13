@@ -363,6 +363,44 @@ func loadConfigFile(cfg *Config, explicitFlags map[string]bool) {
 	}
 }
 
+// SaveJoinToken persists a replacement registration credential without
+// disturbing settings owned by the Python application.
+func SaveJoinToken(configFile, token string) error {
+	if configFile == "" || token == "" {
+		return nil
+	}
+
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		return fmt.Errorf("read config file: %w", err)
+	}
+	var fileCfg map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fileCfg); err != nil {
+		return fmt.Errorf("parse config file: %w", err)
+	}
+	tokenJSON, err := json.Marshal(token)
+	if err != nil {
+		return fmt.Errorf("encode registration token: %w", err)
+	}
+	fileCfg["token"] = tokenJSON
+
+	updated, err := json.MarshalIndent(fileCfg, "", "  ")
+	if err != nil {
+		return fmt.Errorf("encode config file: %w", err)
+	}
+	updated = append(updated, '\n')
+
+	tempFile := configFile + ".tmp"
+	if err := os.WriteFile(tempFile, updated, 0600); err != nil {
+		return fmt.Errorf("write temporary config file: %w", err)
+	}
+	if err := os.Rename(tempFile, configFile); err != nil {
+		_ = os.Remove(tempFile)
+		return fmt.Errorf("replace config file: %w", err)
+	}
+	return nil
+}
+
 func normalizeOpenAIURL(rawURL string) string {
 	rawURL = strings.TrimRight(rawURL, "/")
 	if !strings.HasSuffix(rawURL, "/v1") {

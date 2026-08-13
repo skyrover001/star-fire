@@ -163,7 +163,7 @@ type Predicate func(c *Client, model string) bool
 func clientHealthy(c *Client, model string) bool {
 	for _, m := range c.Models {
 		if m.Name == model {
-			return c.Status == "online" && c.ControlConn != nil && c.Latency < public.MAXLATENCE
+			return c.Status == "online" && c.ControlConn != nil && c.GetLatency() < public.MAXLATENCE
 		}
 	}
 	return false
@@ -354,7 +354,7 @@ func (s *Server) GetAllModels() []*MarketplaceModel {
 		for clientID, client := range clientMaps {
 			existModel := false
 			for _, m := range client.Models {
-				if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
+				if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.GetLatency() < public.MAXLATENCE {
 					existModel = true
 					model.Size = m.Size
 					model.Type = m.Type
@@ -387,7 +387,7 @@ func (s *Server) GetModels() map[string]interface{} {
 		for clientID, client := range clientMaps {
 			existModel := false
 			for _, m := range client.Models {
-				if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE {
+				if m.Name == modelName && client.Status == "online" && client.ControlConn != nil && client.GetLatency() < public.MAXLATENCE {
 					existModel = true
 					models = append(models, &public.Model{
 						Name: m.Name,
@@ -573,7 +573,7 @@ func (s *Server) GetUserModels(userID string) []*UserModelInfo {
 					CIPPM:     m.CIPPM,
 					ClientID:  client.ID,
 					ClientIP:  client.IP,
-					Online:    client.Status == "online" && client.ControlConn != nil && client.Latency < public.MAXLATENCE,
+					Online:    client.Status == "online" && client.ControlConn != nil && client.GetLatency() < public.MAXLATENCE,
 				})
 			}
 		}

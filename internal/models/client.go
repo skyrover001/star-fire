@@ -39,11 +39,27 @@ type Client struct {
 	EmbeddingModels  []*openai.EmbeddingModel `json:"embedding_models" gorm:"-"`
 	ControlConn      *websocket.Conn          `json:"-" gorm:"-"`
 	ControlConnMutex sync.Mutex               `json:"-" gorm:"-"`
+	LatencyMutex     sync.RWMutex             `json:"-" gorm:"-"`
+	LastPingTime     int64                    `json:"-" gorm:"-"`
 	MessageChan      chan *api.ChatResponse   `json:"-" gorm:"-"`
 	PongChan         chan *public.PPMessage   `json:"-" gorm:"-"`
 	ErrChan          chan error               `json:"-" gorm:"-"`
 	User             *User                    `json:"user" gorm:"-"`
 	InferenceEngine  InferenceEngine          `json:"inference_engine" gorm:"-"`
+}
+
+// SetLatency 线程安全地更新客户端延迟（毫秒）。
+func (c *Client) SetLatency(latency int) {
+	c.LatencyMutex.Lock()
+	c.Latency = latency
+	c.LatencyMutex.Unlock()
+}
+
+// GetLatency 线程安全地读取客户端延迟（毫秒）。
+func (c *Client) GetLatency() int {
+	c.LatencyMutex.RLock()
+	defer c.LatencyMutex.RUnlock()
+	return c.Latency
 }
 
 type ConnectionResult struct {
