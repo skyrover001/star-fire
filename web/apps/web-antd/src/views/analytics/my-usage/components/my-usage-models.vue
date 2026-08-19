@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted } from 'vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 interface TokenUsageRecord {
   ID: number;
@@ -173,7 +174,7 @@ onMounted(() => {
     </div>
 
     <div v-else-if="modelUsageSummary.length === 0" class="text-center py-8 text-[var(--text-secondary)]">
-      暂无使用记录
+      {{ $t('business.analytics.noUsageRecords') }}
     </div>
 
     <template v-else>
@@ -182,18 +183,18 @@ onMounted(() => {
         <table class="w-full border-collapse border border-[var(--border-color)]">
           <thead>
             <tr class="bg-[var(--bg-color-secondary)]">
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]">模型</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">调用次数</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">输入Tokens</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">缓存命中</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">输出Tokens</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">总Tokens</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">未命中输入费用</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">缓存命中费用</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">输出费用</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">总费用</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]">最后使用</th>
-              <th class="border border-[var(--border-color)] px-4 py-2.5 text-center text-sm font-medium text-[var(--text-primary)]">操作</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.modelName') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.requestCount') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.inputToken') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.cachedHit') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.outputToken') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.totalToken') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.uncachedInputCost') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.cachedInputCost') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.outputCost') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.totalCost') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-left text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.lastUsed') }}</th>
+              <th class="border border-[var(--border-color)] px-4 py-2.5 text-center text-sm font-medium text-[var(--text-primary)]">{{ $t('business.analytics.actions') }}</th>
             </tr>
           </thead>
           <tbody>
@@ -244,7 +245,7 @@ onMounted(() => {
                     : 'text-blue-500 hover:bg-blue-500/10 border border-blue-500/30'"
                   @click="toggleDetail(model.model)"
                 >
-                  {{ expandedModel === model.model ? '收起详情' : '查看详情' }}
+                  {{ expandedModel === model.model ? $t('business.analytics.collapse') : $t('business.analytics.viewDetails') }}
                 </button>
               </td>
             </tr>
@@ -252,7 +253,7 @@ onMounted(() => {
           <!-- 汇总行 -->
           <tfoot>
             <tr class="bg-[var(--bg-color-secondary)] font-semibold">
-              <td class="border border-[var(--border-color)] px-4 py-2.5 text-sm text-[var(--text-primary)]">合计（{{ modelUsageSummary.length }} 个模型）</td>
+              <td class="border border-[var(--border-color)] px-4 py-2.5 text-sm text-[var(--text-primary)]">{{ $t('business.analytics.totalModels', { count: modelUsageSummary.length }) }}</td>
               <td class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm text-[var(--text-primary)]">
                 {{ modelUsageSummary.reduce((s, m) => s + m.totalCalls, 0).toLocaleString() }}
               </td>
@@ -292,33 +293,33 @@ onMounted(() => {
         <div class="px-4 py-3 border-b border-blue-500/20 flex items-center justify-between">
           <div class="flex items-center gap-2">
             <span class="text-sm font-semibold text-[var(--text-primary)]">
-              <span class="font-mono">{{ expandedModel }}</span> 使用详单
+              <span class="font-mono">{{ expandedModel }}</span> {{ $t('business.analytics.usageDetail') }}
             </span>
             <span class="text-xs text-[var(--text-secondary)]">
-              共 {{ expandedRecords.length }} 条记录
+              {{ $t('business.analytics.total') }} {{ expandedRecords.length }} {{ $t('business.analytics.records') }}
             </span>
           </div>
           <button
             class="text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] px-2 py-1 rounded hover:bg-[var(--bg-color-secondary)]"
             @click="expandedModel = null"
           >
-            收起
+            {{ $t('business.analytics.collapse') }}
           </button>
         </div>
         <div class="overflow-x-auto">
           <table class="w-full border-collapse">
             <thead>
               <tr class="bg-[var(--bg-color-secondary)]">
-                <th class="px-3 py-2 text-left text-xs font-medium text-[var(--text-secondary)]">请求ID</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">输入Token</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">缓存命中</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">输出Token</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">未命中输入费用</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">缓存命中费用</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">输出费用</th>
-                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">总费用</th>
-                <th class="px-3 py-2 text-left text-xs font-medium text-[var(--text-secondary)]">客户端</th>
-                <th class="px-3 py-2 text-left text-xs font-medium text-[var(--text-secondary)]">时间</th>
+                <th class="px-3 py-2 text-left text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.requestId') }}</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.inputToken') }}</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.cachedHit') }}</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.outputToken') }}</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.uncachedInputCost') }}</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.cachedInputCost') }}</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.outputCost') }}</th>
+                <th class="px-3 py-2 text-right text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.totalCost') }}</th>
+                <th class="px-3 py-2 text-left text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.client') }}</th>
+                <th class="px-3 py-2 text-left text-xs font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.time') }}</th>
               </tr>
             </thead>
             <tbody class="divide-y divide-[var(--border-color)]">
@@ -348,25 +349,27 @@ onMounted(() => {
         <!-- 分页 -->
         <div v-if="detailTotalPages > 1" class="px-4 py-2 border-t border-blue-500/20 flex items-center justify-between">
           <span class="text-xs text-[var(--text-secondary)]">
-            第 {{ (detailPage - 1) * detailPageSize + 1 }}-{{ Math.min(detailPage * detailPageSize, detailTotal) }} 条，共 {{ detailTotal }} 条
+            {{ $t('business.analytics.showingRange', { start: (detailPage - 1) * detailPageSize + 1, end: Math.min(detailPage * detailPageSize, detailTotal), total: detailTotal }) }}
           </span>
           <div class="flex items-center gap-2">
             <button
               :disabled="detailPage <= 1 || detailLoading"
               class="px-2 py-1 text-xs border border-[var(--border-color)] rounded hover:bg-[var(--bg-color-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
               @click="goToDetailPage(detailPage - 1)"
-            >上一页</button>
-            <span class="text-xs text-[var(--text-secondary)]">{{ detailPage }} / {{ detailTotalPages }}</span>
+            >{{ $t('business.analytics.prevPage') }}</button>
+            <span class="text-xs text-[var(--text-secondary)]">
+            {{ $t('business.analytics.pageInfo', { page: detailPage, total: detailTotalPages }) }}
+          </span>
             <button
               :disabled="detailPage >= detailTotalPages || detailLoading"
               class="px-2 py-1 text-xs border border-[var(--border-color)] rounded hover:bg-[var(--bg-color-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
               @click="goToDetailPage(detailPage + 1)"
-            >下一页</button>
+            >{{ $t('business.analytics.nextPage') }}</button>
           </div>
         </div>
         <!-- 费用说明 -->
         <div class="px-4 py-2 border-t border-blue-500/20 text-xs text-[var(--text-secondary)]">
-          费用 = (输入tokens - 缓存命中) × IPPM + 缓存命中 × CIPPM + 输出tokens × OPPM）/ 1,000,000
+          {{ $t('business.analytics.costFormula') }}
         </div>
       </div>
     </template>

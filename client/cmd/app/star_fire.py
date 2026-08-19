@@ -31,6 +31,14 @@ try:
 except ImportError:
     SOUND_AVAILABLE = False
 
+# 导入系统托盘模块（可选依赖，缺失时降级为普通关闭）
+try:
+    import pystray
+    from PIL import Image as PILImage, ImageDraw as PILImageDraw
+    TRAY_AVAILABLE = True
+except ImportError:
+    TRAY_AVAILABLE = False
+
 def validate_url(url, require_path=False):
     """验证URL格式
     必须以 http:// 或 https:// 开头
@@ -609,6 +617,8 @@ class StarFireAPP:
         self.total_income = 0.0  # 累计收益
         self.pending_price_message = None  # 待发送的价格配置消息
         self.pending_backend_message = None
+        self.tray_icon = None  # 系统托盘图标
+        self.quitting = False  # 标记是否真正退出（区分最小化到托盘）
         
         # 创建TCP服务器并自动启动
         self.tcp_server = IncomeTCPServer(
@@ -637,6 +647,8 @@ class StarFireAPP:
         self.refresh_translations()
         self.check_ollama()
         self.check_running_models()
+        # 初始化系统托盘（启动后即驻留，关闭窗口时最小化到托盘）
+        self.setup_tray_icon()
     
     def load_config(self):
         self.config = {
@@ -1349,21 +1361,40 @@ class StarFireAPP:
         model_price_frame = ttk.Frame(config_frame)
         model_price_frame.pack(fill=tk.X, pady=(10, 0))
 
-        self.model_config_btn = tk.Button(
+        # 跨平台彩色按钮：用 Frame+Label 模拟，避免 macOS tk.Button 忽略 bg/fg 的问题
+        self.model_config_btn = tk.Frame(
             model_price_frame,
-            text="⚙ 模型配置",
-            command=self.open_model_price_window,
             bg="#2563EB",
-            fg="white",
-            activebackground="#1D4ED8",
-            activeforeground="white",
-            font=("Arial", 11, "bold"),
-            relief=tk.FLAT,
-            padx=18,
-            pady=8,
-            cursor="hand2"
+            cursor="hand2",
+            bd=0,
         )
         self.model_config_btn.pack(side=tk.LEFT, padx=5)
+
+        self._model_config_btn_label = tk.Label(
+            self.model_config_btn,
+            text=self.i18n.translate_source("⚙ 模型配置"),
+            bg="#2563EB",
+            fg="white",
+            font=("Arial", 11, "bold"),
+            padx=18,
+            pady=8,
+            cursor="hand2",
+        )
+        self._model_config_btn_label.pack(fill=tk.BOTH, expand=True)
+
+        # 悬停效果（macOS 上 tk.Label 的 bg 能正常生效）
+        def _on_config_enter(e):
+            self._model_config_btn_label.config(bg="#1D4ED8")
+            self.model_config_btn.config(bg="#1D4ED8")
+
+        def _on_config_leave(e):
+            self._model_config_btn_label.config(bg="#2563EB")
+            self.model_config_btn.config(bg="#2563EB")
+
+        self._model_config_btn_label.bind("<Enter>", _on_config_enter)
+        self._model_config_btn_label.bind("<Leave>", _on_config_leave)
+        self._model_config_btn_label.bind("<Button-1>", lambda e: self.open_model_price_window())
+        self.model_config_btn.bind("<Button-1>", lambda e: self.open_model_price_window())
 
         ttk.Label(
             model_price_frame,
@@ -1968,10 +1999,28 @@ class StarFireAPP:
             command=lambda: self.set_model_rows_registered(tree, False, all_rows=True)
         ).pack(side=tk.LEFT, padx=5)
         
+        # 搜索与过滤区域
+        search_frame = ttk.Frame(price_window, padding="10")
+        search_frame.pack(fill=tk.X)
+        ttk.Label(search_frame, text=self._text("🔍 搜索:", "🔍 Search:")).pack(side=tk.LEFT, padx=(0, 5))
+        self.model_price_search_var = tk.StringVar()
+        search_entry = ttk.Entry(search_frame, textvariable=self.model_price_search_var)
+        search_entry.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        # 仅显示已注册的过滤开关
+        self.model_price_show_registered_only = tk.BooleanVar(value=False)
+        ttk.Checkbutton(
+            search_frame,
+            text=self._text("仅显示已注册", "Registered only"),
+            variable=self.model_price_show_registered_only,
+            command=lambda: self.filter_model_price_tree(tree)
+        ).pack(side=tk.LEFT, padx=(15, 0))
+        # 输入实时过滤
+        self.model_price_search_var.trace_add('write', lambda *a: self.filter_model_price_tree(tree))
+
         # 模型列表区域
         list_frame = ttk.Frame(price_window, padding="10")
         list_frame.pack(fill=tk.BOTH, expand=True)
-        
+
         # 创建表格
         columns = ("注册", "模型名称", "引擎", "输入价格(¥/M)", "输出价格(¥/M)", "缓存输入价格(¥/M)", "价格状态")
         tree = ttk.Treeview(list_frame, columns=columns, show="headings", height=15, selectmode='extended')
@@ -2034,10 +2083,36 @@ class StarFireAPP:
         if not rows:
             return
         status = self._text("已选择", "Selected") if registered else self._text("未选择", "Not selected")
+        tag = 'registered' if registered else 'unregistered'
         for item in rows:
             values = list(tree.item(item)['values'])
             values[0] = status
-            tree.item(item, values=values)
+            tree.item(item, values=values, tags=(tag,))
+        # 注册状态变化后重新过滤（"仅显示已注册"开关可能需要更新可见性）
+        self.filter_model_price_tree(tree)
+
+    def filter_model_price_tree(self, tree):
+        """根据搜索框和"仅显示已注册"开关过滤模型列表"""
+        keyword = self.model_price_search_var.get().strip().lower() if hasattr(self, 'model_price_search_var') else ''
+        registered_only = self.model_price_show_registered_only.get() if hasattr(self, 'model_price_show_registered_only') else False
+        selected_text = self._text("已选择", "Selected")
+
+        for item in tree.get_children():
+            values = tree.item(item)['values']
+            model_name = str(values[1]).lower()
+            is_registered = values[0] == selected_text
+
+            match_keyword = keyword in model_name
+            match_filter = (not registered_only) or is_registered
+
+            if match_keyword and match_filter:
+                # 重新 attach（如果之前被 detach 了）
+                try:
+                    tree.reattach(item, '', tk.END)
+                except Exception:
+                    pass
+            else:
+                tree.detach(item)
     
     def refresh_model_price_list(self, tree, window):
         """刷新模型价格列表"""
@@ -2062,6 +2137,9 @@ class StarFireAPP:
         default_oppm = '8.3'
         default_cippm = '1.0'
 
+        selected_text = self._text("已选择", "Selected")
+        not_selected_text = self._text("未选择", "Not selected")
+
         # 填充数据
         for model, engine in sorted(models_dict.items()):
             entry = model_prices.get(model, {})
@@ -2077,10 +2155,19 @@ class StarFireAPP:
             if not cippm:
                 cippm = default_cippm
 
-            registration = self._text("已选择", "Selected") if model in registered_models else self._text("未选择", "Not selected")
+            is_registered = model in registered_models
+            registration = selected_text if is_registered else not_selected_text
             price_status = self._text("已设置", "Configured") if entry else self._text("默认，请设置", "Default - review")
-            tree.insert("", tk.END, values=(registration, model, str(engine), ippm, oppm, cippm, price_status))
-        
+            # 用 tag 标记注册状态，便于着色和过滤
+            tag = 'registered' if is_registered else 'unregistered'
+            tree.insert("", tk.END, values=(registration, model, str(engine), ippm, oppm, cippm, price_status), tags=(tag,))
+
+        # 配置行颜色：已注册=浅绿底深绿字，未注册=浅灰底灰字
+        tree.tag_configure('registered', background='#D1FAE5', foreground='#065F46')
+        tree.tag_configure('unregistered', background='#F3F4F6', foreground='#6B7280')
+
+        # 刷新后重新应用过滤
+        self.filter_model_price_tree(tree)
         self.starfire_log(f"✓ 已加载 {len(models_dict)} 个模型的价格配置", "green")
     
     def edit_model_price_inline(self, tree, event, parent_window):
@@ -2117,13 +2204,16 @@ class StarFireAPP:
         entry_w = bbox[2] - btn_w - 2
         edit_entry.place(x=bbox[0], y=bbox[1], width=max(entry_w, 40), height=bbox[3])
         
-        # 确认按钮
-        confirm_btn = tk.Button(
-            tree, text="✓", font=("Arial", 9, "bold"),
-            bg="#4CAF50", fg="white", relief=tk.FLAT,
-            activebackground="#45a049", cursor="hand2",
-            bd=0, padx=2, pady=0
+        # 确认按钮（用 Frame+Label 模拟，跨平台颜色一致，避免 macOS tk.Button 忽略 bg/fg）
+        confirm_btn = tk.Frame(
+            tree, bg="#4CAF50", bd=0, cursor="hand2"
         )
+        confirm_btn_label = tk.Label(
+            confirm_btn, text="✓", font=("Arial", 9, "bold"),
+            bg="#4CAF50", fg="white", cursor="hand2",
+            padx=2, pady=0,
+        )
+        confirm_btn_label.pack(fill=tk.BOTH, expand=True)
         confirm_btn.place(x=bbox[0] + max(entry_w, 40) + 2, y=bbox[1], width=btn_w, height=bbox[3])
         
         def save_edit(event=None):
@@ -2146,8 +2236,9 @@ class StarFireAPP:
             confirm_btn.destroy()
             edit_entry.destroy()
         
-        confirm_btn.config(command=save_edit)
-        
+        confirm_btn_label.bind("<Button-1>", lambda e: save_edit())
+        confirm_btn.bind("<Button-1>", lambda e: save_edit())
+
         # 绑定事件
         edit_entry.bind('<Return>', save_edit)
         edit_entry.bind('<Escape>', cancel_edit)
@@ -2312,8 +2403,67 @@ class StarFireAPP:
         return 0
     
     def on_closing(self):
-        """窗口关闭时的清理工作"""
+        """窗口关闭事件：默认最小化到系统托盘，而非退出程序"""
+        # 若托盘不可用或用户已确认退出，则执行真正的清理退出
+        if not TRAY_AVAILABLE or self.quitting:
+            self._do_real_quit()
+            return
+
+        # Starfire 正在运行时，提示用户确认是否最小化
+        if self.starfire_running:
+            response = self._message(
+                'askyesnocancel',
+                "关闭窗口", "Close Window",
+                "Starfire 正在运行中。\n\n是 = 最小化到系统托盘（后台继续运行）\n否 = 完全退出程序（停止算力注册）\n取消 = 返回程序",
+                "Starfire is running.\n\nYes = Minimize to system tray (keep running)\nNo = Quit completely (stop registration)\nCancel = Return to app"
+            )
+            if response is None:
+                # 取消：不做任何事
+                return
+            if response is False:
+                # 否：完全退出
+                self._do_real_quit()
+                return
+            # 是：继续最小化到托盘
+
+        # 最小化到系统托盘
+        self._minimize_to_tray()
+
+    def _minimize_to_tray(self):
+        """隐藏主窗口，驻留到系统托盘"""
+        try:
+            self.root.withdraw()
+            if self.tray_icon:
+                self.tray_icon.visible = True
+            # 仅在首次最小化时提示
+            if not getattr(self, '_tray_notified', False):
+                self._tray_notified = True
+                self.starfire_log("📌 程序已最小化到系统托盘，后台继续运行", "blue")
+        except Exception as e:
+            print(f"最小化到托盘失败: {e}")
+
+    def _restore_from_tray(self, icon=None, item=None):
+        """从系统托盘恢复主窗口"""
+        def _restore():
+            try:
+                self.root.deiconify()
+                self.root.lift()
+                self.root.focus_force()
+                if self.tray_icon:
+                    # 窗口可见后隐藏托盘图标（保持单实例视觉）
+                    self.tray_icon.visible = False
+            except Exception as e:
+                print(f"从托盘恢复失败: {e}")
+        # pystray 回调在子线程，需通过 after 切回主线程
+        try:
+            self.root.after(0, _restore)
+        except Exception:
+            _restore()
+
+    def _do_real_quit(self):
+        """执行真正的退出流程：停止所有服务并销毁窗口"""
         self.user_stopped = True
+        self.quitting = True
         if self.restart_after_id is not None:
             self.root.after_cancel(self.restart_after_id)
             self.restart_after_id = None
@@ -2321,7 +2471,7 @@ class StarFireAPP:
         # 停止TCP服务器
         if hasattr(self, 'tcp_server'):
             self.tcp_server.stop()
-        
+
         # 停止Starfire进程
         if self.starfire_running and self.starfire_process:
             try:
@@ -2329,9 +2479,72 @@ class StarFireAPP:
                 self.starfire_process.wait(timeout=3)
             except:
                 pass
-        
+
+        # 停止系统托盘图标
+        if self.tray_icon:
+            try:
+                self.tray_icon.stop()
+                self.tray_icon = None
+            except:
+                pass
+
         # 关闭窗口
         self.root.destroy()
+
+    def setup_tray_icon(self):
+        """创建系统托盘图标"""
+        if not TRAY_AVAILABLE:
+            return
+
+        # 加载或生成托盘图标
+        image = None
+        icon_path = get_resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            try:
+                image = PILImage.open(icon_path)
+            except Exception:
+                image = None
+        if image is None:
+            # 降级：用 Pillow 绘制一个简单的橙色圆形图标
+            try:
+                size = 64
+                image = PILImage.new('RGBA', (size, size), (255, 255, 255, 0))
+                draw = PILImageDraw.Draw(image)
+                draw.ellipse([4, 4, size - 4, size - 4], fill='#FF4500', outline='#FF6347', width=4)
+                draw.polygon(
+                    [(32, 14), (38, 28), (54, 28), (42, 38), (47, 54),
+                     (32, 44), (17, 54), (22, 38), (10, 28), (26, 28)],
+                    fill='#FFD700', outline='#FFA500'
+                )
+            except Exception:
+                image = None
+        if image is None:
+            # Pillow 也不可用时无法创建托盘
+            return
+
+        # 托盘菜单：显示窗口 / 退出
+        menu = pystray.Menu(
+            pystray.MenuItem(
+                self._text("显示窗口", "Show Window"),
+                self._restore_from_tray,
+                default=True  # 双击触发
+            ),
+            pystray.Menu.SEPARATOR,
+            pystray.MenuItem(
+                self._text("退出程序", "Quit"),
+                lambda icon, item: self.root.after(0, self._do_real_quit)
+            )
+        )
+
+        self.tray_icon = pystray.Icon(
+            "StarFire_MaaS",
+            image,
+            self._text("StarFire MaaS 算力分享", "StarFire MaaS"),
+            menu
+        )
+        # 后台线程运行托盘图标，初始隐藏（关闭窗口时才显示）
+        self.tray_icon.visible = False
+        threading.Thread(target=self.tray_icon.run, daemon=True).start()
     
     def start_starfire(self, automatic=False):
         if not automatic:

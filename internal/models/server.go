@@ -55,6 +55,7 @@ type Server struct {
 	TrendDB             *TrendDB
 	RechargeDB          *RechargeDB
 	UserPriceCapDB      *UserPriceCapDB
+	SystemConfigDB      *SystemConfigDB
 
 	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
 
@@ -105,6 +106,7 @@ func NewServer() *Server {
 	trendDB := NewTrendDB(gormDB)
 	userPriceCapDB := NewUserPriceCapDB(gormDB)
 	rechargeDB := NewRechargeDB(gormDB)
+	systemConfigDB := NewSystemConfigDB(gormDB)
 
 	// 初始化默认用户
 	err = userDB.InitDefaultUsers()
@@ -132,6 +134,7 @@ func NewServer() *Server {
 		TrendDB:              trendDB,
 		UserPriceCapDB:       userPriceCapDB,
 		RechargeDB:           rechargeDB,
+		SystemConfigDB:       systemConfigDB,
 		LoadBalanceAlgorithm: configs.Config.LBA, // default load balancing algorithm
 		MailService: &MailService{
 			SMTPServer:   configs.Config.EmailHost,

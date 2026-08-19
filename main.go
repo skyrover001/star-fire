@@ -12,6 +12,7 @@ import (
 	configs "star-fire/config"
 	"star-fire/internal/models"
 	"star-fire/routes"
+	"strconv"
 	"syscall"
 	"time"
 
@@ -19,6 +20,33 @@ import (
 )
 
 func main() {
+	// 命令行模式：配置注册赠送余额（不启动 HTTP 服务）
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "set-bonus":
+			// 用法: starfire set-bonus <金额>
+			if len(os.Args) < 3 {
+				log.Fatal("用法: starfire set-bonus <金额>，例如 starfire set-bonus 10")
+			}
+			amount, err := strconv.ParseFloat(os.Args[2], 64)
+			if err != nil || amount < 0 {
+				log.Fatal("金额必须是大于等于 0 的数字")
+			}
+			server := models.NewServer()
+			if err := server.SystemConfigDB.Set(models.ConfigKeyRegisterBonus,
+				strconv.FormatFloat(amount, 'f', -1, 64)); err != nil {
+				log.Fatalf("设置失败: %v", err)
+			}
+			log.Printf("✓ 已设置注册赠送余额为 %.2f 元", amount)
+			return
+		case "get-bonus":
+			server := models.NewServer()
+			bonus := server.SystemConfigDB.GetFloat(models.ConfigKeyRegisterBonus, 0)
+			log.Printf("当前注册赠送余额: %.2f 元", bonus)
+			return
+		}
+	}
+
 	server := models.NewServer()
 	r := gin.Default()
 	routes.SetupRoutes(r, server)

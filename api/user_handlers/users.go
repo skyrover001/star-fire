@@ -3,6 +3,7 @@ package user_handlers
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"net/http"
 	"star-fire/internal/models"
@@ -136,6 +137,14 @@ func (uh *UserHandler) Register(c *gin.Context, server *models.Server) {
 	if err := server.UserDB.SaveUser(&user); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "用户注册失败"})
 		return
+	}
+
+	// 新注册会员赠送余额（从数据库动态读取，无需重启）
+	bonus := server.SystemConfigDB.GetFloat(models.ConfigKeyRegisterBonus, 0)
+	if bonus > 0 {
+		if err := server.UserDB.AddBalance(user.ID, bonus); err != nil {
+			log.Printf("赠送注册余额失败 user=%s: %v", user.ID, err)
+		}
 	}
 
 	c.JSON(http.StatusOK, gin.H{"message": "注册成功"})

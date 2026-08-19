@@ -87,11 +87,14 @@ provide('usageTotalStats', totalStatsData);
 provide('usageStats', statsData);
 provide('usageLoading', loading);
 
+// 今日使用量（来自 /usage/stats 按天接口）
+const todayUsageData = ref(0);
+
 // 计算总Token统计（来自后端总计接口，真·总计）
 const totalTokenStats = computed(() => {
   return {
     total: totalStatsData.value.total_tokens,
-    today: statsData.value.total_tokens, // 30天窗口内的今日数据暂用 stats 近似
+    today: todayUsageData.value, // 今日数据来自按天接口
     totalInput: totalStatsData.value.input_tokens,
     totalOutput: totalStatsData.value.output_tokens,
     totalCalls: totalStatsData.value.total_calls,
@@ -148,6 +151,22 @@ const fetchUsageStats = async () => {
   }
 };
 
+// 获取今日使用统计（start_date=end_date=今天）
+const fetchTodayUsage = async () => {
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const response = await requestClient.get('/user/usage/stats', {
+      params: { start_date: todayStr, end_date: todayStr },
+    });
+    if (response && typeof response === 'object' && response.total_tokens !== undefined) {
+      todayUsageData.value = response.total_tokens;
+    }
+  } catch (error) {
+    console.error('获取今日使用统计失败:', error);
+    todayUsageData.value = 0;
+  }
+};
+
 // 获取余额
 const fetchBalance = async () => {
   balanceLoading.value = true;
@@ -162,9 +181,10 @@ const fetchBalance = async () => {
 };
 
 onMounted(() => {
-  // 并行加载：总计统计 + 30天统计 + 余额
+  // 并行加载：总计统计 + 30天统计 + 今日统计 + 余额
   fetchUsageTotal();
   fetchUsageStats();
+  fetchTodayUsage();
   fetchBalance();
 });
 </script>
@@ -228,7 +248,7 @@ onMounted(() => {
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-20"></span>
               <span v-else>{{ totalTokenStats.total.toLocaleString() }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] mt-1">累计消耗</p>
+            <p class="text-xs text-[var(--text-tertiary)] mt-1">{{ $t('business.analytics.cumulativeConsumed') }}</p>
           </div>
         </div>
       </div>
@@ -246,7 +266,7 @@ onMounted(() => {
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>{{ totalTokenStats.today.toLocaleString() }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">今日消耗</p>
+            <p class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.todayConsumed') }}</p>
           </div>
         </div>
       </div>
@@ -264,7 +284,7 @@ onMounted(() => {
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>{{ totalTokenStats.totalInput.toLocaleString() }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">累计输入</p>
+            <p class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.cumulativeInput') }}</p>
           </div>
         </div>
       </div>
@@ -282,7 +302,7 @@ onMounted(() => {
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else>{{ totalTokenStats.totalOutput.toLocaleString() }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">累计输出</p>
+            <p class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.cumulativeOutput') }}</p>
           </div>
         </div>
       </div>
@@ -300,7 +320,7 @@ onMounted(() => {
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-12"></span>
               <span v-else>{{ totalTokenStats.totalCalls.toLocaleString() }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">累计调用</p>
+            <p class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.cumulativeCalls') }}</p>
           </div>
         </div>
       </div>

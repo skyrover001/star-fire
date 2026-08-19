@@ -649,11 +649,6 @@ const clearSearch = () => {
   localSearchKeyword.value = '';
 };
 
-// 搜索关键词监听到分类变化时，重新初始化
-watch([() => localSearchKeyword.value, () => selectedCategories.value], () => {
-  initializeModels();
-});
-
 // 分类筛选选项
 const categoryOptions = [
   { value: 'LLM', label: $t('business.marketplace.categoryLlm'), icon: '💬' },
@@ -665,6 +660,11 @@ const categoryOptions = [
   { value: 'TTS', label: $t('business.marketplace.categoryTts'), icon: '🔊' },
 ];
 const selectedCategories = ref<string[]>([]);
+
+// 搜索关键词监听到分类变化时，重新初始化
+watch([() => localSearchKeyword.value, () => selectedCategories.value], () => {
+  initializeModels();
+});
 
 // 切换分类筛选
 const toggleCategoryFilter = (category: string) => {

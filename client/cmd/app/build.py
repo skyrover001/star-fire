@@ -55,6 +55,7 @@ def main():
         "--clean",
         "--add-data", "starfire.exe;.",
         "--add-data", "icon.ico;.",
+        "--hidden-import", "pystray._win32",
     ]
     
     # Add icon if it exists
