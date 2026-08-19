@@ -11,12 +11,12 @@
             </div>
           </div>
           <div class="ml-4 flex-1">
-            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">今日使用</p>
+            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">{{ $t('business.analytics.todayUsage') }}</p>
             <p class="text-2xl font-bold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else class="text-blue-400">{{ formatNumber(tokenUsage.todayUsage) }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] font-medium">Token 消耗</p>
+            <p class="text-xs text-[var(--text-tertiary)] font-medium">{{ $t('business.analytics.todayConsumed') }}</p>
           </div>
         </div>
       </div>
@@ -30,12 +30,12 @@
             </div>
           </div>
           <div class="ml-4 flex-1">
-            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">本月使用</p>
+            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">{{ $t('business.analytics.monthlyUsage') }}</p>
             <p class="text-2xl font-bold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else class="text-green-400">{{ formatNumber(tokenUsage.monthlyUsage) }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] font-medium">本月累计</p>
+            <p class="text-xs text-[var(--text-tertiary)] font-medium">{{ $t('business.analytics.cumulativeConsumed') }}</p>
           </div>
         </div>
       </div>
@@ -49,12 +49,12 @@
             </div>
           </div>
           <div class="ml-4 flex-1">
-            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">总使用量</p>
+            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">{{ $t('business.analytics.totalUsage') }}</p>
             <p class="text-2xl font-bold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-20"></span>
               <span v-else class="text-purple-400">{{ formatNumber(tokenUsage.totalUsage) }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] font-medium">历史累计</p>
+            <p class="text-xs text-[var(--text-tertiary)] font-medium">{{ $t('business.analytics.historicalTotal') }}</p>
           </div>
         </div>
       </div>
@@ -68,12 +68,12 @@
             </div>
           </div>
           <div class="ml-4 flex-1">
-            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">日均使用</p>
+            <p class="text-sm font-semibold text-[var(--text-secondary)] mb-1">{{ $t('business.analytics.averageDailyUsage') }}</p>
             <p class="text-2xl font-bold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-16"></span>
               <span v-else class="text-orange-400">{{ formatNumber(tokenUsage.averageDailyUsage) }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)] font-medium">本月平均</p>
+            <p class="text-xs text-[var(--text-tertiary)] font-medium">{{ $t('business.analytics.monthlyAverage') }}</p>
           </div>
         </div>
       </div>
@@ -87,7 +87,7 @@
         <div class="flex items-center justify-between">
           <div class="flex items-center space-x-3">
             <div class="w-3 h-3 rounded-full bg-[var(--primary-color)]"></div>
-            <h3 class="text-xl font-bold text-[var(--text-primary)]">按模型统计</h3>
+            <h3 class="text-xl font-bold text-[var(--text-primary)]">{{ $t('business.analytics.byModel') }}</h3>
           </div>
           <div class="flex items-center space-x-2">
             <button
@@ -109,12 +109,12 @@
         <table class="w-full">
           <thead class="bg-[var(--bg-color-secondary)] border-b border-[var(--border-color)]">
             <tr>
-              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">模型名称</th>
-              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">使用次数</th>
-              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">输入Token</th>
-              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">输出Token</th>
-              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">总Token</th>
-              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">使用占比</th>
+              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">{{ $t('business.analytics.modelName') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">{{ $t('business.analytics.requestCount') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">{{ $t('business.analytics.inputToken') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">{{ $t('business.analytics.outputToken') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">{{ $t('business.analytics.totalToken') }}</th>
+              <th class="px-6 py-4 text-left text-xs font-bold text-[var(--text-primary)] uppercase tracking-wider">{{ $t('business.analytics.usageRatio') }}</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-[var(--border-color)] bg-[var(--content-bg)]">
@@ -131,7 +131,7 @@
                       <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v10a2 2 0 002 2h8a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
                     </svg>
                   </div>
-                  <p class="text-[var(--text-secondary)] font-semibold">暂无模型使用记录</p>
+                  <p class="text-[var(--text-secondary)] font-semibold">{{ $t('business.analytics.noModelUsage') }}</p>
                 </div>
               </td>
             </tr>
@@ -171,6 +171,7 @@ import { ref, reactive, onMounted, nextTick, onUnmounted, watch, inject } from '
 import type { Ref } from 'vue';
 import { message } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 import {
   SvgBellIcon,
   SvgCakeIcon,
@@ -233,6 +234,9 @@ const usageLoading = inject<Ref<boolean>>('usageLoading', ref(false));
 const loading = ref(false);
 const selectedPeriod = ref('30d');
 
+// 今日使用量（来自 /usage/stats 按天接口）
+const todayUsage = ref(0);
+
 const tokenUsage = reactive({
   todayUsage: 0,
   monthlyUsage: 0,
@@ -254,9 +258,9 @@ const modelStats = ref<Array<{
 
 // 时间周期选项
 const timePeriods = [
-  { label: '7天', value: '7d' },
-  { label: '30天', value: '30d' },
-  { label: '90天', value: '90d' },
+  { label: $t('business.analytics.period7d'), value: '7d' },
+  { label: $t('business.analytics.period30d'), value: '30d' },
+  { label: $t('business.analytics.period90d'), value: '90d' },
 ];
 
 // 获取模型颜色类
@@ -324,7 +328,7 @@ const resetTokenUsageStats = () => {
 const calculateStatisticsFromStats = () => {
   const total = usageTotalStats.value.total_tokens;
   const monthly = usageStats.value.total_tokens; // 30天窗口近似月度
-  const today = 0; // 今日数据需按天接口，暂用 0
+  const today = todayUsage.value; // 今日数据来自按天接口
   const daysInMonth = 30;
   const averageDailyUsage = Math.round(monthly / daysInMonth);
 
@@ -334,6 +338,26 @@ const calculateStatisticsFromStats = () => {
     totalUsage: total,
     averageDailyUsage,
   });
+};
+
+// 获取今日使用统计（start_date=end_date=今天）
+const fetchTodayUsage = async () => {
+  try {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const response = await requestClient.get('/user/usage/stats', {
+      params: { start_date: todayStr, end_date: todayStr },
+    });
+    if (response && typeof response === 'object' && response.total_tokens !== undefined) {
+      todayUsage.value = response.total_tokens;
+    } else {
+      todayUsage.value = 0;
+    }
+  } catch (error) {
+    console.error('获取今日使用统计失败:', error);
+    todayUsage.value = 0;
+  }
+  // 将最新今日数据同步到展示用的 tokenUsage
+  calculateStatisticsFromStats();
 };
 
 // 获取模型统计（调 /usage/models 接口，替代客户端聚合）
@@ -368,12 +392,14 @@ watch([usageTotalStats, usageStats], () => {
 // 导出刷新方法
 const refreshData = () => {
   calculateStatisticsFromStats();
+  fetchTodayUsage();
   fetchModelStats();
 };
 
 // 组件挂载时加载数据（用注入的聚合数据 + 拉取模型统计）
 onMounted(() => {
   calculateStatisticsFromStats();
+  fetchTodayUsage();
   fetchModelStats();
 });
 

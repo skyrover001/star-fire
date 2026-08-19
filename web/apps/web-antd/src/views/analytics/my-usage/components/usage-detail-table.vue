@@ -1,6 +1,7 @@
 <script lang="ts" setup>
 import { ref, computed, onMounted } from 'vue';
 import { requestClient } from '#/api/request';
+import { $t } from '#/locales';
 
 interface TokenUsageRecord {
   ID: number;
@@ -123,40 +124,40 @@ onMounted(() => {
         <thead>
           <tr class="bg-[var(--bg-color-secondary)]">
             <th class="border border-[var(--border-color)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)]">
-              请求ID
+              {{ $t('business.analytics.requestId') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)]">
-              模型
+              {{ $t('business.analytics.modelName') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              输入Token
+              {{ $t('business.analytics.inputToken') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              缓存命中
+              {{ $t('business.analytics.cachedHit') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              输出Token
+              {{ $t('business.analytics.outputToken') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              总Token
+              {{ $t('business.analytics.totalToken') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              未命中输入费用
+              {{ $t('business.analytics.uncachedInputCost') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              缓存命中费用
+              {{ $t('business.analytics.cachedInputCost') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              输出费用
+              {{ $t('business.analytics.outputCost') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-right text-sm font-medium text-[var(--text-primary)]">
-              总费用
+              {{ $t('business.analytics.totalCost') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)]">
-              客户端
+              {{ $t('business.analytics.client') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)]">
-              时间
+              {{ $t('business.analytics.time') }}
             </th>
           </tr>
         </thead>
@@ -165,13 +166,13 @@ onMounted(() => {
             <td colspan="12" class="border border-[var(--border-color)] px-3 py-4 text-center text-[var(--text-secondary)]">
               <div class="flex items-center justify-center">
                 <div class="animate-spin rounded-full h-5 w-5 border-b-2 border-blue-500"></div>
-                <span class="ml-2">加载中...</span>
+                <span class="ml-2">{{ $t('business.analytics.loadingData') }}</span>
               </div>
             </td>
           </tr>
           <tr v-else-if="paginatedRecords.length === 0">
             <td colspan="12" class="border border-[var(--border-color)] px-3 py-4 text-center text-[var(--text-secondary)]">
-              暂无数据
+              {{ $t('business.analytics.noUsageData') }}
             </td>
           </tr>
           <tr v-else v-for="record in paginatedRecords" :key="record.ID" class="hover:bg-[var(--bg-color-secondary)]">
@@ -223,7 +224,7 @@ onMounted(() => {
     <!-- 分页信息 -->
     <div class="flex items-center justify-between">
       <div class="text-sm text-[var(--text-secondary)]">
-        显示第 {{ rangeStart }} 到 {{ rangeEnd }} 项，共 {{ totalItems }} 项
+        {{ $t('business.analytics.showingRange', { start: rangeStart, end: rangeEnd, total: totalItems }) }}
       </div>
       
       <div class="flex items-center space-x-2">
@@ -232,7 +233,7 @@ onMounted(() => {
           :disabled="currentPage <= 1"
           class="px-3 py-1 text-sm border border-[var(--border-color)] rounded hover:bg-[var(--bg-color-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          上一页
+          {{ $t('business.analytics.prevPage') }}
         </button>
         
         <span class="text-sm text-[var(--text-secondary)]">
@@ -244,7 +245,7 @@ onMounted(() => {
           :disabled="currentPage >= totalPages"
           class="px-3 py-1 text-sm border border-[var(--border-color)] rounded hover:bg-[var(--bg-color-secondary)] disabled:opacity-50 disabled:cursor-not-allowed"
         >
-          下一页
+          {{ $t('business.analytics.nextPage') }}
         </button>
       </div>
     </div>

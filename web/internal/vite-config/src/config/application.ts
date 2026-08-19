@@ -40,7 +40,7 @@ function defineApplicationConfig(userConfigPromise?: DefineApplicationOptions) {
       isBuild,
       license: true,
       mode,
-      nitroMock: !isBuild,
+      nitroMock: false,
       nitroMockOptions: {},
       print: !isBuild,
       printInfoMap: {
