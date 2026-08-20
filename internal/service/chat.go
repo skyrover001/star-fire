@@ -226,6 +226,19 @@ func abortClientRequest(client *models.Client, fingerPrint string) {
 	}
 }
 
+// cleanupChatRequest 统一清理 chat 请求资源：关闭响应连接、移除 RespClient、
+// 并将 fingerprint 状态更新为 completed（避免 transmitting 记录泄漏）。
+// 所有 chat 请求结束路径都应调用此函数，确保 fingerprint 不会永久停留在 transmitting。
+func cleanupChatRequest(server *models.Server, fingerPrint, clientID string, respConn *websocket.Conn) {
+	if respConn != nil {
+		_ = respConn.Close()
+	}
+	server.RemoveRespClient(fingerPrint)
+	if clientID != "" {
+		_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+	}
+}
+
 // handleChatResponseWithFirst 处理已读取的第一条响应消息（不再重复 ReadJSON）。
 // 由 handleChatWithRetry 在成功读到第一条消息后调用。
 func handleChatResponseWithFirst(c *gin.Context, server *models.Server, fingerPrint string, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string, response public.WSMessage, respConn *websocket.Conn) {
@@ -250,23 +263,19 @@ func handleChatResponseWithFirst(c *gin.Context, server *models.Server, fingerPr
 			_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 			c.Writer.Flush()
 		}
-		respConn.Close()
-		server.RemoveRespClient(fingerPrint)
-		_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+		cleanupChatRequest(server, fingerPrint, clientID, respConn)
 		return
 
 	case public.MODEL_ERROR:
 		log.Println("Model error:", response.Content)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Model error: " + response.Content.(string)})
-		respConn.Close()
-		server.RemoveRespClient(fingerPrint)
+		cleanupChatRequest(server, fingerPrint, clientID, respConn)
 		return
 
 	default:
 		log.Println("Unknown message type:", response.Type)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unknown message type: " + response.Type})
-		respConn.Close()
-		server.RemoveRespClient(fingerPrint)
+		cleanupChatRequest(server, fingerPrint, clientID, respConn)
 		return
 	}
 }
@@ -278,6 +287,7 @@ func readStreamLoop(c *gin.Context, server *models.Server, fingerPrint string, r
 		err := respConn.ReadJSON(&response)
 		if err != nil {
 			log.Println("Error while reading json from client:", err)
+			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
 		switch response.Type {
@@ -292,25 +302,20 @@ func readStreamLoop(c *gin.Context, server *models.Server, fingerPrint string, r
 				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
 			}
-			respConn.Close()
-			server.RemoveRespClient(fingerPrint)
-			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		case public.MODEL_ERROR:
 			log.Println("Model error:", response.Content)
-			respConn.Close()
-			server.RemoveRespClient(fingerPrint)
+			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		default:
 			log.Println("Unknown message type:", response.Type)
-			respConn.Close()
-			server.RemoveRespClient(fingerPrint)
+			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
 		if time.Since(waitStart) > public.CHAT_MAX_TIME*time.Second {
 			log.Println("Chat timeout")
-			respConn.Close()
-			server.RemoveRespClient(fingerPrint)
+			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
 	}
@@ -322,8 +327,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			conn.Close()
-			server.RemoveRespClient(fingerPrint)
+			cleanupChatRequest(server, fingerPrint, clientID, conn)
 			return
 		}
 
@@ -331,9 +335,7 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		err = json.Unmarshal(jsonData, &chatResponse)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			conn.Close()
-			server.RemoveRespClient(fingerPrint)
-			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+			cleanupChatRequest(server, fingerPrint, clientID, conn)
 			return
 		}
 
@@ -348,10 +350,10 @@ func handleStandardChatResponse(c *gin.Context, server *models.Server, fingerPri
 		recordTokenUsage(c, server, fingerPrint, reqModel,
 			chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens,
 			chatResponse.Usage.TotalTokens, cachedTokens, clientID, ippm, oppm, cippm)
+		cleanupChatRequest(server, fingerPrint, clientID, conn)
 	} else {
 		log.Println("Invalid message content format")
-		conn.Close()
-		server.RemoveRespClient(fingerPrint)
+		cleanupChatRequest(server, fingerPrint, clientID, conn)
 	}
 }
 
@@ -361,8 +363,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		jsonData, err := json.Marshal(content)
 		if err != nil {
 			log.Println("Error marshaling content:", err)
-			conn.Close()
-			server.RemoveRespClient(fingerPrint)
+			cleanupChatRequest(server, fingerPrint, clientID, conn)
 			return true
 		}
 
@@ -370,8 +371,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		err = json.Unmarshal(jsonData, &chatResponse)
 		if err != nil {
 			log.Println("Error unmarshaling content into ChatResponse struct:", err)
-			conn.Close()
-			server.RemoveRespClient(fingerPrint)
+			cleanupChatRequest(server, fingerPrint, clientID, conn)
 			return true
 		}
 
@@ -384,8 +384,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		_, err = c.Writer.Write([]byte("data: " + string(jsonData) + "\n\n"))
 		if err != nil {
 			log.Println("Error while writing response:", err)
-			conn.Close()
-			server.RemoveRespClient(fingerPrint)
+			cleanupChatRequest(server, fingerPrint, clientID, conn)
 			return true
 		}
 		c.Writer.Flush()
@@ -408,9 +407,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			// 收到 usage 后发送 [DONE] 并结束
 			_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
 			c.Writer.Flush()
-			conn.Close()
-			server.RemoveRespClient(fingerPrint)
-			_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+			cleanupChatRequest(server, fingerPrint, clientID, conn)
 			return true
 		}
 
@@ -439,9 +436,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 				_, err = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
-				conn.Close()
-				server.RemoveRespClient(fingerPrint)
-				_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+				cleanupChatRequest(server, fingerPrint, clientID, conn)
 				return true
 			}
 			// 如果没有 usage，继续等待下一个可能包含 usage 的数据块
@@ -451,8 +446,7 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 		return false
 	} else {
 		log.Println("Invalid message content format")
-		conn.Close()
-		server.RemoveRespClient(fingerPrint)
+		cleanupChatRequest(server, fingerPrint, clientID, conn)
 		return true
 	}
 }
