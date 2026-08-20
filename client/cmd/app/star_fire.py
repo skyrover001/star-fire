@@ -649,6 +649,7 @@ class StarFireAPP:
         self.check_running_models()
         # 初始化系统托盘（启动后即驻留，关闭窗口时最小化到托盘）
         self.setup_tray_icon()
+        # self.root.after(1000, self.setup_tray_icon) 
     
     def load_config(self):
         self.config = {
@@ -2404,6 +2405,11 @@ class StarFireAPP:
     
     def on_closing(self):
         """窗口关闭事件：默认最小化到系统托盘，而非退出程序"""
+        """窗口关闭事件"""
+        if platform.system() == "Darwin":
+            # macOS：直接退出，用户可以使用 Cmd+Q
+            self._do_real_quit()
+            return
         # 若托盘不可用或用户已确认退出，则执行真正的清理退出
         if not TRAY_AVAILABLE or self.quitting:
             self._do_real_quit()
@@ -2492,7 +2498,12 @@ class StarFireAPP:
         self.root.destroy()
 
     def setup_tray_icon(self):
-        """创建系统托盘图标"""
+        """创建系统托盘图标（macOS 自动禁用）"""
+        if platform.system() == "Darwin":
+            self.starfire_log("📌 macOS 上系统托盘功能已禁用（使用 Dock 图标）", "orange")
+            self.tray_icon = None
+            return
+
         if not TRAY_AVAILABLE:
             return
 
