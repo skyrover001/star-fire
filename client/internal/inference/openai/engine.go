@@ -183,10 +183,18 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			request.StreamOptions.IncludeUsage = true
 		}
 
+		// ===== 链路日志：client 实际发给上游后端的请求体 =====
+		// if rawBody, err := json.Marshal(request.ChatCompletionRequest); err == nil {
+		// 	log.Printf("[TRACE] client send to backend [%s] baseURL=%s body=%s", fingerprint, e.baseURL, string(rawBody))
+		// } else {
+		// 	log.Printf("[TRACE] client marshal backend request error: %v", err)
+		// }
+
 		stream, err := e.client.CreateChatCompletionStream(ctx, request.ChatCompletionRequest)
 		if err != nil {
 			errMsg := fmt.Sprintf("create chat complation error: %v", err)
 			log.Printf("[%s] %s", fingerprint, errMsg)
+			// log.Printf("[TRACE] client backend error [%s] baseURL=%s err=%v", fingerprint, e.baseURL, err)
 			err = responseConn.WriteJSON(public.WSMessage{
 				Type:        public.MODEL_ERROR,
 				Content:     errMsg,

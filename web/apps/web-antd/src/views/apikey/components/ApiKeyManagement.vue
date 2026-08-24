@@ -132,8 +132,9 @@
           <div class="col-span-2">{{ $t('business.apiKey.name') }}</div>
           <div class="col-span-2">{{ $t('business.apiKey.createdAt') }}</div>
           <div class="col-span-2">{{ $t('business.apiKey.expiresAt') }}</div>
-          <div class="col-span-3">{{ $t('business.apiKey.key') }}</div>
-          <div class="col-span-2">{{ $t('business.apiKey.lastUsed') }}</div>
+          <div class="col-span-2">{{ $t('business.apiKey.key') }}</div>
+          <div class="col-span-2">{{ $t('business.apiKey.baseUrl') }}</div>
+          <div class="col-span-1">{{ $t('business.apiKey.lastUsed') }}</div>
           <div class="col-span-1">{{ $t('business.apiKey.actions') }}</div>
         </div>
       </div>
@@ -193,7 +194,7 @@
             </div>
 
             <!-- Key -->
-            <div class="col-span-3">
+            <div class="col-span-2">
               <div class="flex items-center space-x-2">
                 <code class="px-2 py-1 bg-[var(--bg-color)] rounded text-sm font-mono text-[var(--text-primary)]">
                   {{ apiKey.key }}
@@ -210,8 +211,26 @@
               </div>
             </div>
 
-            <!-- 最后使用时间 -->
+            <!-- Base URL -->
             <div class="col-span-2">
+              <div class="flex items-center space-x-2">
+                <code class="px-2 py-1 bg-[var(--bg-color)] rounded text-sm font-mono text-[var(--text-primary)]">
+                  {{ baseUrl }}
+                </code>
+                <button
+                  class="p-1 rounded hover:bg-[var(--bg-color)] transition-colors"
+                  @click="copyToClipboard(baseUrl)"
+                  :title="$t('business.apiKey.copyBaseUrl')"
+                >
+                  <svg class="h-4 w-4 text-[var(--text-secondary)]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"/>
+                  </svg>
+                </button>
+              </div>
+            </div>
+
+            <!-- 最后使用时间 -->
+            <div class="col-span-1">
               <p class="text-sm text-[var(--text-secondary)]">
                 {{ apiKey.lastUsedTime ? formatDate(apiKey.lastUsedTime) : $t('business.apiKey.neverUsed') }}
               </p>
@@ -638,10 +657,17 @@
 </template>
 
 <script lang="ts" setup>
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import { message } from 'ant-design-vue';
+import { useAppConfig } from '@vben/hooks';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
+
+// 获取应用配置（服务器地址）
+const { serverHost } = useAppConfig(import.meta.env, import.meta.env.PROD);
+
+// OpenAI API base_url
+const baseUrl = computed(() => `${serverHost}/v1`);
 
 // 接口类型定义 - 适配新接口格式
 interface ApiKey {

@@ -24,6 +24,12 @@ const CHAT_RETRY_TOTAL_TIMEOUT = 10 // 重试总超时(秒)
 
 const ABORT = "abort" // 取消消息标记：server 放弃某请求时通知 client 停止处理
 
+const LATENCY_EXCEEDED = "latency_exceeded" // 通知 client：网络延迟过高，暂不采纳其模型算力
+
+// smart 负载均衡算法目标参数
+const LB_TARGET_ONLINE_SEC = 3600        // 目标在线时长（1小时），用于在线稳定性评分
+const LB_TARGET_TOKENS_PER_HOUR = 100000 // 目标产能（token/小时），用于服务等级评分
+
 type WSMessage struct {
 	Type        string      `json:"type"`
 	Content     interface{} `json:"content"`

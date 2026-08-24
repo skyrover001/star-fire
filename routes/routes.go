@@ -26,6 +26,8 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	marketHandler := user_handlers.NewMarketHandler(server)
 	userHandler := user_handlers.NewUserHandler(server)
 	balanceHandler := user_handlers.NewBalanceHandler(server)
+	membershipHandler := user_handlers.NewMembershipHandler(server)
+	notificationHandler := user_handlers.NewNotificationHandler(server)
 
 	// 登录和注册路由
 	r.POST("/api/login", authHandler.Login)
@@ -78,6 +80,16 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		userAPI.POST("/recharge", balanceHandler.CreateRechargeOrder)
 		userAPI.POST("/recharge/confirm", balanceHandler.ConfirmRecharge)
 		userAPI.GET("/recharge/history", balanceHandler.GetRechargeHistory)
+
+		// Membership
+		userAPI.GET("/membership", membershipHandler.GetMembership)
+		userAPI.POST("/membership/buy", membershipHandler.BuyMembership)
+
+		// Notifications
+		userAPI.GET("/notifications", notificationHandler.ListNotifications)
+		userAPI.GET("/notifications/unread", notificationHandler.GetUnreadCount)
+		userAPI.PUT("/notifications/:id/read", notificationHandler.MarkNotificationRead)
+		userAPI.PUT("/notifications/read-all", notificationHandler.MarkAllNotificationsRead)
 
 		// Price cap configuration: userID is taken from JWT, not from the request body.
 		userAPI.GET("/price-caps", priceCapHandler.ListPriceCaps)

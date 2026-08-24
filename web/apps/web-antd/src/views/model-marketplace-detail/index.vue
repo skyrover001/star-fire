@@ -437,17 +437,68 @@
         </div>
       </div>
     </div>
+
+    <!-- API 调用示例 -->
+    <div class="mb-6 rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] overflow-hidden">
+      <div class="p-6 border-b border-[var(--border-color)]">
+        <div class="flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+            <svg class="h-4 w-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold text-[var(--text-primary)]">{{ $t('business.marketplace.apiExample') }}</h3>
+            <p class="text-xs text-[var(--text-secondary)]">
+              {{ $t('business.marketplace.apiExampleDescription') }}
+            </p>
+          </div>
+        </div>
+        <div class="mt-3 rounded-lg bg-[var(--hover-bg)] px-3 py-2 text-sm">
+          <span class="text-[var(--text-secondary)]">Base URL: </span>
+          <code class="font-mono text-blue-500">{{ baseUrl }}</code>
+        </div>
+      </div>
+
+      <!-- 标签切换 -->
+      <div class="flex border-b border-[var(--border-color)]">
+        <button
+          class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+          :class="activeExampleTab === 'curl' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeExampleTab = 'curl'"
+        >cURL</button>
+        <button
+          class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+          :class="activeExampleTab === 'python' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeExampleTab = 'python'"
+        >Python</button>
+      </div>
+
+      <div class="p-4">
+        <div class="relative">
+          <button
+            class="absolute top-2 right-2 px-2 py-1 text-xs rounded bg-[var(--hover-bg)] text-[var(--text-secondary)] hover:bg-[var(--border-color)] transition-colors"
+            @click="copyExample"
+          >
+            {{ $t('business.marketplace.copy') }}
+          </button>
+          <pre class="overflow-x-auto rounded-lg bg-[#1e1e1e] p-4 text-sm text-green-400 font-mono leading-relaxed"><code>{{ activeExampleTab === 'curl' ? chatExample : pythonExample }}</code></pre>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useAppConfig } from '@vben/hooks';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
 
 const router = useRouter();
 const route = useRoute();
+
+// 获取应用配置（服务器地址）
+const { serverHost } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
 // 响应式状态
 const loading = ref(false);
@@ -458,7 +509,53 @@ const modelUsage = ref({ calls: 0, total_tokens: 0, user_count: 0, client_count:
 // 从路由参数获取模型名称
 const modelName = computed(() => route.query.name as string || '');
 
+// OpenAI API base_url
+const baseUrl = computed(() => `${serverHost}/v1`);
+
+// 调用示例代码
+const chatExample = computed(() => {
+  return `curl ${baseUrl.value}/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "model": "${modelName.value}",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'`;
+});
+
+const pythonExample = computed(() => {
+  return `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${baseUrl.value}",
+    api_key="YOUR_API_KEY",
+)
+
+response = client.chat.completions.create(
+    model="${modelName.value}",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.choices[0].message.content)`;
+});
+
 const parameterSize = computed(() => modelName.value.split(':')[1] || $t('business.marketplace.parameters'));
+
+// 调用示例标签
+const activeExampleTab = ref<'curl' | 'python'>('curl');
+
+// 复制调用示例
+const copyExample = async () => {
+  const text = activeExampleTab.value === 'curl' ? chatExample.value : pythonExample.value;
+  try {
+    await navigator.clipboard.writeText(text);
+    // 简单提示
+  } catch {
+    // ignore
+  }
+};
+
 // 支持的最大上下文：默认输入 128K，输出 32K
 const maxContext = computed(() => {
   const input = 128 * 1024;

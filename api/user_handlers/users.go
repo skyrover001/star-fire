@@ -147,5 +147,20 @@ func (uh *UserHandler) Register(c *gin.Context, server *models.Server) {
 		}
 	}
 
+	// 通知管理员有新会员注册
+	if server.NotificationDB != nil {
+		adminUsers, _, _ := server.UserDB.ListUsers(1, 100)
+		for _, admin := range adminUsers {
+			if admin.Role == "admin" {
+				_ = server.NotificationDB.Create(
+					admin.ID,
+					"register",
+					"新用户注册",
+					fmt.Sprintf("新用户 %s（%s）已注册", user.Username, user.Email),
+				)
+			}
+		}
+	}
+
 	c.JSON(http.StatusOK, gin.H{"message": "注册成功"})
 }

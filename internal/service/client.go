@@ -30,6 +30,13 @@ func HandleClientConnection(client *models.Client, server *models.Server) {
 	for _, m := range client.Models {
 		server.RemoveClientInstance(m.Name, client)
 	}
+
+	// 记录 client 掉线（smart 负载均衡：在线稳定性统计）
+	if server.ClientStatsDB != nil && client.ID != "" {
+		if err := server.ClientStatsDB.RecordOffline(client.ID); err != nil {
+			log.Printf("record client offline failed: %v", err)
+		}
+	}
 }
 
 func keepAliveClient(client *models.Client, server *models.Server) {
@@ -99,8 +106,8 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				if m.IPPM > server.Conf.AllModelInputMaxPrice {
 					log.Printf("warning: model %s IPPM %.6f exceeds platform limit %.6f", m.Name, m.IPPM, server.Conf.AllModelInputMaxPrice)
 				}
+				// 心跳场景下重复注册静默返回，避免每次心跳刷屏日志
 				server.RegisterModel(m, client)
-				fmt.Println("Client available model:", m.Name, m)
 				// add trend for client keep alive
 				trends = append(trends, &models.Trend{
 					Name:        fmt.Sprintf("%s_%s", client.User.Username, "keep alive model: "+m.Name),

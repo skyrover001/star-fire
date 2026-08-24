@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	configs "star-fire/config"
 	"star-fire/pkg/public"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/sashabaranov/go-openai"
@@ -46,20 +48,70 @@ type Client struct {
 	ErrChan          chan error               `json:"-" gorm:"-"`
 	User             *User                    `json:"user" gorm:"-"`
 	InferenceEngine  InferenceEngine          `json:"inference_engine" gorm:"-"`
+
+	// 内存原子计数：当前同时处理的请求数（用于会员连接数限制）
+	ActiveConnections int32 `json:"-" gorm:"-"`
+
+	// 内存原子计数：最近失败次数（用于 smart 负载均衡失败率维度）
+	RecentFailures int32 `json:"-" gorm:"-"`
+
+	// 延迟 EMA 平滑值（非 DB 字段，仅内存）
+	LatencyEMA float64 `json:"-" gorm:"-"`
 }
 
-// SetLatency 线程安全地更新客户端延迟（毫秒）。
+// IncrActiveConnections 原子增加当前处理请求数
+func (c *Client) IncrActiveConnections() {
+	atomic.AddInt32(&c.ActiveConnections, 1)
+}
+
+// DecrActiveConnections 原子减少当前处理请求数
+func (c *Client) DecrActiveConnections() {
+	atomic.AddInt32(&c.ActiveConnections, -1)
+}
+
+// GetActiveConnections 原子读取当前处理请求数
+func (c *Client) GetActiveConnections() int32 {
+	return atomic.LoadInt32(&c.ActiveConnections)
+}
+
+// SetLatency 线程安全地更新客户端延迟（毫秒），并维护 EMA 平滑值。
+// 使用指数移动平均（EMA）抑制瞬时抖动：ema = α*new + (1-α)*prev。
+// α 由 configs.Config.LBEMAAplha 控制，默认 0.3。
 func (c *Client) SetLatency(latency int) {
 	c.LatencyMutex.Lock()
-	c.Latency = latency
-	c.LatencyMutex.Unlock()
+	defer c.LatencyMutex.Unlock()
+	alpha := configs.Config.LBEMAAplha
+	if alpha <= 0 || alpha > 1 {
+		alpha = 0.3
+	}
+	if c.LatencyEMA == 0 {
+		c.LatencyEMA = float64(latency)
+	} else {
+		c.LatencyEMA = alpha*float64(latency) + (1-alpha)*c.LatencyEMA
+	}
+	c.Latency = int(c.LatencyEMA)
 }
 
-// GetLatency 线程安全地读取客户端延迟（毫秒）。
+// GetLatency 线程安全地读取客户端延迟（毫秒，EMA 平滑后）。
 func (c *Client) GetLatency() int {
 	c.LatencyMutex.RLock()
 	defer c.LatencyMutex.RUnlock()
 	return c.Latency
+}
+
+// IncrFailures 原子增加最近失败次数（smart 负载均衡失败率维度）。
+func (c *Client) IncrFailures() {
+	atomic.AddInt32(&c.RecentFailures, 1)
+}
+
+// ResetFailures 原子清零最近失败次数（请求成功时调用）。
+func (c *Client) ResetFailures() {
+	atomic.StoreInt32(&c.RecentFailures, 0)
+}
+
+// GetFailures 原子读取最近失败次数。
+func (c *Client) GetFailures() int32 {
+	return atomic.LoadInt32(&c.RecentFailures)
 }
 
 type ConnectionResult struct {

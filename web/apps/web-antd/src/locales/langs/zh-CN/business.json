@@ -11,7 +11,8 @@
     "usageOverview": "使用总览",
     "priceCaps": "消费限额",
     "apiKeys": "API Key 管理",
-    "recharge": "账户充值"
+    "recharge": "账户充值",
+    "membership": "会员中心"
   },
   "marketplace": {
     "back": "返回模型广场",
@@ -81,6 +82,9 @@
     "noClientData": "暂无客户端数据",
     "modelNotFound": "模型未找到",
     "reload": "重新加载",
+    "apiExample": "API 调用示例",
+    "apiExampleDescription": "该模型的 OpenAI 兼容 API 调用示例",
+    "copy": "复制",
     "noQuotes": "暂无报价",
     "uptimeDescription": "持续可用时长",
     "latencyDescription": "贡献客户端均值",
@@ -229,7 +233,7 @@
     "title": "我的模型", "subtitle": "管理您使用的模型和提供的模型服务", "refreshData": "刷新数据", "dataRefreshed": "数据已刷新", "usedModels": "我使用的模型", "providedModels": "我提供的模型", "totalApiCalls": "API 调用总数", "activeApiKeys": "活跃 API 密钥", "usedModelsInDevelopment": "我使用的模型组件（开发中）", "providedModelsInDevelopment": "我提供的模型组件（开发中）", "modelName": "模型名称", "provider": "提供者", "addedAt": "添加时间", "usageCount": "使用次数", "status": "状态", "actions": "操作", "loading": "加载中...", "details": "详情", "viewDetails": "查看详情", "remove": "移除", "removeTitle": "移除", "noUsedModels": "暂无使用的模型", "exploreModels": "探索模型", "viewModelDetails": "查看模型 \"{model}\" 详情", "removeConfirm": "确定要移除模型 \"{model}\" 吗？", "modelRemoved": "模型移除成功", "removeFailed": "移除模型失败", "loadModelsFailed": "加载模型列表失败", "active": "正常", "inactive": "未激活", "error": "错误", "unknown": "未知", "refresh": "刷新", "addModel": "添加模型", "running": "运行中", "stopped": "已停止", "type": "类型:", "version": "版本:", "calls": "调用量:", "earnings": "收入:", "takeOffline": "下线", "bringOnline": "上线", "delete": "删除", "noProvidedModels": "暂无提供的模型", "addFirstModel": "添加您的第一个模型开始赚钱", "description": "描述", "noDescription": "无描述", "endpoint": "接口地址", "totalCalls": "总调用量", "totalEarnings": "总收入", "createdAt": "创建时间", "lastCalled": "最后调用", "neverCalled": "未调用", "modelTypeTextGeneration": "文本生成", "modelTypeImageGeneration": "图像生成", "modelTypeTextToSpeech": "语音合成", "modelTypeSpeechToText": "语音识别", "modelTypeImageRecognition": "图像识别", "modelTypeTranslation": "翻译", "modelTypeOther": "其他", "modelNameRequired": "请输入模型名称", "endpointRequired": "请输入模型接口地址", "modelAdded": "模型添加成功", "addFailed": "添加模型失败", "deleteConfirmTitle": "确认删除", "deleteConfirmContent": "删除后模型将无法被其他用户使用，确定要删除吗？", "modelDeleted": "模型已删除", "deleteFailed": "删除模型失败", "modelOffline": "模型已下线", "modelOnline": "模型已上线", "operationFailed": "操作失败", "addModelTitle": "添加模型", "modelNamePlaceholder": "请输入模型名称", "descriptionPlaceholder": "请输入模型描述", "publicModel": "公开模型（允许其他用户使用）", "cancel": "取消", "adding": "添加中...", "add": "添加"
   },
   "apiKey": {
-    "title": "API Key 管理", "subtitle": "管理您的 API 密钥，安全访问模型服务", "refreshData": "刷新数据", "dataRefreshed": "数据已刷新", "totalKeys": "总密钥", "maximumKeys": "最多可创建 5 个", "activeKeys": "活跃密钥", "unrevokedKeys": "未被撤销的密钥", "totalCalls": "总调用次数", "allKeysCombined": "所有密钥累计", "descriptionTitle": "API Key 管理", "description": "您可以查看和管理您的所有 API Key。最多可以保留 5 个 API Key。密钥只会在首次显示一次，请妥善保存。不要与他人共享 API Key，或将其暴露在客户端代码中。为了保护您的账户安全，一旦 API 密钥被发现泄露，Star Fire 可能会将其禁用。", "createNew": "创建新的 API Key", "refreshing": "刷新中...", "refresh": "刷新", "name": "名称", "createdAt": "创建时间", "expiresAt": "到期时间", "key": "Key", "lastUsed": "最后使用", "actions": "操作", "loading": "加载中...", "revoked": "已撤销", "expired": "已过期", "expiringSoon": "即将过期", "copyFullKey": "复制完整密钥", "neverUsed": "从未使用", "revoke": "撤销", "delete": "删除", "noKeys": "暂无 API Key", "createFirst": "开始创建您的第一个 API Key", "create": "创建 API Key", "createDescription": "请为您的 API Key 设置一个名称，便于识别和管理。", "nameLabel": "API Key 名称", "namePlaceholder": "例如：star-fire 或 我的项目", "nameHint": "建议使用有意义的名称，如项目名称或用途描述，方便后续管理和识别", "expirySettings": "过期时间设置", "neverExpires": "永不过期", "customExpiry": "指定过期时间", "quickSelect": "快速选择", "selectDate": "或选择具体日期", "expiryPreview": "过期时间:", "timeFromNow": "距离现在大约 {time}", "securityNotice": "安全提示", "createOnce": "API Key 创建后只会显示一次，请妥善保存", "noClientExposure": "不要在客户端代码中暴露您的 API Key", "revokeOnExposure": "发现泄露后请立即撤销并重新创建", "features": "API Key 功能", "openaiAccess": "访问 Star Fire 平台模型的 OpenAI API 标准接口", "permissionManagement": "完整的权限管理", "usageMonitoring": "使用统计和监控", "cancel": "取消", "creating": "创建中...", "created": "API Key 创建成功！", "saveOnce": "请妥善保存您的 API Key，它只会显示一次。", "important": "重要提示", "importantDescription": "此密钥只会显示这一次，关闭此窗口后将无法再次查看完整密钥。请立即复制并保存到安全的地方。", "yourKey": "您的 API Key", "copy": "复制", "expiresOn": "此 API Key 将在 {date} 过期（{time}后）", "expiredDescription": "过期后将无法使用，请及时续期或创建新的 API Key", "neverExpiresDescription": "此 API Key 设置为永不过期，可以长期使用", "rotationAdvice": "建议定期轮换密钥以确保安全", "usageGuide": "如何使用您的 API Key", "authorizationHeader": "在 HTTP 请求头中添加：", "httpsAdvice": "确保在 HTTPS 环境下使用，保护数据传输安全", "rateLimitAdvice": "建议设置请求频率限制，避免超出配额", "securityAdvice": "安全建议", "environmentVariables": "将 API Key 存储在环境变量中，不要硬编码在代码里", "rotatePeriodically": "定期轮换 API Key，建议每 3-6 个月更换一次", "monitorUsage": "监控 API Key 使用情况，及时发现异常访问", "revokeIfCompromised": "如发现泄露，请立即撤销并创建新的 API Key", "savedSafely": "我已安全保存", "loadFailed": "加载 API Key 失败", "nameRequired": "请输入 API Key 名称", "selectExpiry": "请选择过期时间", "expiryFuture": "过期时间必须晚于当前时间", "createSuccess": "API Key 创建成功", "createFailed": "创建 API Key 失败", "confirmRevoke": "确定要撤销 API Key \"{name}\" 吗？撤销后将无法再使用此密钥。", "revokeSuccess": "API Key 已撤销", "revokeFailed": "撤销 API Key 失败", "confirmDelete": "确定要删除 API Key \"{name}\" 吗？此操作不可逆。", "deleteSuccess": "API Key 删除成功", "deleteFailed": "删除 API Key 失败", "copied": "已复制到剪贴板", "manualCopy": "请手动复制选中的文本（3秒后自动关闭）", "copyFailed": "复制失败，请手动复制", "timeExpired": "已过期", "daysHours": "{days}天{hours}小时", "hoursMinutes": "{hours}小时{minutes}分钟", "minutes": "{minutes}分钟", "preset7Days": "7天", "preset30Days": "30天", "preset90Days": "90天", "preset1Year": "1年"
+    "title": "API Key 管理", "subtitle": "管理您的 API 密钥，安全访问模型服务", "refreshData": "刷新数据", "dataRefreshed": "数据已刷新", "totalKeys": "总密钥", "maximumKeys": "最多可创建 5 个", "activeKeys": "活跃密钥", "unrevokedKeys": "未被撤销的密钥", "totalCalls": "总调用次数", "allKeysCombined": "所有密钥累计", "descriptionTitle": "API Key 管理", "description": "您可以查看和管理您的所有 API Key。最多可以保留 5 个 API Key。密钥只会在首次显示一次，请妥善保存。不要与他人共享 API Key，或将其暴露在客户端代码中。为了保护您的账户安全，一旦 API 密钥被发现泄露，Star Fire 可能会将其禁用。", "createNew": "创建新的 API Key", "refreshing": "刷新中...", "refresh": "刷新", "name": "名称", "createdAt": "创建时间", "expiresAt": "到期时间", "key": "Key", "baseUrl": "Base URL", "copyBaseUrl": "复制 Base URL", "lastUsed": "最后使用", "actions": "操作", "loading": "加载中...", "revoked": "已撤销", "expired": "已过期", "expiringSoon": "即将过期", "copyFullKey": "复制完整密钥", "neverUsed": "从未使用", "revoke": "撤销", "delete": "删除", "noKeys": "暂无 API Key", "createFirst": "开始创建您的第一个 API Key", "create": "创建 API Key", "createDescription": "请为您的 API Key 设置一个名称，便于识别和管理。", "nameLabel": "API Key 名称", "namePlaceholder": "例如：star-fire 或 我的项目", "nameHint": "建议使用有意义的名称，如项目名称或用途描述，方便后续管理和识别", "expirySettings": "过期时间设置", "neverExpires": "永不过期", "customExpiry": "指定过期时间", "quickSelect": "快速选择", "selectDate": "或选择具体日期", "expiryPreview": "过期时间:", "timeFromNow": "距离现在大约 {time}", "securityNotice": "安全提示", "createOnce": "API Key 创建后只会显示一次，请妥善保存", "noClientExposure": "不要在客户端代码中暴露您的 API Key", "revokeOnExposure": "发现泄露后请立即撤销并重新创建", "features": "API Key 功能", "openaiAccess": "访问 Star Fire 平台模型的 OpenAI API 标准接口", "permissionManagement": "完整的权限管理", "usageMonitoring": "使用统计和监控", "cancel": "取消", "creating": "创建中...", "created": "API Key 创建成功！", "saveOnce": "请妥善保存您的 API Key，它只会显示一次。", "important": "重要提示", "importantDescription": "此密钥只会显示这一次，关闭此窗口后将无法再次查看完整密钥。请立即复制并保存到安全的地方。", "yourKey": "您的 API Key", "copy": "复制", "expiresOn": "此 API Key 将在 {date} 过期（{time}后）", "expiredDescription": "过期后将无法使用，请及时续期或创建新的 API Key", "neverExpiresDescription": "此 API Key 设置为永不过期，可以长期使用", "rotationAdvice": "建议定期轮换密钥以确保安全", "usageGuide": "如何使用您的 API Key", "authorizationHeader": "在 HTTP 请求头中添加：", "httpsAdvice": "确保在 HTTPS 环境下使用，保护数据传输安全", "rateLimitAdvice": "建议设置请求频率限制，避免超出配额", "securityAdvice": "安全建议", "environmentVariables": "将 API Key 存储在环境变量中，不要硬编码在代码里", "rotatePeriodically": "定期轮换 API Key，建议每 3-6 个月更换一次", "monitorUsage": "监控 API Key 使用情况，及时发现异常访问", "revokeIfCompromised": "如发现泄露，请立即撤销并创建新的 API Key", "savedSafely": "我已安全保存", "loadFailed": "加载 API Key 失败", "nameRequired": "请输入 API Key 名称", "selectExpiry": "请选择过期时间", "expiryFuture": "过期时间必须晚于当前时间", "createSuccess": "API Key 创建成功", "createFailed": "创建 API Key 失败", "confirmRevoke": "确定要撤销 API Key \"{name}\" 吗？撤销后将无法再使用此密钥。", "revokeSuccess": "API Key 已撤销", "revokeFailed": "撤销 API Key 失败", "confirmDelete": "确定要删除 API Key \"{name}\" 吗？此操作不可逆。", "deleteSuccess": "API Key 删除成功", "deleteFailed": "删除 API Key 失败", "copied": "已复制到剪贴板", "manualCopy": "请手动复制选中的文本（3秒后自动关闭）", "copyFailed": "复制失败，请手动复制", "timeExpired": "已过期", "daysHours": "{days}天{hours}小时", "hoursMinutes": "{hours}小时{minutes}分钟", "minutes": "{minutes}分钟", "preset7Days": "7天", "preset30Days": "30天", "preset90Days": "90天", "preset1Year": "1年"
   },
   "chat": {
     "assistant": "AI 对话助手", "clearChat": "清空对话", "settings": "设置", "configureKey": "配置 API Key", "configureDescription": "为了使用 AI 对话功能，请先配置您的 API Key。系统会自动获取可用的 API Key，或您可以手动输入。", "autoFetch": "自动获取", "autoFetchDescription": "系统将自动从您的账户获取可用的 API Key", "manualInput": "手动输入", "manualInputDescription": "手动输入您的 API Key", "localStorage": "API Key 将安全保存在本地，不会上传到服务器", "autoFetchTitle": "自动获取 API Key", "autoFetchPrompt": "系统将从您的账户中自动选择一个有效的 API Key", "cancel": "取消", "fetching": "获取中...", "confirm": "确认", "manualInputTitle": "手动输入 API Key", "enterKey": "请输入您的 API Key", "keyPlaceholder": "请输入 API Key...", "noKeyTitle": "未找到可用的 API Key", "noKeyDescription": "系统未找到有效的 API Key，请前往管理页面创建或检查您的 API Key 配置。", "goToManagement": "前往管理", "startChat": "开始与 AI 对话", "welcome": "您正在与 {model} 对话。请在下方输入您的问题。", "thinking": "思考过程", "thinkingDuration": "思考时长: {duration}", "copyMessage": "复制消息", "aiThinking": "AI 正在思考...", "messagePlaceholder": "输入您的消息...", "sending": "发送中", "send": "发送", "chatSettings": "对话设置", "currentModel": "当前模型", "morePrecise": "更精确", "moreCreative": "更创意", "maxTokens": "最大 Token 数", "maxTokensDescription": "控制回复的最大长度", "chatStatistics": "对话统计", "messageCount": "消息数量:", "estimatedTokens": "估算 Token:", "exportChat": "导出对话", "resetKey": "重置 API Key", "htmlPreview": "HTML 预览", "javascriptPreview": "JavaScript 预览", "runCode": "运行代码", "clearOutput": "清空输出", "responseStreamUnavailable": "无法获取响应流", "errorResponse": "抱歉，发生了错误：{error}", "unknownError": "未知错误", "runJavascript": "运行 JavaScript 代码...", "consoleOutput": "Console 输出", "executionComplete": "代码执行完成", "executionError": "执行错误", "readyToRun": "准备运行 JavaScript 代码...", "copy": "复制", "preview": "预览"
@@ -256,5 +260,52 @@
     "manage": "管理",
     "statistics": "统计",
     "noContributions": "暂无贡献记录"
+  },
+  "membership": {
+    "title": "会员中心",
+    "subtitle": "消费者会员用于调用 API 推理的限流权益；贡献者会员用于接入算力（client）的连接数上限。两者相互独立，可分别购买。",
+    "consumer": "消费者会员",
+    "contributor": "贡献者会员",
+    "currentLevel": "当前{type}等级：",
+    "expireAt": "到期时间：{date}",
+    "notActivated": "未开通",
+    "connLimit": "同时处理链接数上限：",
+    "unlimited": "无限",
+    "currentConnections": "当前连接数：",
+    "onlineClients": "在线客户端：{count}",
+    "connPoolUsage": "连接池使用 {percent}%",
+    "connPoolUnlimited": "无限连接池 · 已连接 {count}",
+    "rateLimit": "调用限流：",
+    "rateLimitValue": "{rpm} RPM / {tpm} TPM",
+    "normal": "普通会员",
+    "vip": "VIP 会员",
+    "svip": "SVIP 会员",
+    "free": "免费",
+    "normalConn": "同时处理 3 个链接",
+    "normalRateLimit": "基础调用限流",
+    "basicBenefits": "基础权益",
+    "vipConn": "同时处理 10 个链接",
+    "vipRateLimit": "更高调用限流",
+    "higherBenefits": "更高权益",
+    "svipConn": "无限链接数",
+    "svipRateLimit": "最高调用限流",
+    "highestBenefits": "最高权益",
+    "recommended": "推荐",
+    "perYear": "¥{price} / 年",
+    "newPrice": "新购价：¥{price}",
+    "upgradePrice": "升级价：¥{price}",
+    "currentLevelBadge": "当前等级",
+    "buyNow": "立即购买",
+    "upgradeToVip": "升级为 VIP",
+    "upgradeToSvip": "升级为 SVIP",
+    "confirmTitle": "确认{action}{type}{level}？",
+    "confirmContent": "您当前{type}为{current}。\n{action}{level}需支付 ¥{price}，将从账户余额中扣除。",
+    "confirmPay": "确认支付",
+    "cancel": "取消",
+    "upgrade": "升级",
+    "renew": "续费",
+    "buySuccess": "{action}成功！",
+    "buyFailed": "{action}失败",
+    "tip": "💡 会员费用将从账户余额中扣除，请确保余额充足。余额不足时请先充值。"
   }
 }

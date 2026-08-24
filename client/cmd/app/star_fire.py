@@ -537,7 +537,7 @@ class SplashScreen:
         
         subtitle_label = tk.Label(
             main_frame,
-            text=self.i18n.translate_source("算力分享应用"),
+            text="Compute Sharing App",
             font=('Arial', 12),
             bg='#2C3E50',
             fg='#BDC3C7'
@@ -554,7 +554,7 @@ class SplashScreen:
         
         self.status_label = tk.Label(
             main_frame,
-            text=self.i18n.translate_source("正在启动..."),
+            text="Starting...",
             font=('Arial', 10),
             bg='#2C3E50',
             fg='#95A5A6'
@@ -573,7 +573,7 @@ class SplashScreen:
         self.root.update()
     
     def update_status(self, text):
-        self.status_label.config(text=self.i18n.translate_source(text))
+        self.status_label.config(text=text)
         self.root.update()
     
     def close(self):
@@ -590,7 +590,7 @@ class StarFireAPP:
         self.config['language'] = self.i18n.language
 
         self.root.title(self.i18n.translate_source("StarFire MaaS 算力分享APP"))
-        self.root.geometry("1000x700")
+        self.root.geometry("1000x800")
         self.root.resizable(True, True)
         
         # 设置窗口关闭事件
@@ -647,6 +647,8 @@ class StarFireAPP:
         self.refresh_translations()
         self.check_ollama()
         self.check_running_models()
+        # 独立定时刷新会员/连接池信息（不依赖模型模式）
+        self.start_membership_refresh()
         # 初始化系统托盘（启动后即驻留，关闭窗口时最小化到托盘）
         self.setup_tray_icon()
         # self.root.after(1000, self.setup_tray_icon) 
@@ -1319,7 +1321,7 @@ class StarFireAPP:
         toggle_pwd_btn = ttk.Button(password_frame, text="🔒", width=3, command=toggle_password)
         toggle_pwd_btn.pack(side=tk.LEFT, padx=(5, 0))
         
-        # 登录状态显示
+        # 登录状态显示 + 登录按钮 一行
         login_status_frame = ttk.Frame(config_frame)
         login_status_frame.pack(fill=tk.X, pady=5)
         ttk.Label(login_status_frame, text="登录状态:", width=12).pack(side=tk.LEFT)
@@ -1333,30 +1335,78 @@ class StarFireAPP:
             font=("Arial", 9)
         )
         self.login_status_label.pack(side=tk.LEFT, padx=(5, 0))
-        
-        # 去掉获取Token按钮，仅保留显示与显隐切换
-        # 添加收益信息展示
+        self.login_btn = ttk.Button(
+            login_status_frame,
+            text="🔐 登录",
+            command=self.login_to_server,
+            width=10
+        )
+        self.login_btn.pack(side=tk.LEFT, padx=(10, 0))
+
+        # 会员信息 一行（贡献者 client，显示贡献者会员）
+        membership_frame = ttk.Frame(config_frame)
+        membership_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(membership_frame, text="会员:", width=12).pack(side=tk.LEFT)
+        self.membership_label = ttk.Label(
+            membership_frame,
+            text="普通会员",
+            foreground="#10B981",
+            font=("Arial", 9, "bold")
+        )
+        self.membership_label.pack(side=tk.LEFT, padx=(5, 0))
+        ttk.Label(membership_frame, text="到期:", foreground="gray", font=("Arial", 8)).pack(side=tk.LEFT, padx=(8, 0))
+        self.membership_expire_label = ttk.Label(
+            membership_frame,
+            text="未开通",
+            foreground="gray",
+            font=("Arial", 8)
+        )
+        self.membership_expire_label.pack(side=tk.LEFT, padx=(2, 0))
+
+        # 连接池 单独一行
+        conn_frame = ttk.Frame(config_frame)
+        conn_frame.pack(fill=tk.X, pady=5)
+        ttk.Label(conn_frame, text="连接池:", width=12).pack(side=tk.LEFT)
+        self.conn_label = ttk.Label(
+            conn_frame,
+            text="0/3",
+            foreground="green",
+            font=("Arial", 8)
+        )
+        self.conn_label.pack(side=tk.LEFT, padx=(2, 0))
+        # 横向进度条
+        self.conn_canvas = tk.Canvas(
+            conn_frame,
+            width=160,
+            height=14,
+            bg="#E0E0E0",
+            highlightthickness=1,
+            highlightbackground="#B0B0B0"
+        )
+        self.conn_canvas.pack(side=tk.LEFT, padx=(6, 0))
+        # 初始绘制空进度条
+        self._draw_conn_bucket(0)
+
+        # 收益信息 一行（总收益 + 最新收益）
         income_frame = ttk.Frame(config_frame)
         income_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(income_frame, text="总收益:", width=12).pack(side=tk.LEFT)
+        ttk.Label(income_frame, text="收益:", width=12).pack(side=tk.LEFT)
+        ttk.Label(income_frame, text="总:", foreground="gray", font=("Arial", 8)).pack(side=tk.LEFT)
         self.total_income_label = ttk.Label(
             income_frame,
             text="0.00 ¥",
             foreground="green",
-            font=("Arial", 10, "bold")
+            font=("Arial", 9, "bold")
         )
-        self.total_income_label.pack(side=tk.LEFT, padx=(5, 0))
-
-        latest_frame = ttk.Frame(config_frame)
-        latest_frame.pack(fill=tk.X, pady=5)
-        ttk.Label(latest_frame, text="最新收益:", width=12).pack(side=tk.LEFT)
+        self.total_income_label.pack(side=tk.LEFT, padx=(2, 0))
+        ttk.Label(income_frame, text="最新:", foreground="gray", font=("Arial", 8)).pack(side=tk.LEFT, padx=(8, 0))
         self.latest_income_label = ttk.Label(
-            latest_frame,
+            income_frame,
             text="0.00 ¥",
             foreground="blue",
-            font=("Arial", 10)
+            font=("Arial", 9)
         )
-        self.latest_income_label.pack(side=tk.LEFT, padx=(5, 0))
+        self.latest_income_label.pack(side=tk.LEFT, padx=(2, 0))
         
         # 模型配置入口
         model_price_frame = ttk.Frame(config_frame)
@@ -1407,14 +1457,6 @@ class StarFireAPP:
         starfire_button_frame = ttk.Frame(config_frame)
         starfire_button_frame.pack(fill=tk.X, pady=(10, 0))
         
-        self.login_btn = ttk.Button(
-            starfire_button_frame,
-            text="🔐 登录",
-            command=self.login_to_server,
-            width=15
-        )
-        self.login_btn.pack(side=tk.LEFT, padx=5)
-        
         self.save_config_btn = ttk.Button(
             starfire_button_frame,
             text="💾 保存配置",
@@ -1432,23 +1474,23 @@ class StarFireAPP:
         )
         self.fetch_income_btn.pack(side=tk.LEFT, padx=5)
         
-        control_frame = ttk.LabelFrame(right_frame, text="🎮 算力控制", padding="15")
-        control_frame.pack(fill=tk.X, padx=10, pady=5)
+        control_frame = ttk.LabelFrame(right_frame, text="🎮 算力控制", padding="8")
+        control_frame.pack(fill=tk.X, padx=10, pady=3)
         
         status_indicator_frame = ttk.Frame(control_frame)
-        status_indicator_frame.pack(fill=tk.X, pady=(0, 10))
+        status_indicator_frame.pack(fill=tk.X, pady=(0, 5))
         
-        ttk.Label(status_indicator_frame, text="状态:", font=("Arial", 10, "bold")).pack(side=tk.LEFT)
+        ttk.Label(status_indicator_frame, text="状态:", font=("Arial", 9, "bold")).pack(side=tk.LEFT)
         self.starfire_status_label = tk.Label(
             status_indicator_frame,
             text=" ● 未运行 ",
             bg="#D3D3D3",
             fg="gray",
             relief=tk.RAISED,
-            padx=10,
-            font=("Arial", 10, "bold")
+            padx=8,
+            font=("Arial", 9, "bold")
         )
-        self.starfire_status_label.pack(side=tk.LEFT, padx=10)
+        self.starfire_status_label.pack(side=tk.LEFT, padx=8)
         
         # TCP服务器状态
         self.tcp_status_label = tk.Label(
@@ -1457,8 +1499,8 @@ class StarFireAPP:
             bg="#D3D3D3",
             fg="gray",
             relief=tk.RAISED,
-            padx=8,
-            font=("Arial", 9)
+            padx=6,
+            font=("Arial", 8)
         )
         self.tcp_status_label.pack(side=tk.LEFT, padx=5)
         
@@ -1479,14 +1521,14 @@ class StarFireAPP:
             foreground="gray",
             font=("Arial", 8)
         )
-        tcp_info_label.pack(pady=(0, 10))
+        tcp_info_label.pack(pady=(0, 5))
         
         # Starfire控制按钮
         self.start_starfire_btn = ttk.Button(
             control_buttons,
             text="▶️ 启动算力注册",
             command=self.start_starfire,
-            width=20
+            width=18
         )
         self.start_starfire_btn.pack(side=tk.LEFT, padx=5)
         
@@ -1495,7 +1537,7 @@ class StarFireAPP:
             text="⏹️ 停止算力注册",
             command=self.stop_starfire,
             state=tk.DISABLED,
-            width=20
+            width=18
         )
         self.stop_starfire_btn.pack(side=tk.LEFT, padx=5)
         
@@ -1776,6 +1818,8 @@ class StarFireAPP:
                                 self._message('showinfo', "成功", "Success", "登录成功！", "Signed in successfully.")
                                 # 自动获取收益
                                 self.fetch_income_data()
+                                # 自动获取会员信息
+                                self.fetch_membership_data()
                             
                             self.root.after(0, _update_ui)
                         else:
@@ -1853,9 +1897,196 @@ class StarFireAPP:
                 self.root.after(0, lambda: self.starfire_log(f"❌ {error_msg}", "red"))
         
         threading.Thread(target=_fetch, daemon=True).start()
-    
+
+    def fetch_membership_data(self):
+        """获取贡献者会员等级、到期时间、当前连接数和连接池使用程度"""
+        jwt_token = self.config.get('jwt_token', '')
+        host = self.host_entry.get().strip()
+
+        if not jwt_token:
+            return
+
+        def _fetch():
+            try:
+                import urllib.request
+
+                base_url = f"http://{host}" if not host.startswith('http') else host
+                headers = {'Authorization': f'Bearer {jwt_token}'}
+
+                req = urllib.request.Request(f"{base_url}/api/user/membership", headers=headers)
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    result = json.loads(response.read().decode('utf-8'))
+
+                # 贡献者 client，只显示贡献者会员
+                membership = result.get('contributor_membership', 'normal')
+                expire_at = result.get('contributor_expire_at', '')
+                max_conn = result.get('max_connections', 3)
+                current_conn = result.get('current_connections', 0)
+                usage_percent = result.get('usage_percent', 0)
+
+                # 会员等级中文名
+                membership_names = {
+                    'normal': self._text("普通会员", "Normal"),
+                    'vip': self._text("VIP 会员", "VIP"),
+                    'svip': self._text("SVIP 会员", "SVIP"),
+                }
+                membership_name = membership_names.get(membership, membership)
+
+                # 到期时间
+                expire_str = self._text("未开通", "Not activated")
+                if expire_at:
+                    try:
+                        expire_str = expire_at[:10]
+                    except Exception:
+                        expire_str = expire_at
+
+                # 连接池显示（紧凑格式，百分比由进度条展示）
+                max_str = self._text("无限", "∞") if max_conn == -1 else str(max_conn)
+                conn_text = f"{current_conn}/{max_str}"
+
+                def _update():
+                    self.membership_label.config(text=membership_name)
+                    self.membership_expire_label.config(text=expire_str)
+                    self.conn_label.config(text=conn_text)
+                    # 连接池使用程度颜色
+                    if max_conn > 0:
+                        if usage_percent >= 90:
+                            self.conn_label.config(foreground="red")
+                        elif usage_percent >= 70:
+                            self.conn_label.config(foreground="orange")
+                        else:
+                            self.conn_label.config(foreground="green")
+                    else:
+                        # SVIP 无限连接池：文字用蓝色，表示无限容量
+                        self.conn_label.config(foreground="#3B82F6")
+                    # 绘制进度条（SVIP 无限时用蓝色渐变，宽度随当前连接数变化）
+                    if max_conn > 0:
+                        self._draw_conn_bucket(usage_percent)
+                    else:
+                        self._draw_conn_bucket_unlimited(current_conn)
+
+                self.root.after(0, _update)
+
+            except Exception as e:
+                # 静默失败，不打扰用户
+                print(f"获取会员信息失败: {e}")
+
+        threading.Thread(target=_fetch, daemon=True).start()
+
+    def _draw_conn_bucket(self, percent):
+        """绘制连接池横向进度条（从左到右填充 = 使用百分比）"""
+        try:
+            if not hasattr(self, 'conn_canvas'):
+                return
+            canvas = self.conn_canvas
+            canvas.delete("all")
+            w = int(canvas.cget("width"))
+            h = int(canvas.cget("height"))
+            # 填充宽度（百分比）
+            fill_w = int(w * max(0, min(percent, 100)) / 100)
+            # 填充颜色（绿/橙/红）
+            if percent >= 90:
+                color = "#EF4444"
+            elif percent >= 70:
+                color = "#F59E0B"
+            else:
+                color = "#10B981"
+            # 绘制填充（从左到右）
+            if fill_w > 0:
+                canvas.create_rectangle(0, 0, fill_w, h, fill=color, outline="")
+            # 绘制边框
+            canvas.create_rectangle(0, 0, w, h, outline="#B0B0B0", width=1)
+        except Exception:
+            pass
+
+    def _draw_conn_bucket_unlimited(self, current_conn=0):
+        """绘制 SVIP 无限连接池：蓝色渐变条，宽度随当前连接数变化，0 连接时为空条"""
+        try:
+            if not hasattr(self, 'conn_canvas'):
+                return
+            canvas = self.conn_canvas
+            canvas.delete("all")
+            w = int(canvas.cget("width"))
+            h = int(canvas.cget("height"))
+            # 宽度随当前连接数变化：每 1 个连接约 10%，封顶 60%（表示无限，永不填满）
+            ratio = min(current_conn * 0.10, 0.60)
+            fill_w = int(w * ratio)
+            if fill_w <= 0:
+                # 0 连接：只画边框，空条
+                canvas.create_rectangle(0, 0, w, h, outline="#B0B0B0", width=1)
+                return
+            # 蓝色渐变（从左到右：蓝 → 紫）
+            from_color = "#3B82F6"
+            to_color = "#8B5CF6"
+            # 用多段矩形模拟渐变
+            steps = max(1, fill_w // 2)
+            for i in range(steps):
+                x0 = int(i * fill_w / steps)
+                x1 = int((i + 1) * fill_w / steps)
+                t = i / max(1, steps - 1)
+                # 线性插值颜色
+                r = int(int(from_color[1:3], 16) + (int(to_color[1:3], 16) - int(from_color[1:3], 16)) * t)
+                g = int(int(from_color[3:5], 16) + (int(to_color[3:5], 16) - int(from_color[3:5], 16)) * t)
+                b = int(int(from_color[5:7], 16) + (int(to_color[5:7], 16) - int(from_color[5:7], 16)) * t)
+                color = f"#{r:02x}{g:02x}{b:02x}"
+                canvas.create_rectangle(x0, 0, x1, h, fill=color, outline="")
+            # 绘制边框
+            canvas.create_rectangle(0, 0, w, h, outline="#B0B0B0", width=1)
+        except Exception:
+            pass
+
+    def start_membership_refresh(self):
+        """独立定时刷新会员/连接池信息（不依赖模型模式）"""
+        def _refresh():
+            if self.config.get('jwt_token'):
+                self.fetch_membership_data()
+            # 每 5 秒刷新一次
+            self.root.after(5000, _refresh)
+        self.root.after(1000, _refresh)
+
+    def _refresh_jwt_token(self):
+        """JWT过期时，用保存的账号密码重新登录获取新JWT token"""
+        username = self.config.get('username', '')
+        password = self.config.get('password', '')
+        host = self.host_entry.get().strip()
+
+        if not all([host, username, password]):
+            self.starfire_log("❌ 无法刷新登录：缺少账号密码，请重新登录", "red")
+            return None
+
+        try:
+            import urllib.request
+
+            base_url = f"http://{host}" if not host.startswith('http') else host
+            login_url = f"{base_url}/api/login"
+
+            login_data = {
+                'username': username,
+                'password': password,
+                'captcha': True
+            }
+
+            data = json.dumps(login_data).encode('utf-8')
+            req = urllib.request.Request(login_url, data=data, method='POST')
+            req.add_header('Content-Type', 'application/json')
+
+            with urllib.request.urlopen(req, timeout=10) as response:
+                result = json.loads(response.read().decode('utf-8'))
+                if response.status == 200 or response.status == 201:
+                    new_token = result['token']
+                    self.config['jwt_token'] = new_token
+                    self.save_config(backup=False)
+                    self.starfire_log("✓ JWT已过期，已自动重新登录获取新token", "green")
+                    return new_token
+                else:
+                    self.starfire_log(f"❌ 自动重新登录失败: {result.get('message', '登录失败')}", "red")
+                    return None
+        except Exception as e:
+            self.starfire_log(f"❌ 自动重新登录失败: {str(e)}", "red")
+            return None
+
     def get_register_token(self):
-        """从服务器获取注册token"""
+        """从服务器获取注册token（注册token是一次性的，每次都要重新获取）"""
         jwt_token = self.config.get('jwt_token', '')
         host = self.host_entry.get().strip()
         
@@ -1865,6 +2096,7 @@ class StarFireAPP:
         
         try:
             import urllib.request
+            import urllib.error
             
             base_url = f"http://{host}" if not host.startswith('http') else host
             token_url = f"{base_url}/api/user/register-token"
@@ -1884,6 +2116,16 @@ class StarFireAPP:
                     self.starfire_log(f"❌ {error_msg}", "red")
                     return None
                     
+        except urllib.error.HTTPError as e:
+            # JWT过期（401）时，自动重新登录获取新JWT，再重试获取注册token
+            if e.code == 401:
+                self.starfire_log("⚠️ JWT已过期，尝试自动重新登录...", "orange")
+                new_jwt = self._refresh_jwt_token()
+                if new_jwt:
+                    return self.get_register_token()
+            else:
+                self.starfire_log(f"❌ 获取注册token失败: HTTP {e.code}", "red")
+            return None
         except Exception as e:
             self.starfire_log(f"❌ 获取注册token失败: {str(e)}", "red")
             return None
@@ -2580,9 +2822,14 @@ class StarFireAPP:
             )
             return
 
-        # 获取注册token
+        # 获取注册token（每次启动/重连都重新获取，注册token是一次性的）
         token = self.get_register_token()
         if not token:
+            if automatic:
+                # 自动重连模式下获取token失败（可能是临时网络问题），继续调度重试
+                self.starfire_log("❌ 获取注册token失败，稍后自动重试...", "orange")
+                self._schedule_starfire_restart()
+                return
             self._message('showwarning', "配置不完整", "Incomplete Configuration", "请先登录以获取注册Token！", "Sign in to obtain a registration token.")
             return
         
@@ -2946,6 +3193,32 @@ class StarFireAPP:
                     if message:
                         log_msg += f" ({message})"
                     self.starfire_log(log_msg, "green")
+                elif 'type' in data and data['type'] == 'latency_exceeded':
+                    # 网络延迟过高，暂不采纳该用户的模型算力
+                    model = data.get('model', '')
+                    latency = data.get('latency', 0)
+                    limit = data.get('limit', 0)
+                    try:
+                        latency_ms = int(float(latency))
+                        limit_ms = int(float(limit))
+                    except (TypeError, ValueError):
+                        latency_ms, limit_ms = 0, 0
+                    self.starfire_log(
+                        f"⚠️ 网络延迟过高({latency_ms}ms > {limit_ms}ms)，暂不采纳模型算力"
+                        + (f" (模型: {model})" if model else ""),
+                        "orange"
+                    )
+                    # 显示toast通知
+                    ToastNotification(
+                        self.root,
+                        message=self._text(
+                            f"⚠️ 网络延迟过高({latency_ms}ms)，暂不采纳您的模型算力\n请检查网络环境后重试",
+                            f"⚠️ Network latency too high ({latency_ms}ms), your model compute is temporarily not adopted\nPlease check your network and retry"
+                        ),
+                        title=self._text("网络延迟过高", "High Network Latency"),
+                        duration=6000,
+                        toast_type="warning"
+                    )
                 else:
                     # 其他类型的消息
                     self.starfire_log(f"📨 收到消息: {content}", "blue")
@@ -2964,8 +3237,7 @@ class StarFireAPP:
                     self.show_income_toast(amount, currency)
                     self.starfire_log(f"💰 收益到账: {amount} {currency}", "green")
                 else:
-                    self.starfire_log(f"📨 {content}", "blue")
-    
+                    self.starfire_log(f"📨 {content}", "blue")    
     def show_income_toast(self, amount, currency, model='', usage=None):
         """显示收益通知"""
         currency = '¥'
@@ -2980,11 +3252,11 @@ class StarFireAPP:
         
         # 模型信息放在最前面(最醒目)
         if model:
-            message_lines.append(f"🤖 模型: {model}")
+            message_lines.append(f"🤖 {self._text('模型', 'Model')}: {model}")
             message_lines.append(f"━━━━━━━━━━━━━━")
         
-        message_lines.append(f"💵 本次收益: {amount_str} {currency}")
-        message_lines.append(f"💰 累计总收益: {self.total_income:.6f} {currency}")
+        message_lines.append(f"💵 {self._text('本次收益', 'This income')}: {amount_str} {currency}")
+        message_lines.append(f"💰 {self._text('累计总收益', 'Total income')}: {self.total_income:.6f} {currency}")
         
         # 添加token使用信息
         if usage and isinstance(usage, dict):
@@ -2999,7 +3271,7 @@ class StarFireAPP:
         ToastNotification(
             self.root,
             message=message,
-            title="💰 收益到账",
+            title=self._text("💰 收益到账", "💰 Income Received"),
             duration=5000,
             toast_type="money"
         )
@@ -3391,15 +3663,15 @@ def main():
     """主函数 - 优化启动画面"""
     splash = SplashScreen()
     
-    splash.update_status("正在初始化...")
+    splash.update_status("Initializing...")
     splash.root.after(300)
     splash.root.update()
     
-    splash.update_status("正在加载组件...")
+    splash.update_status("Loading components...")
     splash.root.after(300)
     splash.root.update()
     
-    splash.update_status("准备就绪...")
+    splash.update_status("Ready...")
     splash.root.after(200)
     splash.root.update()
     

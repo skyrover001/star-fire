@@ -30,6 +30,22 @@ type Configuration struct {
 	// 设置所有模型价格上限，提示用户设置超过这个值，将会被重置为这个值
 	AllModelOutPutMaxPrice float64
 	AllModelInputMaxPrice  float64
+
+	// 限流配置（RPM/TPM，0 = 不限制）
+	RateLimitEnabled bool
+	RateLimitNormal  string // "rpm:tpm" 普通会员
+	RateLimitVIP     string // "rpm:tpm" VIP
+	RateLimitSVIP    string // "rpm:tpm" SVIP
+
+	// 智能负载均衡权重配置（smart 算法）
+	LBWeightCapacity   float64 // 可用连接数权重
+	LBWeightMembership float64 // 会员等级权重
+	LBWeightLatency    float64 // 延迟权重
+	LBWeightFailure    float64 // 失败率权重
+	LBWeightStability  float64 // 在线稳定性权重
+	LBWeightService    float64 // 服务等级权重
+	LBJitter           float64 // 随机扰动幅度（±比例）
+	LBEMAAplha         float64 // 延迟 EMA 平滑系数
 }
 
 var Config = loadConfig()
@@ -37,14 +53,14 @@ var Config = loadConfig()
 func loadConfig() Configuration {
 	port := getEnv("SERVER_PORT", ":8080")
 	keepAliveTime, _ := strconv.Atoi(getEnv("KEEPALIVE_TIME", "30"))
-	maxLatency, _ := strconv.Atoi(getEnv("MAX_LATENCY", "5"))
+	maxLatency, _ := strconv.Atoi(getEnv("MAX_LATENCY", "30"))
 	chatMaxTime, _ := strconv.Atoi(getEnv("CHAT_MAX_TIME", "300"))
 	wsBuffer, _ := strconv.Atoi(getEnv("WS_BUFFER", "1048576")) // 1MB
 	jwtSecret := getEnv("JWT_SECRET", "123456789qwertyuiasdfghjkzxcvbnm")
 	jwtExpiry, _ := strconv.Atoi(getEnv("JWT_EXPIRY", "24"))
 	maxAPIKeysPerUser, _ := strconv.Atoi(getEnv("MAX_API_KEYS_PER_USER", "3"))
 	defaultKeyExpiry, _ := strconv.Atoi(getEnv("DEFAULT_KEY_EXPIRY", "30"))
-	lba := getEnv("LBA", "round-robin")
+	lba := getEnv("LBA", "smart")
 	emailHost := getEnv("EMAIL_HOST", "")
 	emailPort, _ := strconv.Atoi(getEnv("EMAIL_PORT", "587"))
 	emailUser := getEnv("EMAIL_USER", "")
@@ -61,6 +77,22 @@ func loadConfig() Configuration {
 	// 设置共享到平台的所有模型的输入输出token价格的上限
 	allModelInputMaxPrice, _ := strconv.ParseFloat(getEnv("INPUT_TOKEN_PRICE_PER_MAX", "10.0"), 64)
 	allModelOutputMaxPrice, _ := strconv.ParseFloat(getEnv("OUTPUT_TOKEN_PRICE_PER_MAX", "20.0"), 64)
+
+	// 限流配置
+	rateLimitEnabled, _ := strconv.ParseBool(getEnv("RATE_LIMIT_ENABLED", "true"))
+	rateLimitNormal := getEnv("RATE_LIMIT_NORMAL", "120:500000")
+	rateLimitVIP := getEnv("RATE_LIMIT_VIP", "300:1000000")
+	rateLimitSVIP := getEnv("RATE_LIMIT_SVIP", "600:2000000")
+
+	// 智能负载均衡权重配置
+	lbWeightCapacity, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_CAPACITY", "0.20"), 64)
+	lbWeightMembership, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_MEMBERSHIP", "0.25"), 64)
+	lbWeightLatency, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_LATENCY", "0.20"), 64)
+	lbWeightFailure, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_FAILURE", "0.15"), 64)
+	lbWeightStability, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_STABILITY", "0.10"), 64)
+	lbWeightService, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_SERVICE", "0.10"), 64)
+	lbJitter, _ := strconv.ParseFloat(getEnv("LB_JITTER", "0.05"), 64)
+	lbEMAAplha, _ := strconv.ParseFloat(getEnv("LB_EMA_ALPHA", "0.3"), 64)
 
 	// 解析支持的embedding模型列表
 	embeddingModelsStr := getEnv("SUPPORTED_EMBEDDING_MODELS", "text-embedding-ada-002,text-embedding-3-small,text-embedding-3-large")
@@ -97,6 +129,20 @@ func loadConfig() Configuration {
 
 		AllModelInputMaxPrice:  allModelInputMaxPrice,
 		AllModelOutPutMaxPrice: allModelOutputMaxPrice,
+
+		RateLimitEnabled: rateLimitEnabled,
+		RateLimitNormal:  rateLimitNormal,
+		RateLimitVIP:     rateLimitVIP,
+		RateLimitSVIP:    rateLimitSVIP,
+
+		LBWeightCapacity:   lbWeightCapacity,
+		LBWeightMembership: lbWeightMembership,
+		LBWeightLatency:    lbWeightLatency,
+		LBWeightFailure:    lbWeightFailure,
+		LBWeightStability:  lbWeightStability,
+		LBWeightService:    lbWeightService,
+		LBJitter:           lbJitter,
+		LBEMAAplha:         lbEMAAplha,
 	}
 }
 

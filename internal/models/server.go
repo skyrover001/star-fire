@@ -52,10 +52,15 @@ type Server struct {
 	TokenUsageDB        *TokenUsageDB
 	ClientDB            *ClientDB
 	ClientFingerprintDB *ClientFingerprintDB
+	ClientStatsDB       *ClientStatsDB
 	TrendDB             *TrendDB
 	RechargeDB          *RechargeDB
 	UserPriceCapDB      *UserPriceCapDB
 	SystemConfigDB      *SystemConfigDB
+	NotificationDB      *NotificationDB
+
+	// 消费者端限流器（RPM/TPM）
+	RateLimiter *RateLimiter
 
 	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
 
@@ -103,10 +108,12 @@ func NewServer() *Server {
 	userDB := NewUserDB(gormDB)
 	clientDB := NewClientDB(gormDB)
 	clientFingerprintDB := NewClientFingerprintDB(gormDB)
+	clientStatsDB := NewClientStatsDB(gormDB)
 	trendDB := NewTrendDB(gormDB)
 	userPriceCapDB := NewUserPriceCapDB(gormDB)
 	rechargeDB := NewRechargeDB(gormDB)
 	systemConfigDB := NewSystemConfigDB(gormDB)
+	notificationDB := NewNotificationDB(gormDB)
 
 	// 初始化默认用户
 	err = userDB.InitDefaultUsers()
@@ -131,10 +138,13 @@ func NewServer() *Server {
 		RegisterTokenStore:   NewRegisterTokenStore(),
 		ClientDB:             clientDB,
 		ClientFingerprintDB:  clientFingerprintDB,
+		ClientStatsDB:        clientStatsDB,
 		TrendDB:              trendDB,
 		UserPriceCapDB:       userPriceCapDB,
 		RechargeDB:           rechargeDB,
 		SystemConfigDB:       systemConfigDB,
+		NotificationDB:       notificationDB,
+		RateLimiter:          NewRateLimiter(),
 		LoadBalanceAlgorithm: configs.Config.LBA, // default load balancing algorithm
 		MailService: &MailService{
 			SMTPServer:   configs.Config.EmailHost,
@@ -152,9 +162,51 @@ func NewServer() *Server {
 
 		for range ticker.C {
 			server.RegisterTokenStore.CleanupExpiredTokens()
+			server.checkMembershipExpiry()
 		}
 	}()
 	return server
+}
+
+// checkMembershipExpiry 检查会员到期，提前 7 天提醒用户。
+// 分别检查消费者会员与贡献者会员。
+func (s *Server) checkMembershipExpiry() {
+	if s.NotificationDB == nil || s.UserDB == nil {
+		return
+	}
+	users, _, err := s.UserDB.ListUsers(1, 1000)
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, u := range users {
+		// 消费者会员
+		if u.Membership != "" && u.Membership != MembershipNormal && !u.MembershipExpireAt.IsZero() {
+			daysLeft := int(u.MembershipExpireAt.Sub(now).Hours() / 24)
+			if daysLeft >= 0 && daysLeft <= 7 {
+				_ = s.NotificationDB.Create(
+					u.ID,
+					"membership_expire",
+					"会员即将到期",
+					fmt.Sprintf("您的消费者 %s 会员将于 %s 到期，剩余 %d 天，请及时续费。",
+						u.Membership, u.MembershipExpireAt.Format("2006-01-02"), daysLeft),
+				)
+			}
+		}
+		// 贡献者会员
+		if u.ContributorMembership != "" && u.ContributorMembership != MembershipNormal && !u.ContributorMembershipExpireAt.IsZero() {
+			daysLeft := int(u.ContributorMembershipExpireAt.Sub(now).Hours() / 24)
+			if daysLeft >= 0 && daysLeft <= 7 {
+				_ = s.NotificationDB.Create(
+					u.ID,
+					"membership_expire",
+					"会员即将到期",
+					fmt.Sprintf("您的贡献者 %s 会员将于 %s 到期，剩余 %d 天，请及时续费。",
+						u.ContributorMembership, u.ContributorMembershipExpireAt.Format("2006-01-02"), daysLeft),
+				)
+			}
+		}
+	}
 }
 
 // Predicate is a filter function used in the routing Predicate phase.
@@ -163,13 +215,39 @@ type Predicate func(c *Client, model string) bool
 
 // clientHealthy returns true when the client is online, connected, and has acceptable latency.
 // Used both as a Predicate and to identify dead clients for cleanup.
+// 延迟阈值由环境变量 MAX_LATENCY（秒）控制，默认 30s；超过该阈值的 client 会被剔除，不参与算力调度。
 func clientHealthy(c *Client, model string) bool {
+	maxLatencyMS := configs.Config.MaxLatency * 1000
+	if maxLatencyMS <= 0 {
+		maxLatencyMS = public.MAXLATENCE
+	}
 	for _, m := range c.Models {
 		if m.Name == model {
-			return c.Status == "online" && c.ControlConn != nil && c.GetLatency() < public.MAXLATENCE
+			return c.Status == "online" && c.ControlConn != nil && c.GetLatency() < maxLatencyMS
 		}
 	}
 	return false
+}
+
+// notifyLatencyExceeded 通知 client app：由于网络延迟过高，暂不采纳该用户的模型算力。
+// 通过控制连接发送 LATENCY_EXCEEDED 消息，client 端（Go 客户端 → Python 桌面应用）据此提示用户。
+func (s *Server) notifyLatencyExceeded(c *Client, model string) {
+	c.ControlConnMutex.Lock()
+	defer c.ControlConnMutex.Unlock()
+	if c.ControlConn == nil {
+		return
+	}
+	message := public.WSMessage{
+		Type: public.LATENCY_EXCEEDED,
+		Content: map[string]interface{}{
+			"model":   model,
+			"latency": c.GetLatency(),
+			"limit":   configs.Config.MaxLatency * 1000,
+		},
+	}
+	if err := c.ControlConn.WriteJSON(message); err != nil {
+		log.Printf("notify latency exceeded to client %s failed: %v", c.ID, err)
+	}
 }
 
 // priceEligible returns a Predicate that passes only clients whose model price is within
@@ -183,6 +261,26 @@ func priceEligible(maxIPPM, maxOPPM float64) Predicate {
 		}
 		return false
 	}
+}
+
+// connectionLimitEligible 返回一个 Predicate，过滤掉已达到贡献者会员连接数上限的 client。
+// 贡献者会员等级决定上限：普通=3，VIP=10，SVIP=无限（-1）。
+// 使用 Client 内存原子计数（ActiveConnections），无 DB 开销。
+// 贡献者会员等级实时从数据库查询（GetEffectiveContributorMembership），确保 set-membership 后立即生效。
+func (s *Server) connectionLimitEligible(c *Client, model string) bool {
+	if c == nil {
+		return false
+	}
+	// 实时查询该 client 所属用户的贡献者会员等级（过期自动降为普通）
+	membership := MembershipNormal
+	if c.UserID != "" && s.UserDB != nil {
+		membership = s.UserDB.GetEffectiveContributorMembership(c.UserID)
+	}
+	limit := GetMaxConnections(membership)
+	if limit < 0 {
+		return true // SVIP 无限
+	}
+	return c.GetActiveConnections() < int32(limit)
 }
 
 // LoadBalance selects a client for model+user using a Predicate → (Score) → Pick pipeline.
@@ -207,7 +305,7 @@ func (s *Server) LoadBalanceExcluding(model, userID string, excludeIDs map[strin
 	// Predicate phase.
 	// Health is checked first and also identifies dead clients for background cleanup.
 	// Additional predicates (price, capacity, geo …) are applied to the survivors.
-	extraPredicates := []Predicate{priceEligible(maxIPPM, maxOPPM)}
+	extraPredicates := []Predicate{priceEligible(maxIPPM, maxOPPM), s.connectionLimitEligible}
 
 	var eligible []*Client
 	var dead []string
@@ -216,6 +314,10 @@ func (s *Server) LoadBalanceExcluding(model, userID string, excludeIDs map[strin
 			continue
 		}
 		if !clientHealthy(c, model) {
+			// 区分：在线但延迟过高（网络差）→ 剔除并通知 client app；否则视为失效连接待清理。
+			if c.Status == "online" && c.ControlConn != nil {
+				s.notifyLatencyExceeded(c, model)
+			}
 			dead = append(dead, id)
 			continue
 		}
@@ -298,9 +400,175 @@ func (s *Server) pick(model string, eligible []*Client) *Client {
 			return eligibleMap[selectedID]
 		}
 		return nil
+
+	case "smart":
+		return s.pickSmart(model, eligible)
 	}
 	log.Println("unknown load balance algorithm:", s.LoadBalanceAlgorithm)
 	return nil
+}
+
+// ============ smart 多维度加权评分算法 ============
+
+// smart 算法权重（从 configs.Config 读取，可通过环境变量配置）
+func (s *Server) smartWeights() (capacity, membership, latency, failure, stability, service float64) {
+	cfg := configs.Config
+	capacity = cfg.LBWeightCapacity
+	membership = cfg.LBWeightMembership
+	latency = cfg.LBWeightLatency
+	failure = cfg.LBWeightFailure
+	stability = cfg.LBWeightStability
+	service = cfg.LBWeightService
+	// 兜底：若权重未配置或和为 0，使用默认值
+	if capacity+membership+latency+failure+stability+service <= 0 {
+		capacity, membership, latency, failure, stability, service = 0.20, 0.25, 0.20, 0.15, 0.10, 0.10
+	}
+	return
+}
+
+// membershipScore 会员等级分：normal=0.2, vip=0.6, svip=1.0（拉大差距，获益差异明显）
+func membershipScore(membership string) float64 {
+	switch membership {
+	case MembershipSVIP:
+		return 1.0
+	case MembershipVIP:
+		return 0.6
+	default:
+		return 0.2
+	}
+}
+
+// capacityScore 可用连接数分：SVIP(-1)无限=1.0，否则 可用/上限
+func capacityScore(maxConn int, activeConn int32) float64 {
+	if maxConn < 0 {
+		return 1.0
+	}
+	if maxConn <= 0 {
+		return 0.0
+	}
+	avail := int32(maxConn) - activeConn
+	if avail < 0 {
+		avail = 0
+	}
+	return float64(avail) / float64(maxConn)
+}
+
+// latencyScore 延迟分：基于 MAXLATENCE 的绝对映射，延迟越低分越高
+func latencyScore(latency int) float64 {
+	if latency <= 0 {
+		return 1.0
+	}
+	score := 1 - float64(latency)/float64(public.MAXLATENCE)
+	if score < 0 {
+		return 0
+	}
+	if score > 1 {
+		return 1
+	}
+	return score
+}
+
+// failureScore 失败率分：1/(1+failures)，失败越多越低
+func failureScore(failures int32) float64 {
+	return 1.0 / (1.0 + float64(failures))
+}
+
+// stabilityScore 在线稳定性分：平均在线时长 / 目标时长（1小时）
+func stabilityScore(totalOnlineSec, disconnectCount int64) float64 {
+	avgOnline := float64(totalOnlineSec) / float64(disconnectCount+1)
+	score := avgOnline / float64(public.LB_TARGET_ONLINE_SEC)
+	if score > 1 {
+		return 1
+	}
+	if score < 0 {
+		return 0
+	}
+	return score
+}
+
+// serviceScore 服务等级分：贡献token/小时 / 目标产能
+func serviceScore(totalTokens, totalOnlineSec int64) float64 {
+	if totalOnlineSec <= 0 {
+		return 0
+	}
+	tokensPerHour := float64(totalTokens) / (float64(totalOnlineSec) / 3600.0)
+	score := tokensPerHour / float64(public.LB_TARGET_TOKENS_PER_HOUR)
+	if score > 1 {
+		return 1
+	}
+	if score < 0 {
+		return 0
+	}
+	return score
+}
+
+// pickSmart 选择综合评分最高的 client。
+// 6 个维度加权：可用连接数、会员等级、延迟、失败率、在线稳定性、服务等级。
+// 加入随机扰动（±LBJitter）避免多个 client 分数相同导致固定选同一个。
+func (s *Server) pickSmart(model string, eligible []*Client) *Client {
+	if len(eligible) == 0 {
+		return nil
+	}
+	wCap, wMem, wLat, wFail, wStab, wServ := s.smartWeights()
+	jitter := configs.Config.LBJitter
+
+	// 预取各 client 的会员等级、统计、token 数据
+	type scored struct {
+		c     *Client
+		score float64
+	}
+	scoredClients := make([]scored, 0, len(eligible))
+
+	for _, c := range eligible {
+		// 会员等级（贡献者）
+		membership := MembershipNormal
+		if c.UserID != "" && s.UserDB != nil {
+			membership = s.UserDB.GetEffectiveContributorMembership(c.UserID)
+		}
+		maxConn := GetMaxConnections(membership)
+
+		// 在线稳定性 / 服务等级（从 ClientStatsDB 读取）
+		var totalOnlineSec, disconnectCount int64
+		if s.ClientStatsDB != nil {
+			if stats, err := s.ClientStatsDB.GetStats(c.ID); err == nil && stats != nil {
+				totalOnlineSec = stats.TotalOnlineSeconds
+				disconnectCount = stats.DisconnectCount
+			}
+		}
+
+		// 服务等级：历史贡献 token（从 TokenUsageDB 聚合）
+		var totalTokens int64
+		if s.TokenUsageDB != nil {
+			usages, err := s.TokenUsageDB.GetIncomeTokenUsage([]string{c.ID}, time.Time{}, time.Now())
+			if err == nil {
+				for _, u := range usages {
+					totalTokens += int64(u.TotalTokens)
+				}
+			}
+		}
+
+		score := wCap*capacityScore(maxConn, c.GetActiveConnections()) +
+			wMem*membershipScore(membership) +
+			wLat*latencyScore(c.GetLatency()) +
+			wFail*failureScore(c.GetFailures()) +
+			wStab*stabilityScore(totalOnlineSec, disconnectCount) +
+			wServ*serviceScore(totalTokens, totalOnlineSec)
+
+		// 随机扰动防抖
+		score *= 1 + (rand.Float64()*2-1)*jitter
+
+		scoredClients = append(scoredClients, scored{c: c, score: score})
+	}
+
+	// 选最高分
+	best := scoredClients[0]
+	for _, sc := range scoredClients[1:] {
+		if sc.score > best.score {
+			best = sc
+		}
+	}
+	log.Printf("smart LB: model=%s selected=%s score=%.4f (eligible=%d)", model, best.c.ID, best.score, len(eligible))
+	return best.c
 }
 
 func copyClientsMap(src map[string]map[string]*Client) map[string]map[string]*Client {
@@ -315,15 +583,18 @@ func copyClientsMap(src map[string]map[string]*Client) map[string]map[string]*Cl
 	return dst
 }
 
-func (s *Server) RegisterModel(model *public.Model, client *Client) {
+// RegisterModel 注册模型到指定 client。
+// 返回 true 表示本次是新增注册（模型首次注册或 client 实例变化），
+// 返回 false 表示该 client 已注册过该模型（心跳场景下的重复注册，无需重复处理）。
+func (s *Server) RegisterModel(model *public.Model, client *Client) bool {
 	s.clientsMu.Lock()
 	defer s.clientsMu.Unlock()
 
 	oldMap := s.clients.Load().(map[string]map[string]*Client)
 	if inner, exists := oldMap[model.Name]; exists {
 		if current, exists := inner[client.ID]; exists && current == client {
-			log.Println("model:", model.Name, "already registered for client:", client.ID)
-			return
+			// 心跳场景下重复注册：静默返回，避免刷屏日志
+			return false
 		}
 	}
 
@@ -334,6 +605,7 @@ func (s *Server) RegisterModel(model *public.Model, client *Client) {
 	newMap[model.Name][client.ID] = client
 	s.clients.Store(newMap)
 	log.Println("register model:", model.Name, "for client:", client.ID)
+	return true
 }
 
 // for model marketplace
@@ -536,6 +808,43 @@ func (s *Server) GetClientByModel(model, clientID string) *Client {
 	return modelClients[clientID]
 }
 
+// GetClientByID 在所有模型中查找指定 clientID 的 client。
+// 用于请求结束时递减内存连接计数（会员连接数限制用）。
+func (s *Server) GetClientByID(clientID string) *Client {
+	if clientID == "" {
+		return nil
+	}
+	allClients := s.clients.Load().(map[string]map[string]*Client)
+	for _, modelClients := range allClients {
+		if c, ok := modelClients[clientID]; ok {
+			return c
+		}
+	}
+	return nil
+}
+
+// GetUserClientConnections 汇总某用户所有在线 client 的当前连接数。
+// 返回 (总连接数, 在线client数)。
+func (s *Server) GetUserClientConnections(userID string) (int32, int) {
+	if userID == "" {
+		return 0, 0
+	}
+	allClients := s.clients.Load().(map[string]map[string]*Client)
+	seen := make(map[string]bool)
+	var total int32
+	var count int
+	for _, modelClients := range allClients {
+		for _, c := range modelClients {
+			if c.UserID == userID && !seen[c.ID] {
+				seen[c.ID] = true
+				total += c.GetActiveConnections()
+				count++
+			}
+		}
+	}
+	return total, count
+}
+
 // UserModelInfo represents a model provided by the current user with its price info.
 type UserModelInfo struct {
 	ModelName string  `json:"model_name"`
@@ -717,6 +1026,10 @@ func (s *Server) LoadBalanceEmbedding(model, userID string) *Client {
 
 			for _, client := range clients {
 				if !clientHealthy(client, model) {
+					continue
+				}
+				// 会员连接数限制：达到上限则过滤
+				if !s.connectionLimitEligible(client, model) {
 					continue
 				}
 				for _, m := range client.Models {

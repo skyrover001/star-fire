@@ -124,6 +124,8 @@ func (c *Client) HandleMessages() {
 				c.handleIncome(message)
 			case public.MODEL_PRICE_UPDATE:
 				c.handleModelPriceUpdate(message)
+			case public.LATENCY_EXCEEDED:
+				c.handleLatencyExceeded(message)
 			case public.CLOSE:
 				if message.Content == public.ABORT {
 					c.handleAbort(message.FingerPrint)
@@ -223,6 +225,13 @@ func (c *Client) handleChatMessage(message public.WSMessage) {
 		log.Printf("parse message error: %v", err)
 		return
 	}
+
+	// ===== 链路日志：client 收到并解析后的请求体 =====
+	// if rawBody, err := json.Marshal(openaiReq); err == nil {
+	// 	log.Printf("[TRACE] client received chat request %s body=%s", message.FingerPrint, string(rawBody))
+	// } else {
+	// 	log.Printf("[TRACE] client marshal received request error: %v", err)
+	// }
 
 	// 为每个请求创建独立的可取消 context，便于按 fingerprint 单独取消
 	ctx, cancel := context.WithCancel(c.ctx)
@@ -365,6 +374,40 @@ func (c *Client) handleIncome(message public.WSMessage) {
 		log.Printf("发送收益到 TCP 服务器失败: %v", err)
 	} else {
 		log.Printf("✓ 收益已发送: %.8f ¥ (模型: %v, 总收益: %v)", incomeValue, model, totalIncome)
+	}
+}
+
+// handleLatencyExceeded 处理 server 通知：网络延迟过高，暂不采纳该用户的模型算力。
+// 将消息转发给 Python 桌面应用，由其提示用户。
+func (c *Client) handleLatencyExceeded(message public.WSMessage) {
+	content, ok := message.Content.(map[string]interface{})
+	if !ok {
+		log.Printf("invalid latency_exceeded message content format")
+		return
+	}
+
+	model, _ := content["model"].(string)
+	latency, _ := content["latency"].(float64)
+	limit, _ := content["limit"].(float64)
+
+	log.Printf("⚠️ 网络延迟过高，暂不采纳模型算力: model=%s latency=%.0fms limit=%.0fms", model, latency, limit)
+
+	// 构造 JSON 消息（发送给 Python 桌面应用）
+	notice := map[string]interface{}{
+		"type":    "latency_exceeded",
+		"model":   model,
+		"latency": latency,
+		"limit":   limit,
+	}
+
+	jsonBytes, err := json.Marshal(notice)
+	if err != nil {
+		log.Printf("marshal latency_exceeded message error: %v", err)
+		return
+	}
+
+	if err := c.sendToTCPServer(string(jsonBytes)); err != nil {
+		log.Printf("发送延迟过高通知到 TCP 服务器失败: %v", err)
 	}
 }
 

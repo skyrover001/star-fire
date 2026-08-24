@@ -102,10 +102,16 @@ func handleEmbeddingResponse(c *gin.Context, server *models.Server, fingerPrint 
 			return
 		}
 
+		// 进入 transmitting 后，增加该 client 的内存连接计数（会员连接数限制用）
+		if c := server.GetClientByID(clientID); c != nil {
+			c.IncrActiveConnections()
+		}
+
 		var response public.WSMessage
 		err := server.RespClients[fingerPrint].ReadJSON(&response)
 		if err != nil {
 			log.Println("Error while reading json from client:", err)
+			cleanupEmbeddingRequest(server, fingerPrint, clientID)
 			return
 		}
 
@@ -117,16 +123,18 @@ func handleEmbeddingResponse(c *gin.Context, server *models.Server, fingerPrint 
 		case public.MODEL_ERROR:
 			log.Printf("Embedding model error: %v", response.Content)
 			c.JSON(http.StatusInternalServerError, gin.H{"error": response.Content})
-			cleanupEmbeddingRequest(server, fingerPrint)
+			cleanupEmbeddingRequest(server, fingerPrint, clientID)
 			return
 
 		case public.CLOSE:
 			log.Printf("Embedding request closed by client")
-			cleanupEmbeddingRequest(server, fingerPrint)
+			cleanupEmbeddingRequest(server, fingerPrint, clientID)
 			return
 
 		default:
 			log.Printf("Unknown response type for embedding: %s", response.Type)
+			cleanupEmbeddingRequest(server, fingerPrint, clientID)
+			return
 		}
 	}
 }
@@ -138,7 +146,7 @@ func handleStandardEmbeddingResponse(c *gin.Context, server *models.Server, fing
 	if err != nil {
 		log.Printf("Error marshaling embedding response: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error processing response"})
-		cleanupEmbeddingRequest(server, fingerPrint)
+		cleanupEmbeddingRequest(server, fingerPrint, clientID)
 		return
 	}
 
@@ -147,7 +155,7 @@ func handleStandardEmbeddingResponse(c *gin.Context, server *models.Server, fing
 	if err != nil {
 		log.Printf("Error unmarshaling embedding response: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error processing response"})
-		cleanupEmbeddingRequest(server, fingerPrint)
+		cleanupEmbeddingRequest(server, fingerPrint, clientID)
 		return
 	}
 
@@ -209,7 +217,7 @@ func handleStandardEmbeddingResponse(c *gin.Context, server *models.Server, fing
 
 	// 返回embedding响应
 	c.JSON(http.StatusOK, embeddingResp)
-	cleanupEmbeddingRequest(server, fingerPrint)
+	cleanupEmbeddingRequest(server, fingerPrint, clientID)
 }
 
 // calculateEmbeddingTokens 计算embedding请求的token数量
@@ -356,7 +364,7 @@ func findSubstring(s, substr string) bool {
 }
 
 // cleanupEmbeddingRequest 清理embedding请求资源
-func cleanupEmbeddingRequest(server *models.Server, fingerPrint string) {
+func cleanupEmbeddingRequest(server *models.Server, fingerPrint, clientID string) {
 	if server.RespClients[fingerPrint] != nil {
 		_ = server.RespClients[fingerPrint].Close()
 		server.RemoveRespClient(fingerPrint)
@@ -365,5 +373,12 @@ func cleanupEmbeddingRequest(server *models.Server, fingerPrint string) {
 	// 更新fingerprint状态为完成
 	if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, "", "completed"); err != nil {
 		log.Printf("update fingerprint to completed failed: %v", err)
+	}
+
+	// 递减该 client 的内存连接计数（与 transmitting 时的 +1 对应）
+	if clientID != "" {
+		if c := server.GetClientByID(clientID); c != nil {
+			c.DecrActiveConnections()
+		}
 	}
 }

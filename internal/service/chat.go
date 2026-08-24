@@ -2,8 +2,10 @@ package service
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
+	configs "star-fire/config"
 	"star-fire/internal/models"
 	"star-fire/pkg/public"
 	"strconv"
@@ -16,8 +18,39 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+// rateLimitConfigFor 根据会员等级返回限流配置。
+// 优先使用环境变量配置，未配置时使用默认值。
+func rateLimitConfigFor(membership string) models.RateLimitConfig {
+	switch membership {
+	case models.MembershipSVIP:
+		if cfg := models.ParseRateLimit(configs.Config.RateLimitSVIP); cfg.RPM > 0 || cfg.TPM > 0 {
+			return cfg
+		}
+		return models.DefaultRateLimit(models.MembershipSVIP)
+	case models.MembershipVIP:
+		if cfg := models.ParseRateLimit(configs.Config.RateLimitVIP); cfg.RPM > 0 || cfg.TPM > 0 {
+			return cfg
+		}
+		return models.DefaultRateLimit(models.MembershipVIP)
+	default:
+		if cfg := models.ParseRateLimit(configs.Config.RateLimitNormal); cfg.RPM > 0 || cfg.TPM > 0 {
+			return cfg
+		}
+		return models.DefaultRateLimit(models.MembershipNormal)
+	}
+}
+
 // handle user chat request
 func HandleChatRequest(c *gin.Context, server *models.Server) {
+	// ===== 链路日志：调用方发来的【原始请求体】（在反序列化之前，用于确认 content 是否在源头就为空）=====
+	// if rawBody, err := io.ReadAll(c.Request.Body); err == nil {
+	// 	log.Printf("[TRACE] server RAW request body=%s", string(rawBody))
+	// 	// 读完后恢复 body，供后续 ShouldBindJSON 使用
+	// 	c.Request.Body = io.NopCloser(bytes.NewReader(rawBody))
+	// } else {
+	// 	log.Printf("[TRACE] server read raw body error: %v", err)
+	// }
+
 	//扩展结构体（在 go-openai 标准请求之上承载 thinking / enable_thinking）
 	var extendedRequest public.ExtendedChatRequest
 	err := c.ShouldBindJSON(&extendedRequest)
@@ -46,6 +79,33 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
 
+	// ===== 调试日志：详细输出请求 messages，排查 "System message must be at the beginning" =====
+	// log.Printf("[DEBUG] chat request user=%s model=%s stream=%v messages=%d",
+	// 	userIDStr, request.Model, request.Stream, len(request.Messages))
+	// for i, m := range request.Messages {
+	// 	content := m.Content
+	// 	if len(content) > 200 {
+	// 		content = content[:200] + "...(truncated)"
+	// 	}
+	// 	// 标记 system message 是否在开头
+	// 	pos := "pos=" + strconv.Itoa(i)
+	// 	if m.Role == "system" {
+	// 		pos += " <-- SYSTEM"
+	// 		if i != 0 {
+	// 			pos += " (NOT AT BEGINNING!)"
+	// 		}
+	// 	}
+	// 	log.Printf("[DEBUG]   msg[%d] role=%q %s content=%q", i, m.Role, pos, content)
+	// }
+	// ===== 调试日志结束 =====
+
+	// ===== 链路日志：server 收到的完整请求体（用于排查上游 400 validation errors）=====
+	// if rawBody, err := json.Marshal(extendedRequest); err == nil {
+	// 	log.Printf("[TRACE] server received request user=%s body=%s", userIDStr, string(rawBody))
+	// } else {
+	// 	log.Printf("[TRACE] server marshal request body error: %v", err)
+	// }
+
 	// Balance pre-check: reject if balance insufficient (OpenAI-compatible error)
 	balance, _, _ := server.UserDB.GetBalance(userIDStr)
 	if balance <= 0 {
@@ -58,6 +118,41 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 			},
 		})
 		return
+	}
+
+	// 限流检查（参考 OpenAI/Anthropic/DeepSeek 的 RPM/TPM 策略）
+	if server.RateLimiter != nil && configs.Config.RateLimitEnabled {
+		// 根据会员等级获取限流配置
+		membership := server.UserDB.GetEffectiveMembership(userIDStr)
+		cfg := rateLimitConfigFor(membership)
+
+		// 估算本次请求消耗的 token 数
+		estimatedTokens := models.EstimateTokens(request.Messages)
+
+		// 限流 key：优先用 API Key，其次用用户 ID
+		limitKey := userIDStr
+		if apiKeyID, ok := c.Get("api_key_id"); ok && apiKeyID.(string) != "" {
+			limitKey = "key:" + apiKeyID.(string)
+		} else {
+			limitKey = "user:" + userIDStr
+		}
+
+		allowed, limitType := server.RateLimiter.Allow(limitKey, cfg, estimatedTokens)
+		if !allowed {
+			limitName := "requests"
+			if limitType == "tpm" {
+				limitName = "tokens"
+			}
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": gin.H{
+					"message": "You have exceeded your rate limit of " + limitName + " per minute. Please slow down your requests. For more information, see https://platform.openai.com/docs/guides/error-codes/api-errors.",
+					"type":    "rate_limit_exceeded",
+					"param":   nil,
+					"code":    "rate_limit_exceeded",
+				},
+			})
+			return
+		}
 	}
 
 	if request.Stream {
@@ -113,6 +208,13 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 
 		log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
 
+		// ===== 链路日志：server 实际发给 client 的请求体 =====
+		// if rawBody, err := json.Marshal(extendedRequest); err == nil {
+		// 	log.Printf("[TRACE] attempt %d send to client %s body=%s", attempt, client.ID, string(rawBody))
+		// } else {
+		// 	log.Printf("[TRACE] attempt %d marshal body error: %v", attempt, err)
+		// }
+
 		// 4. 发送请求到 client
 		if err := client.ControlConn.WriteJSON(public.WSMessage{
 			Type:        public.MESSAGE,
@@ -120,6 +222,7 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 			FingerPrint: fingerPrint,
 		}); err != nil {
 			log.Printf("attempt %d: send to client %s failed: %v", attempt, client.ID, err)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
 			time.Sleep(backoff(attempt))
 			continue
@@ -132,6 +235,7 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		case <-time.After(public.CHAT_MAX_TIME * time.Second):
 			server.RemoveRespClientChan(fingerPrint)
 			log.Printf("attempt %d: response conn timeout for client %s", attempt, client.ID)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			abortClientRequest(client, fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
 			time.Sleep(backoff(attempt))
@@ -141,6 +245,7 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		// 6. 获取响应连接
 		respConn, ok := server.GetRespClient(fingerPrint)
 		if !ok {
+			client.IncrFailures() // smart 负载均衡：记录失败
 			abortClientRequest(client, fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
 			time.Sleep(backoff(attempt))
@@ -150,6 +255,7 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		// 7. 更新 fingerprint 状态为 transmitting
 		if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, client.ID, "transmitting"); err != nil {
 			log.Printf("save fingerprint and client relation failed: %v", err)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			abortClientRequest(client, fingerPrint)
@@ -158,14 +264,19 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 			continue
 		}
 
+		// 进入 transmitting 后，增加该 client 的内存连接计数（会员连接数限制用）
+		client.IncrActiveConnections()
+
 		// 8. 读取第一条消息（判断类型）
 		var response public.WSMessage
 		if err := respConn.ReadJSON(&response); err != nil {
 			log.Printf("attempt %d: read first msg from client %s failed: %v", attempt, client.ID, err)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			abortClientRequest(client, fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		}
@@ -174,27 +285,52 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		switch response.Type {
 		case public.MESSAGE, public.MESSAGE_STREAM:
 			// 成功！进入正常处理流程
+			client.ResetFailures() // smart 负载均衡：请求成功，清零失败计数
 			handleChatResponseWithFirst(c, server, fingerPrint, time.Now(), client.ID, ippm, oppm, cippm, request.Model, response, respConn)
 			return
 		case public.CLOSE:
 			log.Printf("attempt %d: client %s closed before first token", attempt, client.ID)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		case public.MODEL_ERROR:
 			log.Printf("attempt %d: model error from client %s: %v", attempt, client.ID, response.Content)
+			// 判断是否为"请求本身错误"（4xx 类，如 messages 顺序错误、参数非法等）。
+			// 这类错误与 client 无关，重试也无效，不应标记 client 失败（避免污染 smart 评分），
+			// 也不应继续重试，直接返回 400 给调用方。
+			if isClientRequestError(response.Content) {
+				respConn.Close()
+				server.RemoveRespClient(fingerPrint)
+				server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+				client.DecrActiveConnections() // 递减计数，与 +1 对应
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": gin.H{
+						"message": fmt.Sprintf("%v", response.Content),
+						"type":    "invalid_request_error",
+						"param":   nil,
+						"code":    "invalid_request_error",
+					},
+				})
+				return
+			}
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		default:
 			log.Printf("attempt %d: unexpected first msg type %s from client %s", attempt, response.Type, client.ID)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		}
@@ -207,6 +343,45 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 // backoff 指数退避：attempt=0 -> 100ms, 1 -> 200ms, 2 -> 400ms
 func backoff(attempt int) time.Duration {
 	return time.Duration(public.CHAT_RETRY_BASE_DELAY*(1<<attempt)) * time.Millisecond
+}
+
+// isClientRequestError 判断 MODEL_ERROR 的内容是否为"请求本身错误"（4xx 类）。
+// 这类错误由调用方传入的请求参数导致（如 messages 顺序错误、模型名非法、参数超限等），
+// 与 client 无关，重试无效。识别后应直接返回 400，不重试、不标记 client 失败。
+func isClientRequestError(content interface{}) bool {
+	msg := ""
+	switch v := content.(type) {
+	case string:
+		msg = v
+	case error:
+		msg = v.Error()
+	default:
+		msg = fmt.Sprintf("%v", v)
+	}
+	lower := strings.ToLower(msg)
+	// 常见 4xx 请求错误特征
+	requestErrorMarkers := []string{
+		"system message must be at the beginning",
+		"bad request",
+		"invalid request",
+		"invalid_api_key",
+		"invalid parameter",
+		"invalid parameters",
+		"invalid model",
+		"model not found",
+		"context length exceeded",
+		"maximum context length",
+		"prompt is too long",
+		"400 bad request",
+		"status code: 400",
+		"status: 400",
+	}
+	for _, marker := range requestErrorMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 // abortClientRequest 通知 client 停止处理指定 fingerprint 的请求（尽力而为）。
@@ -236,6 +411,10 @@ func cleanupChatRequest(server *models.Server, fingerPrint, clientID string, res
 	server.RemoveRespClient(fingerPrint)
 	if clientID != "" {
 		_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+		// 递减该 client 的内存连接计数（与 transmitting 时的 +1 对应）
+		if c := server.GetClientByID(clientID); c != nil {
+			c.DecrActiveConnections()
+		}
 	}
 }
 

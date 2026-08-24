@@ -44,6 +44,120 @@ func main() {
 			bonus := server.SystemConfigDB.GetFloat(models.ConfigKeyRegisterBonus, 0)
 			log.Printf("当前注册赠送余额: %.2f 元", bonus)
 			return
+		case "set-membership":
+			// 用法: starfire set-membership <username> <normal|vip|svip> [天数] [consumer|contributor]
+			// 天数可选，默认 365 天；传 0 表示永久
+			// 类型可选，默认 consumer（消费者会员）；contributor 表示贡献者会员
+			if len(os.Args) < 4 {
+				log.Fatal("用法: starfire set-membership <username> <normal|vip|svip> [天数] [consumer|contributor]")
+			}
+			username := os.Args[2]
+			level := os.Args[3]
+			if level != models.MembershipNormal && level != models.MembershipVIP && level != models.MembershipSVIP {
+				log.Fatal("会员等级必须是 normal / vip / svip")
+			}
+			days := 365
+			if len(os.Args) >= 5 {
+				d, err := strconv.Atoi(os.Args[4])
+				if err != nil || d < 0 {
+					log.Fatal("天数必须是大于等于 0 的整数")
+				}
+				days = d
+			}
+			memType := "consumer"
+			if len(os.Args) >= 6 {
+				memType = os.Args[5]
+				if memType != "consumer" && memType != "contributor" {
+					log.Fatal("会员类型必须是 consumer / contributor")
+				}
+			}
+			server := models.NewServer()
+			user, err := server.UserDB.GetUser(username)
+			if err != nil {
+				log.Fatalf("用户不存在: %v", err)
+			}
+			var expireAt time.Time
+			if days > 0 {
+				expireAt = time.Now().AddDate(0, 0, days)
+			}
+			typeName := "消费者"
+			if memType == "contributor" {
+				typeName = "贡献者"
+				if err := server.UserDB.SetContributorMembership(user.ID, level, expireAt); err != nil {
+					log.Fatalf("设置会员失败: %v", err)
+				}
+			} else {
+				if err := server.UserDB.SetMembership(user.ID, level, expireAt); err != nil {
+					log.Fatalf("设置会员失败: %v", err)
+				}
+			}
+			if days > 0 {
+				log.Printf("✓ 已设置用户 %s 为%s %s 会员，%d 天后到期（%s）", username, typeName, level, days, expireAt.Format("2006-01-02"))
+			} else {
+				log.Printf("✓ 已设置用户 %s 为%s %s 会员（永久）", username, typeName, level)
+			}
+			return
+		case "get-membership":
+			// 用法: starfire get-membership <username>
+			if len(os.Args) < 3 {
+				log.Fatal("用法: starfire get-membership <username>")
+			}
+			server := models.NewServer()
+			user, err := server.UserDB.GetUser(os.Args[2])
+			if err != nil {
+				log.Fatalf("用户不存在: %v", err)
+			}
+			effective := server.UserDB.GetEffectiveMembership(user.ID)
+			expireStr := "未开通"
+			if !user.MembershipExpireAt.IsZero() {
+				expireStr = user.MembershipExpireAt.Format("2006-01-02")
+			}
+			contributorEffective := server.UserDB.GetEffectiveContributorMembership(user.ID)
+			contributorExpireStr := "未开通"
+			if !user.ContributorMembershipExpireAt.IsZero() {
+				contributorExpireStr = user.ContributorMembershipExpireAt.Format("2006-01-02")
+			}
+			log.Printf("用户 %s 消费者会员: %s（有效:%s），到期: %s",
+				user.Username, user.Membership, effective, expireStr)
+			log.Printf("用户 %s 贡献者会员: %s（有效:%s），到期: %s，连接数上限: %d",
+				user.Username, user.ContributorMembership, contributorEffective, contributorExpireStr,
+				models.GetMaxConnections(contributorEffective))
+			return
+		case "list-users":
+			// 用法: starfire list-users [page] [size]
+			server := models.NewServer()
+			page, size := 1, 20
+			if len(os.Args) >= 3 {
+				if p, err := strconv.Atoi(os.Args[2]); err == nil && p > 0 {
+					page = p
+				}
+			}
+			if len(os.Args) >= 4 {
+				if s, err := strconv.Atoi(os.Args[3]); err == nil && s > 0 {
+					size = s
+				}
+			}
+			users, total, err := server.UserDB.ListUsers(page, size)
+			if err != nil {
+				log.Fatalf("查询用户失败: %v", err)
+			}
+			log.Printf("共 %d 个用户（第 %d 页，每页 %d）:", total, page, size)
+			for _, u := range users {
+				effective := server.UserDB.GetEffectiveMembership(u.ID)
+				expireStr := "未开通"
+				if !u.MembershipExpireAt.IsZero() {
+					expireStr = u.MembershipExpireAt.Format("2006-01-02")
+				}
+				contributorEffective := server.UserDB.GetEffectiveContributorMembership(u.ID)
+				contributorExpireStr := "未开通"
+				if !u.ContributorMembershipExpireAt.IsZero() {
+					contributorExpireStr = u.ContributorMembershipExpireAt.Format("2006-01-02")
+				}
+				log.Printf("  %-20s 消费:%s(有效:%s) 到期:%s | 贡献:%s(有效:%s) 到期:%s 余额:%.2f",
+					u.Username, u.Membership, effective, expireStr,
+					u.ContributorMembership, contributorEffective, contributorExpireStr, u.Balance)
+			}
+			return
 		}
 	}
 

@@ -10,15 +10,24 @@ import (
 )
 
 type User struct {
-	ID         string    `gorm:"primaryKey;autoIncrement" json:"id"`
-	Username   string    `gorm:"uniqueIndex;not null" json:"username"`
-	Password   string    `gorm:"not null" json:"-"`
-	Email      string    `gorm:"index" json:"email"`
-	Role       string    `gorm:"default:user;not null" json:"role"`
-	Balance    float64   `gorm:"default:0;not null" json:"balance"`     // 账户余额（元）
-	TotalSpent float64   `gorm:"default:0;not null" json:"total_spent"` // 累计消费（元）
-	CreatedAt  time.Time `gorm:"not null" json:"created_at"`
-	UpdatedAt  time.Time `gorm:"not null" json:"updated_at"`
+	ID         string  `gorm:"primaryKey;autoIncrement" json:"id"`
+	Username   string  `gorm:"uniqueIndex;not null" json:"username"`
+	Password   string  `gorm:"not null" json:"-"`
+	Email      string  `gorm:"index" json:"email"`
+	Role       string  `gorm:"default:user;not null" json:"role"`
+	Balance    float64 `gorm:"default:0;not null" json:"balance"`     // 账户余额（元）
+	TotalSpent float64 `gorm:"default:0;not null" json:"total_spent"` // 累计消费（元）
+	// 消费者会员等级：normal / vip / svip，默认普通会员。
+	// 用于消费者端（调用 API 推理）的限流等权益。
+	Membership         string    `gorm:"default:normal;not null" json:"membership"`
+	MembershipExpireAt time.Time `json:"membership_expire_at"` // 消费者会员到期时间（零值表示未开通）
+	// 贡献者会员等级：normal / vip / svip，默认普通会员。
+	// 用于贡献者端（贡献算力、接入 client）的连接数上限等权益。
+	// 与消费者会员相互独立，可分别购买/升级。
+	ContributorMembership         string    `gorm:"default:normal;not null" json:"contributor_membership"`
+	ContributorMembershipExpireAt time.Time `json:"contributor_membership_expire_at"` // 贡献者会员到期时间（零值表示未开通）
+	CreatedAt                     time.Time `gorm:"not null" json:"created_at"`
+	UpdatedAt                     time.Time `gorm:"not null" json:"updated_at"`
 }
 
 // UserDB
@@ -221,4 +230,71 @@ func (udb *UserDB) GetBalance(userID string) (balance float64, totalSpent float6
 		return 0, 0, result.Error
 	}
 	return user.Balance, user.TotalSpent, nil
+}
+
+// GetEffectiveMembership 返回用户当前有效的会员等级。
+// 若会员已过期或未开通，返回普通会员（normal）。
+func (udb *UserDB) GetEffectiveMembership(userID string) string {
+	var user User
+	if err := udb.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return MembershipNormal
+	}
+	if user.Membership == "" {
+		return MembershipNormal
+	}
+	// 会员已过期则降为普通
+	if !user.MembershipExpireAt.IsZero() && time.Now().After(user.MembershipExpireAt) {
+		return MembershipNormal
+	}
+	return user.Membership
+}
+
+// SetMembership 设置用户会员等级和到期时间。
+// 传入 expireAt 为零值表示永久（管理员手动设置时可用）。
+func (udb *UserDB) SetMembership(userID, level string, expireAt time.Time) error {
+	return udb.db.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"membership":           level,
+		"membership_expire_at": expireAt,
+	}).Error
+}
+
+// GetEffectiveContributorMembership 返回用户当前有效的贡献者会员等级。
+// 若贡献者会员已过期或未开通，返回普通会员（normal）。
+func (udb *UserDB) GetEffectiveContributorMembership(userID string) string {
+	var user User
+	if err := udb.db.Where("id = ?", userID).First(&user).Error; err != nil {
+		return MembershipNormal
+	}
+	if user.ContributorMembership == "" {
+		return MembershipNormal
+	}
+	// 会员已过期则降为普通
+	if !user.ContributorMembershipExpireAt.IsZero() && time.Now().After(user.ContributorMembershipExpireAt) {
+		return MembershipNormal
+	}
+	return user.ContributorMembership
+}
+
+// SetContributorMembership 设置用户贡献者会员等级和到期时间。
+// 传入 expireAt 为零值表示永久（管理员手动设置时可用）。
+func (udb *UserDB) SetContributorMembership(userID, level string, expireAt time.Time) error {
+	return udb.db.Model(&User{}).Where("id = ?", userID).Updates(map[string]interface{}{
+		"contributor_membership":           level,
+		"contributor_membership_expire_at": expireAt,
+	}).Error
+}
+
+// ListUsers 分页列出所有用户（管理用）
+func (udb *UserDB) ListUsers(page, size int) ([]*User, int64, error) {
+	var users []*User
+	var total int64
+	udb.db.Model(&User{}).Count(&total)
+	if page < 1 {
+		page = 1
+	}
+	if size < 1 {
+		size = 20
+	}
+	err := udb.db.Order("created_at DESC").Offset((page - 1) * size).Limit(size).Find(&users).Error
+	return users, total, err
 }
