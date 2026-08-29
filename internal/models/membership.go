@@ -1,6 +1,10 @@
 package models
 
-import "time"
+import (
+	"time"
+
+	configs "star-fire/config"
+)
 
 // 会员等级常量
 const (
@@ -15,15 +19,31 @@ const (
 	SVIPPrice = 50.0
 )
 
-// 各等级同时处理链接数上限（-1 = 无限）
+// 各等级同时处理链接数上限（连接池大小）。
+// normal=1, vip=5, svip=50（最高 100），均可通过环境变量配置。
 func GetMaxConnections(membership string) int {
 	switch membership {
 	case MembershipSVIP:
-		return -1
+		limit := configs.Config.SVIPMaxConnections
+		if limit <= 0 {
+			limit = 50
+		}
+		if limit > 100 {
+			limit = 100
+		}
+		return limit
 	case MembershipVIP:
-		return 10
+		limit := configs.Config.VIPMaxConnections
+		if limit <= 0 {
+			limit = 5
+		}
+		return limit
 	default:
-		return 3
+		limit := configs.Config.NormalMaxConnections
+		if limit <= 0 {
+			limit = 1
+		}
+		return limit
 	}
 }
 
@@ -54,9 +74,10 @@ func CalculateUpgradePrice(currentLevel, targetLevel string) float64 {
 
 // CalculateExpireAt 计算购买/升级后的会员到期时间。
 // 规则：升级（等级变化）重置为 1 年后；同级续费在原到期时间上延长 1 年（已过期则从今天算）。
-func CalculateExpireAt(currentLevel, targetLevel string, currentExpireAt time.Time) time.Time {
+// currentExpireAt 为 nil 表示未开通（MySQL 严格模式禁止零日期，会员到期时间以指针+NULL 存储）。
+func CalculateExpireAt(currentLevel, targetLevel string, currentExpireAt *time.Time) time.Time {
 	now := time.Now()
-	if currentLevel == targetLevel && !currentExpireAt.IsZero() && now.Before(currentExpireAt) {
+	if currentLevel == targetLevel && currentExpireAt != nil && now.Before(*currentExpireAt) {
 		// 同级续费且未过期：延长 1 年
 		return currentExpireAt.AddDate(1, 0, 0)
 	}

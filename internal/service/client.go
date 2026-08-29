@@ -86,6 +86,16 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				fmt.Println("Client latency (ms):", client.GetLatency())
 			}
 
+			// 更新客户端上报的上行带宽（用于 smart 负载均衡带宽维度）
+			if pong.BandwidthMbps > 0 {
+				client.BandwidthMbps = pong.BandwidthMbps
+			}
+
+			// 更新客户端自定义连接数上限（Python 滑块配置，0~会员上限）
+			if pong.MaxConnections > 0 {
+				client.MaxConnectionsOverride = pong.MaxConnections
+			}
+
 			if isHeartbeatResponse && latency > public.MAXLATENCE {
 				log.Println("Client latency is too high, closing connection")
 				client.ControlConnMutex.Lock()

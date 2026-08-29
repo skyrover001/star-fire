@@ -118,7 +118,6 @@ func (h *MembershipHandler) BuyMembership(c *gin.Context) {
 			return
 		}
 	}
-
 	// 会员等级变化后重置限流桶，使新的限流额度立即生效
 	if h.server.RateLimiter != nil {
 		h.server.RateLimiter.Reset("user:" + userIDStr)

@@ -1,0 +1,28 @@
+# MySQL 一键部署 override：
+#   docker compose -f docker-compose.yml -f docker-compose.mysql.yml up -d
+#
+# 行为：
+#   1. 启动 mysql 服务（profile 由 override 显式启用）
+#   2. backend 注入 DB_* 环境变量切换到 MySQL，并等待 mysql 健康检查通过
+#   3. 不加本 override 时（docker compose up）行为与原来完全一致（SQLite）
+#
+# 数据迁移（可选）：先把 SQLite 数据迁入 MySQL：
+#   docker compose -f docker-compose.yml -f docker-compose.mysql.yml run --rm backend ./server migrate-db
+services:
+  mysql:
+    profiles: ["mysql"]
+
+  backend:
+    environment:
+      DB_DRIVER: mysql
+      DB_HOST: mysql
+      DB_PORT: "3306"
+      DB_USER: ${DB_USER:-starfire}
+      DB_PASSWORD: ${DB_PASSWORD:-starfire_pass}
+      DB_NAME: ${DB_NAME:-starfire}
+      # 连接池：容器内默认 100/20，可按需覆盖
+      # DB_MAX_OPEN_CONNS: "100"
+      # DB_MAX_IDLE_CONNS: "20"
+    depends_on:
+      mysql:
+        condition: service_healthy

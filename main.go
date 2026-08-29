@@ -13,6 +13,7 @@ import (
 	"star-fire/internal/models"
 	"star-fire/routes"
 	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
@@ -109,12 +110,12 @@ func main() {
 			}
 			effective := server.UserDB.GetEffectiveMembership(user.ID)
 			expireStr := "未开通"
-			if !user.MembershipExpireAt.IsZero() {
+			if user.MembershipExpireAt != nil {
 				expireStr = user.MembershipExpireAt.Format("2006-01-02")
 			}
 			contributorEffective := server.UserDB.GetEffectiveContributorMembership(user.ID)
 			contributorExpireStr := "未开通"
-			if !user.ContributorMembershipExpireAt.IsZero() {
+			if user.ContributorMembershipExpireAt != nil {
 				contributorExpireStr = user.ContributorMembershipExpireAt.Format("2006-01-02")
 			}
 			log.Printf("用户 %s 消费者会员: %s（有效:%s），到期: %s",
@@ -145,17 +146,47 @@ func main() {
 			for _, u := range users {
 				effective := server.UserDB.GetEffectiveMembership(u.ID)
 				expireStr := "未开通"
-				if !u.MembershipExpireAt.IsZero() {
+				if u.MembershipExpireAt != nil {
 					expireStr = u.MembershipExpireAt.Format("2006-01-02")
 				}
 				contributorEffective := server.UserDB.GetEffectiveContributorMembership(u.ID)
 				contributorExpireStr := "未开通"
-				if !u.ContributorMembershipExpireAt.IsZero() {
+				if u.ContributorMembershipExpireAt != nil {
 					contributorExpireStr = u.ContributorMembershipExpireAt.Format("2006-01-02")
 				}
 				log.Printf("  %-20s 消费:%s(有效:%s) 到期:%s | 贡献:%s(有效:%s) 到期:%s 余额:%.2f",
 					u.Username, u.Membership, effective, expireStr,
 					u.ContributorMembership, contributorEffective, contributorExpireStr, u.Balance)
+			}
+			return
+		case "migrate-db":
+			// 用法: starfire migrate-db [-sqlite <路径>] [-force] [-users-only]
+			// 将现有 SQLite 数据完整迁移到 MySQL（目标由 DB_DRIVER/DB_DSN/DB_* 环境变量指定）。
+			// 目标表非空时默认跳过（幂等，可断点重跑）；-force 清空目标后重迁；
+			// -users-only 只迁移 users 表（其余表不建、不拷贝）。
+			sqlitePath := ""
+			force := false
+			usersOnly := false
+			for _, arg := range os.Args[2:] {
+				switch {
+				case arg == "-force":
+					force = true
+				case arg == "-users-only":
+					usersOnly = true
+				case strings.HasPrefix(arg, "-sqlite="):
+					sqlitePath = strings.TrimPrefix(arg, "-sqlite=")
+				case arg == "-sqlite":
+					log.Fatal("用法: starfire migrate-db [-sqlite=<路径>] [-force] [-users-only]")
+				default:
+					log.Fatalf("未知参数: %s", arg)
+				}
+			}
+			if sqlitePath != "" {
+				os.Setenv("DATABASE_PATH", sqlitePath)
+				configs.Config.DBPath = sqlitePath
+			}
+			if err := models.MigrateSQLiteToMySQL(force, usersOnly); err != nil {
+				log.Fatalf("迁移失败: %v", err)
 			}
 			return
 		}

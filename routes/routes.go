@@ -108,6 +108,14 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		api.POST("/chat/completions", func(c *gin.Context) {
 			service.HandleChatRequest(c, server)
 		})
+		// Anthropic Messages 格式
+		api.POST("/messages", func(c *gin.Context) {
+			service.HandleMultiFormatChatRequest(c, server, "anthropic")
+		})
+		// OpenAI Responses 格式
+		api.POST("/responses", func(c *gin.Context) {
+			service.HandleMultiFormatChatRequest(c, server, "responses")
+		})
 		// Embedding
 		api.POST("/embeddings", func(c *gin.Context) {
 			service.HandleEmbeddingRequest(c, server)

@@ -25,6 +25,33 @@ services:
     networks:
       - starfire-net
 
+  # MySQL（可选）：默认 docker compose up 不启动；
+  # 启用方式见 docker-compose.mysql.yml（一键 override）。
+  mysql:
+    image: mysql:8.0
+    container_name: starfire-mysql
+    profiles: ["mysql"]
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-starfire_root}
+      MYSQL_DATABASE: ${DB_NAME:-starfire}
+      MYSQL_USER: ${DB_USER:-starfire}
+      MYSQL_PASSWORD: ${DB_PASSWORD:-starfire_pass}
+      TZ: Asia/Shanghai
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_bin --max_connections=500
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "127.0.0.1", "-uroot", "-p$$MYSQL_ROOT_PASSWORD"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks:
+      - starfire-net
+
 networks:
   starfire-net:
     driver: bridge
+
+volumes:
+  mysql-data:

@@ -1,8 +1,10 @@
 package service
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	configs "star-fire/config"
@@ -51,12 +53,26 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	// 	log.Printf("[TRACE] server read raw body error: %v", err)
 	// }
 
+	// 多模态视频输入：go-openai 的 ChatMessagePart 不支持 video part，
+	// 反序列化时会丢弃 video_url。这里先读取原始请求体并恢复，供后续
+	// ShouldBindJSON 使用；若含视频则存入 RawBody，供 client 走原始 JSON
+	// 直连上游，避免视频 part 丢失。
+	var rawBody []byte
+	if rb, rerr := io.ReadAll(c.Request.Body); rerr == nil {
+		rawBody = rb
+		c.Request.Body = io.NopCloser(bytes.NewReader(rawBody))
+	}
+
 	//扩展结构体（在 go-openai 标准请求之上承载 thinking / enable_thinking）
 	var extendedRequest public.ExtendedChatRequest
 	err := c.ShouldBindJSON(&extendedRequest)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
+	}
+
+	if len(rawBody) > 0 && containsVideoInput(rawBody) {
+		extendedRequest.RawBody = rawBody
 	}
 
 	// 仅在用户未显式提供 reasoning_effort 时才填充默认值，
@@ -345,6 +361,22 @@ func backoff(attempt int) time.Duration {
 	return time.Duration(public.CHAT_RETRY_BASE_DELAY*(1<<attempt)) * time.Millisecond
 }
 
+// containsVideoInput 判断请求体是否含视频输入（video_url / input_video / video 块）。
+// go-openai 无法承载 video part，反序列化时会丢弃，因此需要检测并走原始 JSON 透传。
+func containsVideoInput(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	// 快速路径：直接字符串匹配，避免完整解析大体积 base64 请求体。
+	lower := strings.ToLower(string(body))
+	for _, marker := range []string{`"video_url"`, `"input_video"`, `"type":"video"`, `"type": "video"`} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // isClientRequestError 判断 MODEL_ERROR 的内容是否为"请求本身错误"（4xx 类）。
 // 这类错误由调用方传入的请求参数导致（如 messages 顺序错误、模型名非法、参数超限等），
 // 与 client 无关，重试无效。识别后应直接返回 400，不重试、不标记 client 失败。
@@ -375,6 +407,18 @@ func isClientRequestError(content interface{}) bool {
 		"400 bad request",
 		"status code: 400",
 		"status: 400",
+		// 上游 Pydantic/JSON 校验失败（如 video_url Field required、unknown variant）
+		"unknown variant",
+		"field required",
+		"validation error",
+		// 上游模型能力拒绝（如 "This model does not support image"）
+		"does not support",
+		// client openai 引擎 raw 路径的错误格式："API error: status=4xx, body=..."
+		"api error: status=400",
+		"api error: status=401",
+		"api error: status=403",
+		"api error: status=404",
+		"api error: status=422",
 	}
 	for _, marker := range requestErrorMarkers {
 		if strings.Contains(lower, marker) {

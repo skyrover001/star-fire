@@ -28,7 +28,7 @@ type Client struct {
 	ID           string    `json:"id" gorm:"primaryKey"`
 	IP           string    `json:"ip"`
 	Token        string    `json:"token"`
-	ModelsJSON   string    `json:"-" gorm:"column:models"`
+	ModelsJSON   string    `json:"-" gorm:"column:models;type:text"` // 模型列表 JSON，可能超长，MySQL 下必须用 text（默认 varchar(191) 会截断报错）
 	Status       string    `json:"status"`
 	RegisterTime time.Time `json:"register_time"`
 	Latency      int       `json:"latency"`
@@ -54,6 +54,15 @@ type Client struct {
 
 	// 内存原子计数：最近失败次数（用于 smart 负载均衡失败率维度）
 	RecentFailures int32 `json:"-" gorm:"-"`
+
+	// 客户端上行带宽（Mbps），由 client 上报或使用默认值。
+	// 用于 smart 负载均衡带宽维度（考虑 client 到 server 的上行带宽）。
+	BandwidthMbps float64 `json:"bandwidth_mbps" gorm:"-"`
+
+	// 客户端自定义连接数上限（0 = 使用会员等级默认上限）。
+	// 由 Python 客户端 app 通过滑块配置（0 ~ 会员上限），经 Go 客户端上报到 server。
+	// 用于覆盖 connectionLimitEligible 和 perfScore 中的连接池大小。
+	MaxConnectionsOverride int `json:"max_connections" gorm:"-"`
 
 	// 延迟 EMA 平滑值（非 DB 字段，仅内存）
 	LatencyEMA float64 `json:"-" gorm:"-"`

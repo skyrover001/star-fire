@@ -167,7 +167,11 @@ retryClient:
 				if isPermanentRegistrationError(err) {
 					fmt.Println("注册码错误，请重新获取注册码！")
 					_ = c.Close()
-					return
+					// 退出码 2 = 注册凭证永久失效（服务器重启会丢失内存中的注册token，
+					// 或替换token已被使用）。starfire.exe 自身没有 JWT，无法自行换取
+					// 新凭证；以非零码退出，让 Python 端识别退出码 2 后用 JWT 重新
+					// 获取注册token并重启本进程（见 star_fire.py _read_starfire_output）。
+					os.Exit(2)
 				}
 				_ = c.Close()
 				delay := backoff.Next()

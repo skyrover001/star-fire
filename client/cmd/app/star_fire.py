@@ -668,6 +668,7 @@ class StarFireAPP:
             'ollama_num_parallel': '',  # Ollama并发请求数
             'model_prices': {},  # 每个模型的价格配置 {model_name: {ippm: xx, oppm: xx, cippm: xx}}
             'registered_models': [],  # 用户明确选择注册的模型，默认不注册任何模型
+            'max_connections': 0,  # 自定义连接数上限（0 = 使用会员默认），滑块配置
             'language': None
         }
         
@@ -1363,29 +1364,38 @@ class StarFireAPP:
         )
         self.membership_expire_label.pack(side=tk.LEFT, padx=(2, 0))
 
-        # 连接池 单独一行
+        # 连接池 单独一行（进度条式滑块：粗条显示当前用量，拖动滑块设置最大连接数，不超过会员上限）
         conn_frame = ttk.Frame(config_frame)
         conn_frame.pack(fill=tk.X, pady=5)
         ttk.Label(conn_frame, text="连接池:", width=12).pack(side=tk.LEFT)
+        # 进度条式滑块画布：粗条轨道 + 当前用量填充 + 可拖动滑块手柄
+        self.conn_bar = tk.Canvas(
+            conn_frame,
+            height=26,
+            highlightthickness=0,
+            bd=0
+        )
+        self.conn_bar.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(2, 6))
+        self.conn_bar.bind('<Button-1>', self._on_conn_bar_press)
+        self.conn_bar.bind('<B1-Motion>', self._on_conn_bar_drag)
+        self.conn_bar.bind('<ButtonRelease-1>', self._on_conn_bar_release)
+        self.conn_bar.bind('<Motion>', self._on_conn_bar_hover)
+        self.conn_bar.bind('<Leave>', self._on_conn_bar_leave)
+        self.conn_bar.bind('<Configure>', lambda e: self._draw_conn_bar())
         self.conn_label = ttk.Label(
             conn_frame,
-            text="0/3",
+            text="0/3 (0%)",
             foreground="green",
             font=("Arial", 8)
         )
         self.conn_label.pack(side=tk.LEFT, padx=(2, 0))
-        # 横向进度条
-        self.conn_canvas = tk.Canvas(
-            conn_frame,
-            width=160,
-            height=14,
-            bg="#E0E0E0",
-            highlightthickness=1,
-            highlightbackground="#B0B0B0"
-        )
-        self.conn_canvas.pack(side=tk.LEFT, padx=(6, 0))
-        # 初始绘制空进度条
-        self._draw_conn_bucket(0)
+        # 连接池状态（会员上限 / 当前连接数），供进度条绘制使用
+        self._conn_upper = 3
+        self._conn_current = 0
+        # 拖动/悬停时显示的数值提示（None=不显示，其他=显示气泡）
+        self._conn_drag_value = None
+        # 初始绘制
+        self._draw_conn_bar()
 
         # 收益信息 一行（总收益 + 最新收益）
         income_frame = ttk.Frame(config_frame)
@@ -1940,9 +1950,9 @@ class StarFireAPP:
                     except Exception:
                         expire_str = expire_at
 
-                # 连接池显示（紧凑格式，百分比由进度条展示）
+                # 连接池显示（紧凑格式，百分比由进度条填充展示）
                 max_str = self._text("无限", "∞") if max_conn == -1 else str(max_conn)
-                conn_text = f"{current_conn}/{max_str}"
+                conn_text = f"{current_conn}/{max_str} ({int(usage_percent)}%)"
 
                 def _update():
                     self.membership_label.config(text=membership_name)
@@ -1959,11 +1969,10 @@ class StarFireAPP:
                     else:
                         # SVIP 无限连接池：文字用蓝色，表示无限容量
                         self.conn_label.config(foreground="#3B82F6")
-                    # 绘制进度条（SVIP 无限时用蓝色渐变，宽度随当前连接数变化）
-                    if max_conn > 0:
-                        self._draw_conn_bucket(usage_percent)
-                    else:
-                        self._draw_conn_bucket_unlimited(current_conn)
+                    # 记录当前连接数并重绘进度条（填充 = 当前/最大）
+                    self._conn_current = current_conn
+                    # 更新进度条上限（0 ~ 会员上限）
+                    self._update_conn_slider(max_conn)
 
                 self.root.after(0, _update)
 
@@ -1973,68 +1982,6 @@ class StarFireAPP:
 
         threading.Thread(target=_fetch, daemon=True).start()
 
-    def _draw_conn_bucket(self, percent):
-        """绘制连接池横向进度条（从左到右填充 = 使用百分比）"""
-        try:
-            if not hasattr(self, 'conn_canvas'):
-                return
-            canvas = self.conn_canvas
-            canvas.delete("all")
-            w = int(canvas.cget("width"))
-            h = int(canvas.cget("height"))
-            # 填充宽度（百分比）
-            fill_w = int(w * max(0, min(percent, 100)) / 100)
-            # 填充颜色（绿/橙/红）
-            if percent >= 90:
-                color = "#EF4444"
-            elif percent >= 70:
-                color = "#F59E0B"
-            else:
-                color = "#10B981"
-            # 绘制填充（从左到右）
-            if fill_w > 0:
-                canvas.create_rectangle(0, 0, fill_w, h, fill=color, outline="")
-            # 绘制边框
-            canvas.create_rectangle(0, 0, w, h, outline="#B0B0B0", width=1)
-        except Exception:
-            pass
-
-    def _draw_conn_bucket_unlimited(self, current_conn=0):
-        """绘制 SVIP 无限连接池：蓝色渐变条，宽度随当前连接数变化，0 连接时为空条"""
-        try:
-            if not hasattr(self, 'conn_canvas'):
-                return
-            canvas = self.conn_canvas
-            canvas.delete("all")
-            w = int(canvas.cget("width"))
-            h = int(canvas.cget("height"))
-            # 宽度随当前连接数变化：每 1 个连接约 10%，封顶 60%（表示无限，永不填满）
-            ratio = min(current_conn * 0.10, 0.60)
-            fill_w = int(w * ratio)
-            if fill_w <= 0:
-                # 0 连接：只画边框，空条
-                canvas.create_rectangle(0, 0, w, h, outline="#B0B0B0", width=1)
-                return
-            # 蓝色渐变（从左到右：蓝 → 紫）
-            from_color = "#3B82F6"
-            to_color = "#8B5CF6"
-            # 用多段矩形模拟渐变
-            steps = max(1, fill_w // 2)
-            for i in range(steps):
-                x0 = int(i * fill_w / steps)
-                x1 = int((i + 1) * fill_w / steps)
-                t = i / max(1, steps - 1)
-                # 线性插值颜色
-                r = int(int(from_color[1:3], 16) + (int(to_color[1:3], 16) - int(from_color[1:3], 16)) * t)
-                g = int(int(from_color[3:5], 16) + (int(to_color[3:5], 16) - int(from_color[3:5], 16)) * t)
-                b = int(int(from_color[5:7], 16) + (int(to_color[5:7], 16) - int(from_color[5:7], 16)) * t)
-                color = f"#{r:02x}{g:02x}{b:02x}"
-                canvas.create_rectangle(x0, 0, x1, h, fill=color, outline="")
-            # 绘制边框
-            canvas.create_rectangle(0, 0, w, h, outline="#B0B0B0", width=1)
-        except Exception:
-            pass
-
     def start_membership_refresh(self):
         """独立定时刷新会员/连接池信息（不依赖模型模式）"""
         def _refresh():
@@ -2043,6 +1990,177 @@ class StarFireAPP:
             # 每 5 秒刷新一次
             self.root.after(5000, _refresh)
         self.root.after(1000, _refresh)
+
+    # ============ 连接池进度条式滑块 ============
+    # 粗条轨道显示当前用量（填充比例 = 当前连接数/最大连接数），
+    # 滑块手柄位置 = 用户设置的最大连接数（0 ~ 会员上限，不超过会员限制）。
+
+    def _conn_bar_geometry(self):
+        """计算进度条轨道几何：返回 (x0, x1, y0, y1, handle_w)"""
+        w = self.conn_bar.winfo_width()
+        h = int(self.conn_bar['height'])
+        if w <= 1:
+            w = 200
+        x0, x1 = 4, w - 4
+        y0, y1 = 6, h - 6
+        return x0, x1, y0, y1, 12
+
+    def _draw_conn_bar(self):
+        """绘制进度条式滑块：轨道 + 用量填充 + 滑块手柄 + 拖动数值提示。"""
+        try:
+            if not hasattr(self, 'conn_bar'):
+                return
+            c = self.conn_bar
+            c.delete("all")
+            x0, x1, y0, y1, hw = self._conn_bar_geometry()
+            span = max(1, x1 - x0)
+
+            upper = max(1, self._conn_upper)
+            # 滑块值 = 用户设置的最大连接数（0=自动，绘制为最右=会员上限）
+            slider_val = int(self.config.get('max_connections', 0) or 0)
+            if slider_val <= 0:
+                slider_val = upper
+            slider_val = max(0, min(upper, slider_val))
+            hx = x0 + span * slider_val / float(upper)
+
+            # 轨道（粗条）
+            c.create_rectangle(x0, y0, x1, y1, fill="#E5E7EB", outline="#9CA3AF", width=1)
+            # 用量填充（当前连接数 / 最大连接数）
+            cur = max(0, min(self._conn_current, upper))
+            fill_w = span * cur / float(upper)
+            if fill_w > 0:
+                ratio = cur / float(upper)
+                color = "#EF4444" if ratio >= 0.9 else ("#F59E0B" if ratio >= 0.7 else "#10B981")
+                c.create_rectangle(x0, y0, x0 + fill_w, y1, fill=color, outline="")
+            # 滑块手柄（竖条）
+            c.create_rectangle(hx - hw / 2, y0 - 3, hx + hw / 2, y1 + 3,
+                               fill="#2563EB", outline="#1D4ED8", width=1)
+            # 拖动/悬停时在手柄上方显示当前数值气泡
+            if self._conn_drag_value is not None:
+                self._draw_conn_value_bubble(c, hx, y0, slider_val, upper)
+        except Exception:
+            pass
+
+    def _draw_conn_value_bubble(self, canvas, hx, y0, slider_val, upper):
+        """在手柄上方绘制数值气泡（拖动时实时显示滑块代表的连接数）。"""
+        try:
+            # 显示值：0 表示自动（跟随会员上限），其余显示具体数值
+            if slider_val <= 0 or slider_val >= upper:
+                text = self._text("自动", "Auto") if slider_val <= 0 else str(slider_val)
+            else:
+                text = str(slider_val)
+            # 气泡背景（圆角矩形用普通矩形近似）
+            bw, bh = 34, 16
+            bx, by = hx - bw / 2, y0 - bh - 6
+            if by < 0:
+                by = 0
+            canvas.create_rectangle(bx, by, bx + bw, by + bh,
+                                    fill="#2563EB", outline="#1D4ED8", width=1)
+            canvas.create_text(bx + bw / 2, by + bh / 2,
+                               text=text, fill="white",
+                               font=("Arial", 8, "bold"))
+        except Exception:
+            pass
+
+    def _conn_bar_value_from_x(self, x):
+        """把画布 x 坐标换算为最大连接数值（0 ~ 会员上限，四舍五入）。"""
+        try:
+            x0, x1, _, _, _ = self._conn_bar_geometry()
+            span = max(1, x1 - x0)
+            ratio = max(0.0, min(1.0, (x - x0) / float(span)))
+            upper = max(1, self._conn_upper)
+            return int(round(ratio * upper))
+        except Exception:
+            return 0
+
+    def _on_conn_bar_press(self, event):
+        """点击进度条：立即把滑块移到点击位置，并显示数值气泡。"""
+        try:
+            val = self._conn_bar_value_from_x(event.x)
+            self.config['max_connections'] = val
+            self._conn_drag_value = val
+            self._draw_conn_bar()
+            self.send_max_connections()
+        except Exception:
+            pass
+
+    def _on_conn_bar_drag(self, event):
+        """拖动滑块：实时更新位置与数值气泡（不超过会员上限）。"""
+        try:
+            val = self._conn_bar_value_from_x(event.x)
+            self.config['max_connections'] = val
+            self._conn_drag_value = val
+            self._draw_conn_bar()
+        except Exception:
+            pass
+
+    def _on_conn_bar_release(self, event):
+        """松开滑块：隐藏数值气泡，发送最终配置。"""
+        try:
+            self._conn_drag_value = None
+            self._draw_conn_bar()
+            self.send_max_connections()
+        except Exception:
+            pass
+
+    def _on_conn_bar_hover(self, event):
+        """悬停在进度条上：显示鼠标位置对应的连接数气泡（拖动中不覆盖）。"""
+        try:
+            if self._conn_drag_value is not None:
+                return  # 拖动中气泡由 drag 逻辑控制
+            val = self._conn_bar_value_from_x(event.x)
+            self._conn_drag_value = val
+            self._draw_conn_bar()
+        except Exception:
+            pass
+
+    def _on_conn_bar_leave(self, event):
+        """鼠标离开进度条：隐藏悬停气泡。"""
+        try:
+            if self._conn_drag_value is not None:
+                self._conn_drag_value = None
+                self._draw_conn_bar()
+        except Exception:
+            pass
+
+    def _update_conn_slider(self, max_conn):
+        """根据会员等级更新进度条上限（0 ~ 会员上限）。max_conn<=0 表示无限，用 100 作为上限。
+        默认滑块在最右（最大），即使用会员默认上限。"""
+        try:
+            if not hasattr(self, 'conn_bar'):
+                return
+            upper = max_conn if max_conn > 0 else 100
+            self._conn_upper = upper
+            # 若当前配置值超过新上限，钳制到上限（不超过会员限制数）
+            cur = int(self.config.get('max_connections', 0) or 0)
+            if cur > upper:
+                self.config['max_connections'] = upper
+                self.send_max_connections()
+            self._draw_conn_bar()
+        except Exception:
+            pass
+
+    def send_max_connections(self):
+        """通过TCP发送连接数上限配置到starfire.exe（Go客户端）"""
+        try:
+            max_conn = int(self.config.get('max_connections', 0) or 0)
+            message = {
+                'id': 'max_connections_config',
+                'type': 'max_connections',
+                'timestamp': int(datetime.now().timestamp()),
+                'data': {
+                    'max_connections': max_conn
+                }
+            }
+            message_json = json.dumps(message, ensure_ascii=False)
+            if self.tcp_server and hasattr(self.tcp_server, 'clients'):
+                with self.tcp_server.clients_lock:
+                    client_count = len(self.tcp_server.clients)
+                if client_count > 0:
+                    self.tcp_server.send_to_all_clients(message_json)
+                    self.starfire_log(f"📋 已发送连接数上限: {max_conn if max_conn > 0 else '自动'}", "gray")
+        except Exception as e:
+            print(f"发送连接数上限失败: {e}")
 
     def _refresh_jwt_token(self):
         """JWT过期时，用保存的账号密码重新登录获取新JWT token"""
@@ -2081,6 +2199,12 @@ class StarFireAPP:
                 else:
                     self.starfire_log(f"❌ 自动重新登录失败: {result.get('message', '登录失败')}", "red")
                     return None
+        except urllib.error.HTTPError as e:
+            if e.code == 401:
+                self.starfire_log("❌ 自动重新登录失败: 账号或密码错误（服务器已拒绝），请在界面重新登录", "red")
+            else:
+                self.starfire_log(f"❌ 自动重新登录失败: HTTP {e.code}", "red")
+            return None
         except Exception as e:
             self.starfire_log(f"❌ 自动重新登录失败: {str(e)}", "red")
             return None
@@ -2832,7 +2956,7 @@ class StarFireAPP:
                 return
             self._message('showwarning', "配置不完整", "Incomplete Configuration", "请先登录以获取注册Token！", "Sign in to obtain a registration token.")
             return
-        
+
         model_mode = self.model_mode_var.get()
 
         if not host:
@@ -3031,6 +3155,11 @@ class StarFireAPP:
                 
                 if return_code == 0:
                     self.starfire_log(f"✓ Starfire 已正常停止 (退出码: {return_code})", "green")
+                elif return_code == 2:
+                    # starfire.exe 以退出码 2 表示注册凭证永久失效（服务器重启丢失内存
+                    # 注册token / 替换token已被使用）。此时需要用 JWT 重新换取注册token
+                    # 再重启进程，而不是按普通异常退出做指数退避。
+                    self.starfire_log("⚠️ 注册凭证已失效 (退出码: 2)，将重新获取注册token后自动重连...", "orange")
                 else:
                     self.starfire_log(f"✗ Starfire 异常退出 (退出码: {return_code})", "red")
                 
@@ -3041,7 +3170,25 @@ class StarFireAPP:
         finally:
             self.root.after(0, self._reset_starfire_ui)
             if not self.user_stopped and return_code not in (None, 0):
-                self.root.after(0, self._schedule_starfire_restart)
+                if return_code == 2:
+                    # 注册凭证失效：立即重新获取注册token并重启（不走指数退避，
+                    # 避免服务器重启后客户端长时间离线）。
+                    self.root.after(0, self._restart_with_fresh_token)
+                else:
+                    self.root.after(0, self._schedule_starfire_restart)
+
+    def _restart_with_fresh_token(self):
+        """注册凭证失效（starfire.exe 退出码 2）后的重连入口：
+        重新用 JWT 换取一次性注册token（JWT 过期时 get_register_token 内部会
+        自动用保存的账号密码重新登录），成功后立即重启 starfire.exe。"""
+        if self.user_stopped or self.starfire_running:
+            return
+        if self.restart_after_id is not None:
+            self.root.after_cancel(self.restart_after_id)
+            self.restart_after_id = None
+
+        self.starfire_log("🔄 正在重新获取注册token...", "blue")
+        self.start_starfire(automatic=True)
 
     def _schedule_starfire_restart(self):
         if self.user_stopped or self.restart_after_id is not None:

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -38,6 +39,10 @@ func NewEngine(ctx context.Context, apiKey, baseURL string, conf *config.Config)
 }
 
 func (e *Engine) Name() string {
+	return "openai"
+}
+
+func (e *Engine) Format() string {
 	return "openai"
 }
 
@@ -112,14 +117,16 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 	// 若请求带有 go-openai 未覆盖的扩展参数（如 thinking），走原始 JSON 透传路径，
 	// 避免这些字段在 SDK 类型化请求中被丢弃。kimi/moonshot 有独立的响应格式，
 	// 仍走其专用逻辑。
-	if len(request.ExtraFields()) > 0 &&
+	// 视频输入（RawBody 非空）也必须走原始 JSON 透传：go-openai 的 ChatMessagePart
+	// 不支持 video part，类型化请求会丢弃 video_url，导致视频无法送达上游。
+	if (len(request.ExtraFields()) > 0 || len(request.RawBody) > 0) &&
 		!strings.Contains(request.Model, "kimi") && !strings.Contains(request.Model, "moonshot") {
 		return e.handleChatRaw(ctx, fingerprint, request, responseConn)
 	}
 
 	// 判断模型是否为kimi模型，kimi模型的request 和openai的request不同，stream response也不同
 	if strings.Contains(request.Model, "kimi") || strings.Contains(request.Model, "moonshot") {
-		log.Println("handle kimi model request [%s]: modle=%s, strem=%v, API BASE URL=%s")
+		log.Printf("handle kimi model request [%s]: modle=%s, strem=%v, API BASE URL=%s", fingerprint, request.Model, request.Stream, e.baseURL)
 		if request.ReasoningEffort == "none" {
 			request.ReasoningEffort = ""
 		}
@@ -192,7 +199,9 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 
 		stream, err := e.client.CreateChatCompletionStream(ctx, request.ChatCompletionRequest)
 		if err != nil {
-			errMsg := fmt.Sprintf("create chat complation error: %v", err)
+			// 提取 go-openai 错误中的详细信息（HTTP 状态码、响应体等），
+			// 避免只看到 "Expecting value" 之类的模糊错误。
+			errMsg := formatOpenAIError(err)
 			log.Printf("[%s] %s", fingerprint, errMsg)
 			// log.Printf("[TRACE] client backend error [%s] baseURL=%s err=%v", fingerprint, e.baseURL, err)
 			err = responseConn.WriteJSON(public.WSMessage{
@@ -226,6 +235,12 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 			}
 
 			// 发送流响应（包括可能只有 usage 的数据块）
+			// ===== 链路日志：client 收到的上游后端流式 chunk（含 tool_calls 的 id/name）=====
+			// if len(response.Choices) > 0 && len(response.Choices[0].Delta.ToolCalls) > 0 {
+			// 	if rb, e := json.Marshal(response); e == nil {
+			// 		log.Printf("[TRACE] client backend stream chunk (tool_call) [%s] data=%s", fingerprint, string(rb))
+			// 	}
+			// }
 			wsResp := public.WSMessage{
 				Type:        public.MESSAGE_STREAM,
 				Content:     response,
@@ -325,9 +340,17 @@ func (e *Engine) handleChatRaw(ctx context.Context, fingerprint string,
 		}
 	}
 
-	reqBody, err := request.BuildRequestBody()
-	if err != nil {
-		return fmt.Errorf("marshal request error: %w", err)
+	// 视频输入：优先使用 server 透传的原始请求体（RawBody），它保留了 go-openai
+	// 无法承载的 video part。否则用 BuildRequestBody 序列化（含 thinking 等扩展字段）。
+	var reqBody []byte
+	var err error
+	if len(request.RawBody) > 0 {
+		reqBody = request.RawBody
+	} else {
+		reqBody, err = request.BuildRequestBody()
+		if err != nil {
+			return fmt.Errorf("marshal request error: %w", err)
+		}
 	}
 
 	baseURL := e.baseURL
@@ -345,6 +368,9 @@ func (e *Engine) handleChatRaw(ctx context.Context, fingerprint string,
 	if request.Stream {
 		httpReq.Header.Set("Accept", "text/event-stream")
 	}
+
+	// ===== 链路日志：client 发给上游后端的 Chat 请求体（含 tool_calls 的 id/name）=====
+	// log.Printf("[TRACE] client send to backend (raw) [%s] baseURL=%s body=%s", fingerprint, e.baseURL, string(reqBody))
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {
@@ -368,7 +394,7 @@ func (e *Engine) handleChatRaw(ctx context.Context, fingerprint string,
 			Content:     errMsg,
 			FingerPrint: fingerprint,
 		})
-		return fmt.Errorf(errMsg)
+		return errors.New(errMsg)
 	}
 
 	// 非流式：整体读取后原样转发
@@ -495,7 +521,7 @@ func (e *Engine) handleStreamWithRawSSE(ctx context.Context, fingerprint string,
 			Content:     errMsg,
 			FingerPrint: fingerprint,
 		})
-		return fmt.Errorf(errMsg)
+		return errors.New(errMsg)
 	}
 
 	// 读取 SSE 流
@@ -659,4 +685,25 @@ func (e *Engine) SupportsEmbedding(modelName string) bool {
 	}
 
 	return false
+}
+
+// formatOpenAIError 从 go-openai 的错误中提取详细信息。
+// go-openai 返回 *APIError（有 HTTPStatusCode/HTTPStatus/Message）或
+// *RequestError（有 HTTPStatusCode/HTTPStatus/Body/Err）。直接 %v 只输出
+// 一行字符串，丢失了响应体等关键信息。这里提取所有可用字段。
+func formatOpenAIError(err error) string {
+	if err == nil {
+		return ""
+	}
+	var apiErr *openai.APIError
+	var reqErr *openai.RequestError
+	if errors.As(err, &apiErr) {
+		return fmt.Sprintf("create chat completion error: API error, status code: %d, status: %s, message: %s, type: %s",
+			apiErr.HTTPStatusCode, apiErr.HTTPStatus, apiErr.Message, apiErr.Type)
+	}
+	if errors.As(err, &reqErr) {
+		return fmt.Sprintf("create chat completion error: request error, status code: %d, status: %s, body: %s, err: %v",
+			reqErr.HTTPStatusCode, reqErr.HTTPStatus, string(reqErr.Body), reqErr.Err)
+	}
+	return fmt.Sprintf("create chat completion error: %v", err)
 }

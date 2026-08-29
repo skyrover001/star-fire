@@ -11,8 +11,10 @@ import (
 	"slices"
 	"star-fire/client/internal/config"
 	"star-fire/client/internal/inference"
+	"star-fire/client/internal/inference/anthropic"
 	"star-fire/client/internal/inference/ollama"
 	"star-fire/client/internal/inference/openai"
+	"star-fire/client/internal/inference/responses"
 	"star-fire/pkg/public"
 	"strconv"
 	"strings"
@@ -185,9 +187,22 @@ func (c *Client) buildProxyEngines(cfg *config.Config, backends []config.ProxyBa
 		if !strings.HasSuffix(baseURL, "/v1") {
 			baseURL += "/v1"
 		}
-		engine, err := openai.NewEngine(c.ctx, backend.APIKey, baseURL, cfg)
+		format := backend.Format
+		if format == "" {
+			format = "openai"
+		}
+		var engine inference.Engine
+		var err error
+		switch format {
+		case "anthropic":
+			engine, err = anthropic.NewEngine(c.ctx, backend.APIKey, baseURL, cfg)
+		case "responses":
+			engine, err = responses.NewEngine(c.ctx, backend.APIKey, baseURL, cfg)
+		default:
+			engine, err = openai.NewEngine(c.ctx, backend.APIKey, baseURL, cfg)
+		}
 		if err != nil {
-			log.Printf("init proxy backend %q error: %v", backend.Name, err)
+			log.Printf("init proxy backend %q (%s) error: %v", backend.Name, format, err)
 			continue
 		}
 		engines = append(engines, engine)
@@ -424,9 +439,35 @@ func (c *Client) engineSupportsEmbedding(engine inference.Engine, modelName stri
 }
 
 func (c *Client) findEngineForModel(modelName string) (inference.Engine, error) {
+	return c.findEngineForModelFormat(modelName, "")
+}
+
+// findEngineForModelFormat 按模型名 + 上游格式查找引擎。
+// format 非空时，优先选择 Format() 匹配的引擎（多格式路由）；
+// format 为空时，回退到按模型名匹配（兼容旧逻辑）。
+func (c *Client) findEngineForModelFormat(modelName, format string) (inference.Engine, error) {
 	c.enginesMu.RLock()
 	engines := append([]inference.Engine(nil), c.engines...)
 	c.enginesMu.RUnlock()
+
+	// 1. 优先按格式匹配
+	if format != "" {
+		var formatCandidates []inference.Engine
+		for _, engine := range engines {
+			if engine.Format() == format && engine.SupportsModel(modelName, c.cfg) {
+				formatCandidates = append(formatCandidates, engine)
+			}
+		}
+		if len(formatCandidates) > 0 {
+			c.routingMu.Lock()
+			index := c.routingRR[modelName] % len(formatCandidates)
+			c.routingRR[modelName] = (index + 1) % len(formatCandidates)
+			c.routingMu.Unlock()
+			return formatCandidates[index], nil
+		}
+	}
+
+	// 2. 回退：按模型名匹配
 	var candidates []inference.Engine
 	for _, engine := range engines {
 		if engine.SupportsModel(modelName, c.cfg) {
@@ -594,6 +635,22 @@ func (c *Client) getModelPriceScope(modelName string) (float64, float64, float64
 	return c.cfg.IPPMMax, c.cfg.OPPMMax, c.cfg.CIPPMMax
 }
 
+// bandwidthMbps 返回客户端配置的上行带宽（Mbps），cfg 为 nil 时返回 0。
+func (c *Client) bandwidthMbps() float64 {
+	if c.cfg == nil {
+		return 0
+	}
+	return c.cfg.BandwidthMbps
+}
+
+// maxConnections 返回客户端自定义连接数上限（0 = 使用会员默认），cfg 为 nil 时返回 0。
+func (c *Client) maxConnections() int {
+	if c.cfg == nil {
+		return 0
+	}
+	return c.cfg.MaxConnections
+}
+
 // pushModelUpdate 主动推送模型价格更新到 server（不等心跳）
 func (c *Client) pushModelUpdate() {
 	c.wsMu.Lock()
@@ -608,6 +665,8 @@ func (c *Client) pushModelUpdate() {
 		Type:            public.PONG,
 		Timestamp:       strconv.FormatInt(time.Now().UnixMilli(), 10),
 		AvailableModels: models,
+		BandwidthMbps:   c.bandwidthMbps(),
+		MaxConnections:  c.maxConnections(),
 	}
 	response := public.WSMessage{
 		Type:    public.KEEPALIVE,
@@ -879,6 +938,27 @@ func (c *Client) handleTCPMessage(data []byte) {
 			return
 		}
 		log.Printf("applied %d proxy backend configurations", len(message.Data))
+		return
+	}
+
+	// 处理连接数上限配置（Python 滑块配置，0 ~ 会员上限）
+	if envelope.Type == "max_connections" {
+		var message struct {
+			Type string `json:"type"`
+			Data struct {
+				MaxConnections int `json:"max_connections"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(data, &message); err != nil {
+			log.Printf("unmarshal max_connections error: %v", err)
+			return
+		}
+		if c.cfg != nil {
+			c.cfg.MaxConnections = message.Data.MaxConnections
+			log.Printf("✅ max_connections updated to %d", message.Data.MaxConnections)
+		}
+		// 立即通过 WebSocket 推送最新配置到 server
+		c.pushModelUpdate()
 		return
 	}
 

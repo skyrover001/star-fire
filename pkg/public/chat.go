@@ -17,6 +17,10 @@ type ExtendedChatRequest struct {
 	Thinking json.RawMessage `json:"thinking,omitempty"`
 	// EnableThinking 使用指针以区分“未传”与“显式传 false”。
 	EnableThinking *bool `json:"enable_thinking,omitempty"`
+	// RawBody 保留原始请求体 JSON。当请求含视频等多模态输入（go-openai 无法承载
+	// video part，反序列化时会丢弃）时，server 用它原样透传给 client，client 据此
+	// 走原始 JSON 直连上游，避免视频 part 丢失。仅视频请求时填充，普通请求为空。
+	RawBody json.RawMessage `json:"raw_body,omitempty"`
 }
 
 // ExtraFields 返回 go-openai 未覆盖、需要额外合并进请求体的字段。

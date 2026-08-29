@@ -6,7 +6,6 @@ import (
 	"log"
 	"math"
 	"math/rand"
-	"os"
 	"sort"
 	configs "star-fire/config"
 	"star-fire/pkg/public"
@@ -15,11 +14,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/glebarez/sqlite"
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
 	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
 )
 
 type MailService struct {
@@ -62,6 +59,12 @@ type Server struct {
 	// 消费者端限流器（RPM/TPM）
 	RateLimiter *RateLimiter
 
+	// reasoning 状态存储：思考模型工具循环续接需要回传 reasoning_content，而 Codex
+	// 只回传加密内容，故网关在此保存上一轮模型输出的 reasoning_content。
+	// key: 会话标识（Responses 的 prompt_cache_key）→ tool_call_id → reasoning_text。
+	reasoningMu sync.RWMutex
+	reasoning   map[string]map[string]string
+
 	LoadBalanceAlgorithm string // Load balancing algorithm, e.g., "round-robin", "random", etc.
 
 	MailService *MailService // optional, for sending emails
@@ -70,38 +73,13 @@ type Server struct {
 }
 
 func NewServer() *Server {
-	err := os.MkdirAll("./data", 0755)
-	if err != nil {
-		log.Fatalf("create data directory failed: %v", err)
-	}
-
-	gormDB, err := gorm.Open(sqlite.Open("./data/star_fire.db"), &gorm.Config{
-		Logger: logger.Default.LogMode(logger.Silent),
-	})
+	gormDB, err := OpenDatabase()
 	if err != nil {
 		log.Fatalf("init database failed: %v", err)
 	}
-	sqlDB, err := gormDB.DB()
-	if err == nil {
-		// Enable WAL mode for better concurrent read/write performance.
-		// WAL allows readers and writers to coexist without blocking each other.
-		pragmas := []string{
-			"PRAGMA journal_mode=WAL",
-			"PRAGMA busy_timeout=5000",
-			"PRAGMA synchronous=NORMAL",
-			"PRAGMA cache_size=-20000",
-			"PRAGMA foreign_keys=ON",
-		}
-		for _, p := range pragmas {
-			if err := gormDB.Exec(p).Error; err != nil {
-				log.Printf("WARNING: failed to set %s: %v", p, err)
-			}
-		}
-
-		sqlDB.SetMaxIdleConns(10)
-		sqlDB.SetMaxOpenConns(4) // SQLite WAL mode allows concurrent reads; 4 handles typical load
-		sqlDB.SetConnMaxLifetime(time.Hour)
-	}
+	log.Printf("database: %s (max_open=%d, max_idle=%d)",
+		map[bool]string{true: "mysql", false: "sqlite"}[IsMySQL()],
+		configs.Config.DBMaxOpenConns, configs.Config.DBMaxIdleConns)
 
 	apiKeyDB := NewAPIKeyDB(gormDB)
 	tokenUsageDB := NewTokenUsageDB(gormDB)
@@ -130,6 +108,7 @@ func NewServer() *Server {
 		RespClients:           make(map[string]*websocket.Conn),
 		clientRoundRobinIndex: make(map[string]int),
 		respClientReadyChans:  make(map[string]chan struct{}),
+		reasoning:             make(map[string]map[string]string),
 
 		DB:                   gormDB,
 		APIKeyDB:             apiKeyDB,
@@ -181,7 +160,7 @@ func (s *Server) checkMembershipExpiry() {
 	now := time.Now()
 	for _, u := range users {
 		// 消费者会员
-		if u.Membership != "" && u.Membership != MembershipNormal && !u.MembershipExpireAt.IsZero() {
+		if u.Membership != "" && u.Membership != MembershipNormal && u.MembershipExpireAt != nil {
 			daysLeft := int(u.MembershipExpireAt.Sub(now).Hours() / 24)
 			if daysLeft >= 0 && daysLeft <= 7 {
 				_ = s.NotificationDB.Create(
@@ -194,7 +173,7 @@ func (s *Server) checkMembershipExpiry() {
 			}
 		}
 		// 贡献者会员
-		if u.ContributorMembership != "" && u.ContributorMembership != MembershipNormal && !u.ContributorMembershipExpireAt.IsZero() {
+		if u.ContributorMembership != "" && u.ContributorMembership != MembershipNormal && u.ContributorMembershipExpireAt != nil {
 			daysLeft := int(u.ContributorMembershipExpireAt.Sub(now).Hours() / 24)
 			if daysLeft >= 0 && daysLeft <= 7 {
 				_ = s.NotificationDB.Create(
@@ -267,20 +246,37 @@ func priceEligible(maxIPPM, maxOPPM float64) Predicate {
 // 贡献者会员等级决定上限：普通=3，VIP=10，SVIP=无限（-1）。
 // 使用 Client 内存原子计数（ActiveConnections），无 DB 开销。
 // 贡献者会员等级实时从数据库查询（GetEffectiveContributorMembership），确保 set-membership 后立即生效。
+// 过滤规则：可用连接数必须 > 0（activeConnections < maxConnections），否则直接过滤掉。
+// SVIP 现在也是有限连接数（默认 20），达到上限同样被过滤。
 func (s *Server) connectionLimitEligible(c *Client, model string) bool {
 	if c == nil {
 		return false
+	}
+	limit := s.effectiveMaxConnections(c)
+	if limit <= 0 {
+		return false // 无可用连接数，直接过滤
+	}
+	return c.GetActiveConnections() < int32(limit)
+}
+
+// effectiveMaxConnections 返回 client 的有效连接数上限。
+// 优先使用 client 上报的自定义上限（MaxConnectionsOverride，Python 滑块配置，0~会员上限）；
+// 未配置（0）时使用会员等级默认上限。
+func (s *Server) effectiveMaxConnections(c *Client) int {
+	if c == nil {
+		return 0
 	}
 	// 实时查询该 client 所属用户的贡献者会员等级（过期自动降为普通）
 	membership := MembershipNormal
 	if c.UserID != "" && s.UserDB != nil {
 		membership = s.UserDB.GetEffectiveContributorMembership(c.UserID)
 	}
-	limit := GetMaxConnections(membership)
-	if limit < 0 {
-		return true // SVIP 无限
+	base := GetMaxConnections(membership)
+	// 自定义上限：0 < override <= base 时生效；否则用会员默认
+	if c.MaxConnectionsOverride > 0 && c.MaxConnectionsOverride <= base {
+		return c.MaxConnectionsOverride
 	}
-	return c.GetActiveConnections() < int32(limit)
+	return base
 }
 
 // LoadBalance selects a client for model+user using a Predicate → (Score) → Pick pipeline.
@@ -408,41 +404,56 @@ func (s *Server) pick(model string, eligible []*Client) *Client {
 	return nil
 }
 
-// ============ smart 多维度加权评分算法 ============
+// ============ smart 两阶段负载均衡算法 ============
 
-// smart 算法权重（从 configs.Config 读取，可通过环境变量配置）
-func (s *Server) smartWeights() (capacity, membership, latency, failure, stability, service float64) {
+// smart 算法性能维度权重（阶段1，从 configs.Config 读取，可通过环境变量配置）。
+// 注意：会员等级不再参与性能评分，而是作为阶段2的独立权重。
+func (s *Server) smartWeights() (capacity, latency, failure, stability, service, bandwidth float64) {
 	cfg := configs.Config
 	capacity = cfg.LBWeightCapacity
-	membership = cfg.LBWeightMembership
 	latency = cfg.LBWeightLatency
 	failure = cfg.LBWeightFailure
 	stability = cfg.LBWeightStability
 	service = cfg.LBWeightService
+	bandwidth = cfg.LBWeightBandwidth
 	// 兜底：若权重未配置或和为 0，使用默认值
-	if capacity+membership+latency+failure+stability+service <= 0 {
-		capacity, membership, latency, failure, stability, service = 0.20, 0.25, 0.20, 0.15, 0.10, 0.10
+	if capacity+latency+failure+stability+service+bandwidth <= 0 {
+		capacity, latency, failure, stability, service, bandwidth = 0.20, 0.20, 0.15, 0.10, 0.10, 0.25
 	}
 	return
 }
 
-// membershipScore 会员等级分：normal=0.2, vip=0.6, svip=1.0（拉大差距，获益差异明显）
-func membershipScore(membership string) float64 {
+// membershipWeights 返回阶段2的会员等级权重（normal/vip/svip，可配置）。
+// 权重越高，该等级在候选 client 中被选中的概率越大。
+// 默认 normal=1.0, vip=3.0, svip=8.0，体现充值价值：性能相近时 svip > vip > normal。
+func (s *Server) membershipWeights() (normal, vip, svip float64) {
+	cfg := configs.Config
+	normal = cfg.LBWeightNormal
+	vip = cfg.LBWeightVIP
+	svip = cfg.LBWeightSVIP
+	// 兜底：若未配置或全为 0，使用默认值
+	if normal <= 0 && vip <= 0 && svip <= 0 {
+		normal, vip, svip = 1.0, 3.0, 8.0
+	}
+	return
+}
+
+// membershipWeight 返回指定会员等级在阶段2的权重。
+func (s *Server) membershipWeight(membership string) float64 {
+	n, v, sv := s.membershipWeights()
 	switch membership {
 	case MembershipSVIP:
-		return 1.0
+		return sv
 	case MembershipVIP:
-		return 0.6
+		return v
 	default:
-		return 0.2
+		return n
 	}
 }
 
-// capacityScore 可用连接数分：SVIP(-1)无限=1.0，否则 可用/上限
+// capacityScore 可用连接数分：可用连接数 / 上限，范围 [0,1]。
+// 各等级连接池有限（normal=1, vip=5, svip=50），饱和时降权。
 func capacityScore(maxConn int, activeConn int32) float64 {
-	if maxConn < 0 {
-		return 1.0
-	}
 	if maxConn <= 0 {
 		return 0.0
 	}
@@ -468,7 +479,8 @@ func latencyScore(latency int) float64 {
 	return score
 }
 
-// failureScore 失败率分：1/(1+failures)，失败越多越低
+// failureScore 失败率分：1/(1+failures)，失败越多越低。
+// 只要失败一次就会显著影响性能评分（0 失败=1.0，1 次失败=0.5）。
 func failureScore(failures int32) float64 {
 	return 1.0 / (1.0 + float64(failures))
 }
@@ -502,73 +514,134 @@ func serviceScore(totalTokens, totalOnlineSec int64) float64 {
 	return score
 }
 
-// pickSmart 选择综合评分最高的 client。
-// 6 个维度加权：可用连接数、会员等级、延迟、失败率、在线稳定性、服务等级。
-// 加入随机扰动（±LBJitter）避免多个 client 分数相同导致固定选同一个。
+// bandwidthScore 上行带宽分：带宽 / 目标带宽，范围 [0,1]。
+// 考虑 client 到 server 的上行带宽：带宽越高，能承载的并发输出越大，分越高。
+func bandwidthScore(bandwidthMbps float64) float64 {
+	if bandwidthMbps <= 0 {
+		return 0
+	}
+	target := configs.Config.BandwidthTargetMbps
+	if target <= 0 {
+		target = 50
+	}
+	score := bandwidthMbps / target
+	if score > 1 {
+		return 1
+	}
+	if score < 0 {
+		return 0
+	}
+	return score
+}
+
+// perfScore 计算单个 client 的性能综合评分（阶段1，不含会员等级）。
+func (s *Server) perfScore(c *Client) float64 {
+	wCap, wLat, wFail, wStab, wServ, wBw := s.smartWeights()
+
+	// 会员等级（仅用于获取连接数上限，不参与性能评分）
+	maxConn := s.effectiveMaxConnections(c)
+
+	// 在线稳定性 / 服务等级（从 ClientStatsDB 读取）
+	var totalOnlineSec, disconnectCount int64
+	if s.ClientStatsDB != nil {
+		if stats, err := s.ClientStatsDB.GetStats(c.ID); err == nil && stats != nil {
+			totalOnlineSec = stats.TotalOnlineSeconds
+			disconnectCount = stats.DisconnectCount
+		}
+	}
+
+	// 服务等级：历史贡献 token（从 TokenUsageDB 聚合）
+	var totalTokens int64
+	if s.TokenUsageDB != nil {
+		usages, err := s.TokenUsageDB.GetIncomeTokenUsage([]string{c.ID}, time.Time{}, time.Now())
+		if err == nil {
+			for _, u := range usages {
+				totalTokens += int64(u.TotalTokens)
+			}
+		}
+	}
+
+	// 上行带宽：client 上报值，未上报则用默认值
+	bw := c.BandwidthMbps
+	if bw <= 0 {
+		bw = configs.Config.ClientBandwidthMbps
+	}
+
+	return wCap*capacityScore(maxConn, c.GetActiveConnections()) +
+		wLat*latencyScore(c.GetLatency()) +
+		wFail*failureScore(c.GetFailures()) +
+		wStab*stabilityScore(totalOnlineSec, disconnectCount) +
+		wServ*serviceScore(totalTokens, totalOnlineSec) +
+		wBw*bandwidthScore(bw)
+}
+
+// pickSmart 两阶段选择：
+//
+//	阶段1：对所有合格 client 计算性能综合评分（容量/延迟/失败率/稳定性/产能），
+//	       选出性能评分最高的前 N 个作为候选（N = LBCandidateCount，默认=重试次数）。
+//	阶段2：在候选 client 中，按会员等级权重（normal/vip/svip，可配置）加权随机选择。
+//
+// 这样保证：性能差的 client 不会进入候选；同一性能水平下，高等级会员获得更多流量，
+// 但不会因为"无限连接"而垄断（SVIP 现在也是有限连接，饱和时性能评分会下降）。
 func (s *Server) pickSmart(model string, eligible []*Client) *Client {
 	if len(eligible) == 0 {
 		return nil
 	}
-	wCap, wMem, wLat, wFail, wStab, wServ := s.smartWeights()
 	jitter := configs.Config.LBJitter
+	candidateCount := configs.Config.LBCandidateCount
+	if candidateCount <= 0 {
+		candidateCount = public.MAX_CHAT_RETRY
+	}
 
-	// 预取各 client 的会员等级、统计、token 数据
+	// 阶段1：性能评分 + 随机扰动，选出前 N 名候选
 	type scored struct {
 		c     *Client
 		score float64
 	}
 	scoredClients := make([]scored, 0, len(eligible))
-
 	for _, c := range eligible {
-		// 会员等级（贡献者）
-		membership := MembershipNormal
-		if c.UserID != "" && s.UserDB != nil {
-			membership = s.UserDB.GetEffectiveContributorMembership(c.UserID)
-		}
-		maxConn := GetMaxConnections(membership)
-
-		// 在线稳定性 / 服务等级（从 ClientStatsDB 读取）
-		var totalOnlineSec, disconnectCount int64
-		if s.ClientStatsDB != nil {
-			if stats, err := s.ClientStatsDB.GetStats(c.ID); err == nil && stats != nil {
-				totalOnlineSec = stats.TotalOnlineSeconds
-				disconnectCount = stats.DisconnectCount
-			}
-		}
-
-		// 服务等级：历史贡献 token（从 TokenUsageDB 聚合）
-		var totalTokens int64
-		if s.TokenUsageDB != nil {
-			usages, err := s.TokenUsageDB.GetIncomeTokenUsage([]string{c.ID}, time.Time{}, time.Now())
-			if err == nil {
-				for _, u := range usages {
-					totalTokens += int64(u.TotalTokens)
-				}
-			}
-		}
-
-		score := wCap*capacityScore(maxConn, c.GetActiveConnections()) +
-			wMem*membershipScore(membership) +
-			wLat*latencyScore(c.GetLatency()) +
-			wFail*failureScore(c.GetFailures()) +
-			wStab*stabilityScore(totalOnlineSec, disconnectCount) +
-			wServ*serviceScore(totalTokens, totalOnlineSec)
-
-		// 随机扰动防抖
+		score := s.perfScore(c)
 		score *= 1 + (rand.Float64()*2-1)*jitter
-
 		scoredClients = append(scoredClients, scored{c: c, score: score})
 	}
 
-	// 选最高分
-	best := scoredClients[0]
-	for _, sc := range scoredClients[1:] {
-		if sc.score > best.score {
-			best = sc
+	// 按性能评分降序排序
+	sort.Slice(scoredClients, func(i, j int) bool {
+		return scoredClients[i].score > scoredClients[j].score
+	})
+
+	// 取前 N 名候选
+	n := candidateCount
+	if n > len(scoredClients) {
+		n = len(scoredClients)
+	}
+	candidates := scoredClients[:n]
+
+	// 阶段2：在候选中按会员等级权重加权随机选择
+	totalWeight := 0.0
+	for _, sc := range candidates {
+		membership := MembershipNormal
+		if sc.c.UserID != "" && s.UserDB != nil {
+			membership = s.UserDB.GetEffectiveContributorMembership(sc.c.UserID)
+		}
+		totalWeight += s.membershipWeight(membership)
+	}
+	if totalWeight <= 0 {
+		return candidates[0].c
+	}
+	r := rand.Float64() * totalWeight
+	for _, sc := range candidates {
+		membership := MembershipNormal
+		if sc.c.UserID != "" && s.UserDB != nil {
+			membership = s.UserDB.GetEffectiveContributorMembership(sc.c.UserID)
+		}
+		r -= s.membershipWeight(membership)
+		if r <= 0 {
+			log.Printf("smart LB: model=%s selected=%s perf=%.4f (candidates=%d)", model, sc.c.ID, sc.score, len(candidates))
+			return sc.c
 		}
 	}
-	log.Printf("smart LB: model=%s selected=%s score=%.4f (eligible=%d)", model, best.c.ID, best.score, len(eligible))
-	return best.c
+	return candidates[len(candidates)-1].c
 }
 
 func copyClientsMap(src map[string]map[string]*Client) map[string]map[string]*Client {
@@ -761,6 +834,46 @@ func (s *Server) NotifyRespClientReady(fingerPrint string) {
 		delete(s.respClientReadyChans, fingerPrint)
 	}
 	s.respClientReadyChansMu.Unlock()
+}
+
+// SaveReasoning 合并保存某会话的 reasoning_content（tool_call_id → text）。
+func (s *Server) SaveReasoning(convKey string, m map[string]string) {
+	if convKey == "" || len(m) == 0 {
+		return
+	}
+	s.reasoningMu.Lock()
+	defer s.reasoningMu.Unlock()
+	if s.reasoning == nil {
+		s.reasoning = make(map[string]map[string]string)
+	}
+	slot, ok := s.reasoning[convKey]
+	if !ok {
+		slot = make(map[string]string)
+		s.reasoning[convKey] = slot
+	}
+	for k, v := range m {
+		if v != "" {
+			slot[k] = v
+		}
+	}
+}
+
+// GetReasoning 返回某会话已保存的 reasoning_content（副本），未命中返回 nil。
+func (s *Server) GetReasoning(convKey string) map[string]string {
+	if convKey == "" {
+		return nil
+	}
+	s.reasoningMu.RLock()
+	defer s.reasoningMu.RUnlock()
+	slot, ok := s.reasoning[convKey]
+	if !ok {
+		return nil
+	}
+	out := make(map[string]string, len(slot))
+	for k, v := range slot {
+		out[k] = v
+	}
+	return out
 }
 
 func (s *Server) RemoveClient(modelName string, clientID string) {
