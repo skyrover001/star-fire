@@ -552,6 +552,30 @@ func newUserStreamWriter(userConv format.Converter, model string) format.UserStr
 	return nil
 }
 
+// finishUserStream 在流异常退出时补发收尾事件，保证客户端（Codex 等）始终收到
+// 流终止标志，避免 "stream closed before response.completed"。
+// failed=true 时以 response.failed 收尾（上游报错），否则调用 userWriter.Flush()
+// 合成 response.completed（异常断开/超时/未知消息）。
+func finishUserStream(c *gin.Context, userWriter format.UserStreamWriter, failed bool) {
+	if userWriter != nil {
+		if failed {
+			_, _ = c.Writer.Write([]byte(`data: {"type":"response.failed","response":{"status":"failed"}}` + "\n\n"))
+		} else {
+			events, err := userWriter.Flush()
+			if err != nil {
+				log.Println("user stream writer flush error:", err)
+			}
+			for _, e := range events {
+				_, _ = c.Writer.Write([]byte("data: " + string(e) + "\n\n"))
+			}
+		}
+	}
+	if c.Writer.Header().Get("Content-Type") == "text/event-stream" {
+		_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+	}
+	c.Writer.Flush()
+}
+
 // readMultiFormatStreamLoop 持续读取多格式流。
 func readMultiFormatStreamLoop(c *gin.Context, server *models.Server, fingerPrint string, respConn *websocket.Conn, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string, userConv, upstreamConv format.Converter, upstreamFormat string, userWriter format.UserStreamWriter) {
 	for {
@@ -559,6 +583,7 @@ func readMultiFormatStreamLoop(c *gin.Context, server *models.Server, fingerPrin
 		err := respConn.ReadJSON(&response)
 		if err != nil {
 			log.Println("Error while reading json from client:", err)
+			finishUserStream(c, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
@@ -570,23 +595,23 @@ func readMultiFormatStreamLoop(c *gin.Context, server *models.Server, fingerPrin
 			}
 		case public.CLOSE:
 			log.Println("Client closed connection")
-			if c.Writer.Header().Get("Content-Type") == "text/event-stream" {
-				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
-				c.Writer.Flush()
-			}
+			finishUserStream(c, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		case public.MODEL_ERROR:
 			log.Println("Model error:", response.Content)
+			finishUserStream(c, userWriter, true)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		default:
 			log.Println("Unknown message type:", response.Type)
+			finishUserStream(c, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
 		if time.Since(waitStart) > public.CHAT_MAX_TIME*time.Second {
 			log.Println("Chat timeout")
+			finishUserStream(c, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}

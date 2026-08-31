@@ -191,11 +191,11 @@ func (e *Engine) HandleChat(ctx context.Context, fingerprint string,
 		}
 
 		// ===== 链路日志：client 实际发给上游后端的请求体 =====
-		// if rawBody, err := json.Marshal(request.ChatCompletionRequest); err == nil {
-		// 	log.Printf("[TRACE] client send to backend [%s] baseURL=%s body=%s", fingerprint, e.baseURL, string(rawBody))
-		// } else {
-		// 	log.Printf("[TRACE] client marshal backend request error: %v", err)
-		// }
+		if rawBody, err := json.Marshal(request.ChatCompletionRequest); err == nil {
+			log.Printf("[TRACE] client send to backend [%s] baseURL=%s body=%s", fingerprint, e.baseURL, string(rawBody))
+		} else {
+			log.Printf("[TRACE] client marshal backend request error: %v", err)
+		}
 
 		stream, err := e.client.CreateChatCompletionStream(ctx, request.ChatCompletionRequest)
 		if err != nil {
@@ -370,7 +370,7 @@ func (e *Engine) handleChatRaw(ctx context.Context, fingerprint string,
 	}
 
 	// ===== 链路日志：client 发给上游后端的 Chat 请求体（含 tool_calls 的 id/name）=====
-	// log.Printf("[TRACE] client send to backend (raw) [%s] baseURL=%s body=%s", fingerprint, e.baseURL, string(reqBody))
+	log.Printf("[TRACE] client send to backend (raw) [%s] baseURL=%s body=%s", fingerprint, e.baseURL, string(reqBody))
 
 	resp, err := http.DefaultClient.Do(httpReq)
 	if err != nil {

@@ -116,11 +116,11 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	// ===== 调试日志结束 =====
 
 	// ===== 链路日志：server 收到的完整请求体（用于排查上游 400 validation errors）=====
-	// if rawBody, err := json.Marshal(extendedRequest); err == nil {
-	// 	log.Printf("[TRACE] server received request user=%s body=%s", userIDStr, string(rawBody))
-	// } else {
-	// 	log.Printf("[TRACE] server marshal request body error: %v", err)
-	// }
+	if rawBody, err := json.Marshal(extendedRequest); err == nil {
+		log.Printf("[TRACE] server received request user=%s body=%s", userIDStr, string(rawBody))
+	} else {
+		log.Printf("[TRACE] server marshal request body error: %v", err)
+	}
 
 	// Balance pre-check: reject if balance insufficient (OpenAI-compatible error)
 	balance, _, _ := server.UserDB.GetBalance(userIDStr)
@@ -225,11 +225,11 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
 
 		// ===== 链路日志：server 实际发给 client 的请求体 =====
-		// if rawBody, err := json.Marshal(extendedRequest); err == nil {
-		// 	log.Printf("[TRACE] attempt %d send to client %s body=%s", attempt, client.ID, string(rawBody))
-		// } else {
-		// 	log.Printf("[TRACE] attempt %d marshal body error: %v", attempt, err)
-		// }
+		if rawBody, err := json.Marshal(extendedRequest); err == nil {
+			log.Printf("[TRACE] attempt %d send to client %s body=%s", attempt, client.ID, string(rawBody))
+		} else {
+			log.Printf("[TRACE] attempt %d marshal body error: %v", attempt, err)
+		}
 
 		// 4. 发送请求到 client
 		if err := client.ControlConn.WriteJSON(public.WSMessage{

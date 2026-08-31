@@ -117,6 +117,89 @@ func extractFreeformInput(arguments string) string {
 	return ""
 }
 
+// extractWebSearchQuery 从 web_search 工具调用参数里提取查询词。
+// 模型按 web_search 的 function schema 生成 {"query":"<搜索内容>"}，
+// 这里优先提取 query 字段；也兼容 {"input":...} 或裸字符串查询词。
+func extractWebSearchQuery(arguments string) string {
+	if arguments == "" {
+		return ""
+	}
+	var obj map[string]json.RawMessage
+	if json.Unmarshal([]byte(arguments), &obj) == nil {
+		// 标准字段优先：query / input。
+		if q := rawToString(obj["query"]); q != "" {
+			return q
+		}
+		if in := rawToString(obj["input"]); in != "" {
+			return in
+		}
+		// 兜底：模型可能编造非标准字段（如 {"arg-a":"..."}）。
+		// 取第一个非空字符串值作为查询词，避免把整个 JSON 字符串当 query。
+		for _, v := range obj {
+			if s := rawToString(v); s != "" {
+				return s
+			}
+		}
+	}
+	var s string
+	if json.Unmarshal([]byte(arguments), &s) == nil {
+		return s
+	}
+	return arguments
+}
+
+// webSearchActionMap 构建 web_search_call item 的 action 字段。
+// 标准 Responses 协议要求 web_search_call 用 action 而非 arguments：
+// {"type":"search","query":"..."}。
+func webSearchActionMap(arguments string) map[string]any {
+	return map[string]any{
+		"type":  "search",
+		"query": extractWebSearchQuery(arguments),
+	}
+}
+
+// webSearchQuerySchema 是注入给 web_search 工具的参数 schema。
+// Codex 把 web_search 声明为 function 类型但 parameters 为空对象
+// （{"properties":{},"type":"object"}），下游模型（如 GLM）看到空 schema
+// 不知道要填什么，会编造非标准字段（如 {"arg-a":"..."}）而非 {"query":"..."}。
+// 这里注入标准的 query 字符串属性 schema，引导模型生成 {"query":"<搜索词>"}。
+const webSearchQuerySchema = `{"type":"object","properties":{"query":{"type":"string","description":"The search query text to search the web for."}},"required":["query"]}`
+
+// isWebSearchTool 判断工具是否为 web_search（按 name 或 type 识别）。
+func isWebSearchTool(name, toolType string) bool {
+	return name == "web_search" || toolType == "web_search"
+}
+
+// hasParameter 判断参数 schema 是否已声明指定属性。
+// 用于避免重复注入 query schema（若上游已带 query 字段则跳过）。
+// parameters 接受 json.RawMessage、[]byte、string 或 nil；其他类型视为无属性。
+func hasParameter(parameters any, key string) bool {
+	var raw json.RawMessage
+	switch p := parameters.(type) {
+	case nil:
+		return false
+	case json.RawMessage:
+		raw = p
+	case []byte:
+		raw = json.RawMessage(p)
+	case string:
+		raw = json.RawMessage(p)
+	default:
+		return false
+	}
+	if len(raw) == 0 {
+		return false
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if json.Unmarshal(raw, &schema) != nil {
+		return false
+	}
+	_, ok := schema.Properties[key]
+	return ok
+}
+
 // normalizeToolArguments 把工具调用参数归一化为合法 JSON 字符串，供 Chat Completions
 // 上游使用。Chat Completions 协议要求 function.arguments 必须是 JSON 字符串，但上游
 // 模型（如 GLM-5.2）可能生成畸形工具调用——把自由文本（patch 内容等）直接塞进

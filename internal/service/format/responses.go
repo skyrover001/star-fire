@@ -516,14 +516,19 @@ func (c *ResponsesConverter) BuildResponse(cr *public.CanonicalResponse) ([]byte
 				Name:   b.Name,
 			}
 			// custom_tool_call 用 input 字段（Codex 要求），且对 FREEFORM 工具
-			// 提取原始内容（{"input":"<patch>"} → <patch>）；其他类型用 arguments。
-			if itemType == "custom_tool_call" {
+			// 提取原始内容（{"input":"<patch>"} → <patch>）；
+			// web_search_call 用 action 字段（标准 Responses）；
+			// 其他类型（function_call）用 arguments。
+			switch itemType {
+			case "custom_tool_call":
 				if isFreeformTool(b.Name, nil) {
 					item.Input = extractFreeformInput(argsStr)
 				} else {
 					item.Input = argsStr
 				}
-			} else {
+			case "web_search_call":
+				item.Action, _ = json.Marshal(webSearchActionMap(argsStr))
+			default:
 				item.Arguments = argsStr
 			}
 			resp.Output = append(resp.Output, item)
@@ -608,6 +613,7 @@ type responsesUserWriter struct {
 	createdAt     int64
 	reasoning     string                 // 累积的 reasoning_content（思考模型工具循环回传）
 	functionID    string                 // 最近一次 tool_call_id（reasoning 回传用）
+	functionIDs   []string               // 本流出现过的全部 tool_call_id（按每个调用回传同一段 reasoning）
 	items         []*responsesStreamItem // 已完成的 output item（按序）
 	current       *responsesStreamItem   // 当前进行中的 item（可能为 nil）
 	completedSent bool
@@ -687,6 +693,7 @@ func (w *responsesUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, 
 			if tc.ID != "" {
 				w.current.functionID = tc.ID
 				w.functionID = tc.ID
+				w.recordFunctionID(tc.ID)
 			}
 			w.current.functionArgs += args
 		}
@@ -697,10 +704,13 @@ func (w *responsesUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, 
 		return out, nil
 
 	case public.StreamEventDone:
+		var out [][]byte
 		if !w.started {
 			w.startResponse()
+			// 空回复时也必须先发 response.created，再发 response.completed。
+			out = append(out, w.ensureResponseCreated()...)
 		}
-		out := w.closeCurrentItem()
+		out = append(out, w.closeCurrentItem()...)
 		out = append(out, w.buildCompletedEvent()...)
 		w.completedSent = true
 		return out, nil
@@ -719,10 +729,31 @@ func (w *responsesUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, 
 // 若没有工具调用，则 key 为 ""。供适配层保存到会话状态，以便后续续接请求回传 reasoning。
 func (w *responsesUserWriter) ReasoningMap() map[string]string {
 	out := map[string]string{}
-	if w.reasoning != "" {
-		out[w.functionID] = w.reasoning
+	if w.reasoning == "" {
+		return out
+	}
+	// 为每个出现过的 tool_call_id 都关联同一段 reasoning_content：
+	// 同一 assistant 回合的并行工具调用共享一段 reasoning，续接请求可能只回传
+	// 其中任意一个（或第一个）call_id，必须全部命中才能正确回传。
+	for _, id := range w.functionIDs {
+		if id != "" {
+			out[id] = w.reasoning
+		}
 	}
 	return out
+}
+
+// recordFunctionID 记录本流出现过的 tool_call_id（去重）。
+func (w *responsesUserWriter) recordFunctionID(id string) {
+	if id == "" {
+		return
+	}
+	for _, existing := range w.functionIDs {
+		if existing == id {
+			return
+		}
+	}
+	w.functionIDs = append(w.functionIDs, id)
 }
 
 func (w *responsesUserWriter) Flush() ([][]byte, error) {
@@ -732,7 +763,8 @@ func (w *responsesUserWriter) Flush() ([][]byte, error) {
 	if !w.started {
 		w.startResponse()
 	}
-	out := w.closeCurrentItem()
+	out := w.ensureResponseCreated()
+	out = append(out, w.closeCurrentItem()...)
 	out = append(out, w.buildCompletedEvent()...)
 	w.completedSent = true
 	return out, nil
@@ -809,6 +841,7 @@ func (w *responsesUserWriter) openFunctionItem(tc *public.CanonicalToolCall) [][
 	}
 	if id != "" {
 		w.functionID = id
+		w.recordFunctionID(id)
 	}
 	out = append(out, w.buildOutputItemAdded())
 	return out
@@ -869,10 +902,16 @@ func streamItemToMap(it *responsesStreamItem) map[string]any {
 	} else {
 		item["name"] = it.functionName
 		item["call_id"] = it.functionID
-		// custom_tool_call 用 input 字段（Codex 要求），其他用 arguments。
-		if it.itemType == "custom_tool_call" {
+		// 不同工具类型使用各自的字段约定：
+		//   custom_tool_call → input（Codex 要求）
+		//   web_search_call  → action（标准 Responses：{"type":"search","query":"..."}）
+		//   其他（function_call）→ arguments
+		switch it.itemType {
+		case "custom_tool_call":
 			item["input"] = it.functionArgs
-		} else {
+		case "web_search_call":
+			item["action"] = webSearchActionMap(it.functionArgs)
+		default:
 			item["arguments"] = it.functionArgs
 		}
 	}
@@ -891,10 +930,13 @@ func (w *responsesUserWriter) buildOutputItemAdded() []byte {
 	} else {
 		item["name"] = w.current.functionName
 		item["call_id"] = w.current.functionID
-		// custom_tool_call 用 input 字段（Codex 要求），其他用 arguments。
-		if w.current.itemType == "custom_tool_call" {
+		// 不同工具类型使用各自的字段约定（in_progress 阶段先给空值占位）。
+		switch w.current.itemType {
+		case "custom_tool_call":
 			item["input"] = ""
-		} else {
+		case "web_search_call":
+			item["action"] = webSearchActionMap("")
+		default:
 			item["arguments"] = ""
 		}
 	}

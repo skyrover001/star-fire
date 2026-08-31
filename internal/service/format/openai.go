@@ -167,6 +167,11 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 			if isFreeformTool(fd.Name, fd.Parameters) {
 				fd.Parameters = json.RawMessage(freeformInputSchema)
 			}
+			// web_search 工具：Codex 声明为空 schema，模型不知道要填 query。
+			// 注入标准 query 参数 schema，引导模型生成 {"query":"..."}。
+			if isWebSearchTool(fd.Name, t.Type) && !hasParameter(fd.Parameters, "query") {
+				fd.Parameters = json.RawMessage(webSearchQuerySchema)
+			}
 			tool.Function = fd
 			req.Tools = append(req.Tools, tool)
 			continue
@@ -179,6 +184,10 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 		// FREEFORM 工具（如 apply_patch）即使是 function 类型，也可能带空 schema。
 		if isFreeformTool(fd.Name, fd.Parameters) {
 			fd.Parameters = json.RawMessage(freeformInputSchema)
+		}
+		// web_search 工具（function 类型但空 schema）：注入标准 query 参数。
+		if isWebSearchTool(fd.Name, t.Type) && !hasParameter(fd.Parameters, "query") {
+			fd.Parameters = json.RawMessage(webSearchQuerySchema)
 		}
 		tool.Function = fd
 		req.Tools = append(req.Tools, tool)

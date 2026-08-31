@@ -260,11 +260,11 @@ func (c *Client) handleChatMessage(message public.WSMessage) {
 	}
 
 	// ===== 链路日志：client 收到并解析后的请求体 =====
-	// if rawBody, err := json.Marshal(openaiReq); err == nil {
-	// 	log.Printf("[TRACE] client received chat request %s format=%s body=%s", message.FingerPrint, format, string(rawBody))
-	// } else {
-	// 	log.Printf("[TRACE] client marshal received request error: %v", err)
-	// }
+	if rawBody, err := json.Marshal(openaiReq); err == nil {
+		log.Printf("[TRACE] client received chat request %s format=%s body=%s", message.FingerPrint, format, string(rawBody))
+	} else {
+		log.Printf("[TRACE] client marshal received request error: %v", err)
+	}
 
 	// 为每个请求创建独立的可取消 context，便于按 fingerprint 单独取消
 	ctx, cancel := context.WithCancel(c.ctx)
