@@ -2,6 +2,8 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -122,13 +124,122 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 	failedClients := map[string]bool{}
 	start := time.Now()
 
+	// P1-M2: 多格式路径无 body 路由字段，从 header 解析路由偏好 + 容忍度。
+	routing := resolveRouting(c, "")
+	maxLatencyMs, minStability := resolveTolerance(c)
+
+	// P2: 会话亲和 L0 短路（多格式）。优先用显式 prompt_cache_key/thread_id，否则回退内容指纹。
+	var affinityKey string
+	var affinityClient *models.Client
+	var affinityHit bool
+	if server.Affinity != nil {
+		affinityKey = extractConversationKey(canonical)
+		if affinityKey == "" {
+			affinityKey = affinityKeyFromCanonical(canonical)
+		}
+		if affinityKey == "" {
+			affinityKey = userIDStr + ":" + canonical.Model
+		}
+		if entry, ok := server.Affinity.Get(affinityKey); ok {
+			if ac := server.ResolveAffinity(entry, canonical.Model, userIDStr); ac != nil {
+				affinityClient = ac
+			} else {
+				server.Affinity.MarkLease(affinityKey)
+			}
+		}
+	}
+
 	for attempt := 0; attempt < public.MAX_CHAT_RETRY; attempt++ {
 		if time.Since(start) > public.CHAT_RETRY_TOTAL_TIMEOUT*time.Second {
 			break
 		}
 
-		// 1. 选 client（排除已失败的）
-		client := server.LoadBalanceExcluding(canonical.Model, userIDStr, failedClients)
+		// 0. Direct 主力池优先（M1 stability 路由，仅支持 openai 后端）：
+		//    命中则把 canonical 转成 openai 上游请求体，经 RawBody 直连固定后端。
+		//    cost 路由：PickCheapest 已并入 Direct，此处不再单独优先。
+		if configs.Config.DirectBackendsEnabled && routing != RoutingCost {
+			if b := server.PickDirect(canonical.Model, userIDStr, failedClients); b != nil {
+				failedClients["direct:"+b.ID] = true
+				// M1 只支持 openai 后端（非 openai 在 LoadDirectBackends 时已跳过）
+				openaiConv, err := format.GetConverter(public.FormatOpenAI)
+				if err == nil {
+					if upstreamBody, berr := openaiConv.BuildUpstreamRequest(canonical); berr == nil {
+						directReq := public.ExtendedChatRequest{}
+						directReq.Model = canonical.Model
+						directReq.Stream = canonical.Stream
+						directReq.RawBody = json.RawMessage(upstreamBody)
+						if handleDirectChat(c, server, b, directReq, userIDStr, userConv) {
+							return
+						}
+						time.Sleep(backoff(attempt))
+						continue
+					}
+				}
+				// 转换失败：记失败并回退 crowdsource
+				b.IncrFailures()
+				time.Sleep(backoff(attempt))
+				continue
+			}
+		}
+
+		// 1. 选 client（排除已失败的）。attempt 0 且亲和命中 → 直接用粘住 client。
+		var client *models.Client
+		if attempt == 0 && affinityClient != nil {
+			client = affinityClient
+			affinityHit = true
+		} else {
+			switch routing {
+			case RoutingCost:
+				cc, cb := server.PickCheapest(canonical.Model, userIDStr, failedClients)
+				if cb != nil {
+					failedClients["direct:"+cb.ID] = true
+					openaiConv, err := format.GetConverter(public.FormatOpenAI)
+					if err == nil {
+						if upstreamBody, berr := openaiConv.BuildUpstreamRequest(canonical); berr == nil {
+							directReq := public.ExtendedChatRequest{}
+							directReq.Model = canonical.Model
+							directReq.Stream = canonical.Stream
+							directReq.RawBody = json.RawMessage(upstreamBody)
+							if handleDirectChat(c, server, cb, directReq, userIDStr, userConv) {
+								return
+							}
+							time.Sleep(backoff(attempt))
+							continue
+						}
+					}
+					cb.IncrFailures()
+					time.Sleep(backoff(attempt))
+					continue
+				}
+				client = cc
+			case RoutingBalanced:
+				client = server.LoadBalanceBalanced(canonical.Model, userIDStr, failedClients, maxLatencyMs, minStability)
+				if client == nil && configs.Config.DirectBackendsEnabled {
+					if b := server.PickDirect(canonical.Model, userIDStr, failedClients); b != nil {
+						failedClients["direct:"+b.ID] = true
+						openaiConv, err := format.GetConverter(public.FormatOpenAI)
+						if err == nil {
+							if upstreamBody, berr := openaiConv.BuildUpstreamRequest(canonical); berr == nil {
+								directReq := public.ExtendedChatRequest{}
+								directReq.Model = canonical.Model
+								directReq.Stream = canonical.Stream
+								directReq.RawBody = json.RawMessage(upstreamBody)
+								if handleDirectChat(c, server, b, directReq, userIDStr, userConv) {
+									return
+								}
+								time.Sleep(backoff(attempt))
+								continue
+							}
+						}
+						b.IncrFailures()
+						time.Sleep(backoff(attempt))
+						continue
+					}
+				}
+			default: // stability
+				client = server.LoadBalanceWithTolerance(canonical.Model, userIDStr, failedClients, maxLatencyMs, minStability)
+			}
+		}
 		if client == nil {
 			break
 		}
@@ -261,6 +372,16 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 		switch response.Type {
 		case public.MESSAGE, public.MESSAGE_STREAM:
 			client.ResetFailures()
+			// P2: 成功写回亲和（同 chat.go 语义）。
+			if server.Affinity != nil {
+				if affinityHit || server.Affinity.LeaseExpired(affinityKey) {
+					server.Affinity.Touch(affinityKey, client.ID, false)
+				}
+				c.Set("affinity_key", affinityKey)
+				if affinityHit {
+					c.Set("affinity_hit", true)
+				}
+			}
 			handleMultiFormatResponse(c, server, fingerPrint, client.ID, ippm, oppm, cippm, canonical.Model, response, respConn, userConv, upstreamConv, upstreamFormat)
 			return
 		case public.CLOSE:
@@ -666,6 +787,32 @@ func extractConversationKey(cr *public.CanonicalRequest) string {
 		}
 	}
 	return ""
+}
+
+// affinityKeyFromCanonical 会话指纹（多格式回退）：sha256(model + 前两条消息文本前 256B)[:16]。
+// 与 chat.go 的 affinityKeyFromChat 语义一致，保证同会话同 key。
+func affinityKeyFromCanonical(cr *public.CanonicalRequest) string {
+	if cr == nil {
+		return ""
+	}
+	h := sha256.New()
+	h.Write([]byte(cr.Model))
+	written := 0
+	for _, m := range cr.Messages {
+		if written >= 2 {
+			break
+		}
+		h.Write([]byte(m.Role))
+		for _, b := range m.Content {
+			text := b.Text
+			if len(text) > 256 {
+				text = text[:256]
+			}
+			h.Write([]byte(text))
+		}
+		written++
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 // rawStringValue 把 json.RawMessage 解析为字符串（空/无效时返回空串）。

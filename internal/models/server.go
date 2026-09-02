@@ -3,9 +3,11 @@ package models
 import (
 	"context"
 	"fmt"
+	"hash/fnv"
 	"log"
 	"math"
 	"math/rand"
+	"net/http"
 	"sort"
 	configs "star-fire/config"
 	"star-fire/pkg/public"
@@ -55,6 +57,14 @@ type Server struct {
 	UserPriceCapDB      *UserPriceCapDB
 	SystemConfigDB      *SystemConfigDB
 	NotificationDB      *NotificationDB
+	DirectBackendDB     *DirectBackendDB
+
+	// Direct 固定后端注册表（model name → backends，同一 backend 可出现在多个 model 桶）
+	directBackendsMu sync.RWMutex
+	directBackends   map[string][]*DirectBackend
+
+	// P2: 会话亲和存储（nil = 未开启）
+	Affinity AffinityStore
 
 	// 消费者端限流器（RPM/TPM）
 	RateLimiter *RateLimiter
@@ -92,6 +102,7 @@ func NewServer() *Server {
 	rechargeDB := NewRechargeDB(gormDB)
 	systemConfigDB := NewSystemConfigDB(gormDB)
 	notificationDB := NewNotificationDB(gormDB)
+	directBackendDB := NewDirectBackendDB(gormDB)
 
 	// 初始化默认用户
 	err = userDB.InitDefaultUsers()
@@ -123,6 +134,7 @@ func NewServer() *Server {
 		RechargeDB:           rechargeDB,
 		SystemConfigDB:       systemConfigDB,
 		NotificationDB:       notificationDB,
+		DirectBackendDB:      directBackendDB,
 		RateLimiter:          NewRateLimiter(),
 		LoadBalanceAlgorithm: configs.Config.LBA, // default load balancing algorithm
 		MailService: &MailService{
@@ -144,7 +156,101 @@ func NewServer() *Server {
 			server.checkMembershipExpiry()
 		}
 	}()
+
+	// P0: 打分离线化开启时，启动慢变维度分（stab/serv）后台刷新协程
+	if configs.Config.LBScoreOffline {
+		go server.runScoreRefresher()
+	}
+
+	// P1: Direct 固定后端开启时，载入注册表 + 启动健康检查
+	if configs.Config.DirectBackendsEnabled {
+		if err := server.LoadDirectBackends(); err != nil {
+			log.Printf("load direct backends failed: %v", err)
+		}
+		go server.runDirectHealthCheck()
+		go server.runDirectBackendRefresher()
+	}
+
+	// P2: 会话亲和开启时，初始化内存亲和存储 + 每分钟聚合日志
+	if configs.Config.AffinityEnabled {
+		server.Affinity = NewMemoryAffinityStore(
+			time.Duration(configs.Config.AffinityTTLMin)*time.Minute,
+			time.Duration(configs.Config.AffinityLeaseSec)*time.Second,
+			configs.Config.AffinityMaxEntries)
+		go server.runAffinityStatsLogger()
+	}
 	return server
+}
+
+// runAffinityStatsLogger 每分钟打印亲和聚合计数（单行，不刷屏）。
+// 计数为上一分钟增量：命中/回迁/逐出/实测失效删除 + 当前条目数。
+func (s *Server) runAffinityStatsLogger() {
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+	for range ticker.C {
+		if s.Affinity == nil {
+			return
+		}
+		st := s.Affinity.Stats()
+		log.Printf("[affinity] entries=%d hits=%d rebinds=%d evictions=%d miss_deletes=%d",
+			s.Affinity.Len(), st.Hits, st.Rebinds, st.Evictions, st.MissDeletes)
+	}
+}
+
+// runScoreRefresher 周期性批量刷新在线 client 的慢变维度分（stab/serv）。
+func (s *Server) runScoreRefresher() {
+	interval := time.Duration(configs.Config.ScoreRefreshInterval) * time.Second
+	if interval <= 0 {
+		interval = 30 * time.Second
+	}
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	s.refreshScoresOnce() // 启动先刷一轮，缩短冷启动中性值窗口
+	for range ticker.C {
+		s.refreshScoresOnce()
+	}
+}
+
+// refreshScoresOnce 批量刷新一次在线 client 的 stab/serv 缓存分。
+// 单轮失败仅打日志，不影响路由（旧缓存分继续生效）。
+func (s *Server) refreshScoresOnce() {
+	all := s.clients.Load().(map[string]map[string]*Client)
+	// 去重收集在线 client（同一 client 可能注册多个模型）
+	uniq := map[string]*Client{}
+	for _, inner := range all {
+		for id, c := range inner {
+			uniq[id] = c
+		}
+	}
+	if len(uniq) == 0 {
+		return
+	}
+	ids := make([]string, 0, len(uniq))
+	for id := range uniq {
+		ids = append(ids, id)
+	}
+
+	statsMap, err := s.ClientStatsDB.GetStatsBatch(ids)
+	if err != nil {
+		log.Printf("score refresher: stats batch failed: %v", err)
+		return
+	}
+	tokensMap, err := s.TokenUsageDB.GetTotalTokensByClientIDs(ids, time.Time{})
+	if err != nil {
+		log.Printf("score refresher: tokens batch failed: %v", err)
+		return
+	}
+
+	for id, c := range uniq {
+		var onlineSec, disconnects int64
+		if st, ok := statsMap[id]; ok {
+			onlineSec, disconnects = st.TotalOnlineSeconds, st.DisconnectCount
+		}
+		c.SetCachedScores(
+			stabilityScore(onlineSec, disconnects),
+			serviceScore(tokensMap[id], onlineSec),
+		)
+	}
 }
 
 // checkMembershipExpiry 检查会员到期，提前 7 天提醒用户。
@@ -288,6 +394,88 @@ func (s *Server) LoadBalance(model, userID string) *Client {
 // LoadBalanceExcluding 与 LoadBalance 相同，但会排除 excludeIDs 中已失败的 client，
 // 避免重试时反复 pick 到同一个失效 client。
 func (s *Server) LoadBalanceExcluding(model, userID string, excludeIDs map[string]bool) *Client {
+	return s.loadBalanceExcluding(model, userID, excludeIDs, 0, nil)
+}
+
+// LoadBalanceWithTolerance 在 LoadBalanceExcluding 基础上叠加容忍度 Predicate
+// （MaxLatencyMs 延迟上限、MinStability 稳定性下限）。maxLatencyMs<=0 / minStability<=0 表示不限制。
+func (s *Server) LoadBalanceWithTolerance(model, userID string, excludeIDs map[string]bool, maxLatencyMs int, minStability float64) *Client {
+	return s.loadBalanceExcluding(model, userID, excludeIDs, 0, tolerancePredicates(maxLatencyMs, minStability))
+}
+
+// LoadBalanceBalanced 在 LoadBalanceExcluding 基础上叠加 perfScore 下限（LB_BALANCED_MIN_SCORE）
+// 与容忍度 Predicate。无候选时返回 nil，调用方溢出到 Direct。
+func (s *Server) LoadBalanceBalanced(model, userID string, excludeIDs map[string]bool, maxLatencyMs int, minStability float64) *Client {
+	return s.loadBalanceExcluding(model, userID, excludeIDs, configs.Config.LBBalancedMinScore, tolerancePredicates(maxLatencyMs, minStability))
+}
+
+// tolerancePredicates 构造容忍度 Predicate 列表。
+func tolerancePredicates(maxLatencyMs int, minStability float64) []Predicate {
+	return []Predicate{maxLatencyPredicate(maxLatencyMs), minStabilityPredicate(minStability)}
+}
+
+// maxLatencyPredicate 过滤掉延迟超过 maxLatencyMs 的 client；maxLatencyMs<=0 不限制。
+func maxLatencyPredicate(maxLatencyMs int) Predicate {
+	return func(c *Client, model string) bool {
+		if maxLatencyMs <= 0 {
+			return true
+		}
+		return c.GetLatency() <= maxLatencyMs
+	}
+}
+
+// minStabilityPredicate 过滤掉缓存稳定性分低于 minStability 的 client；minStability<=0 不限制。
+// 未初始化（从未刷新过缓存分）时不做限制，避免新 client 被误杀。
+func minStabilityPredicate(minStability float64) Predicate {
+	return func(c *Client, model string) bool {
+		if minStability <= 0 {
+			return true
+		}
+		stab, _, ok := c.CachedScores()
+		if !ok {
+			return true
+		}
+		return stab >= minStability
+	}
+}
+
+// loadBalanceExcluding 是 LoadBalance 系列的核心实现。
+// minScore>0 时在 Predicate 阶段后按 perfScore 过滤（balanced 模式）；
+// extraPredicates 为调用方追加的额外 Predicate（如容忍度）。
+func (s *Server) loadBalanceExcluding(model, userID string, excludeIDs map[string]bool, minScore float64, extraPredicates []Predicate) *Client {
+	eligible := s.eligibleClients(model, userID, excludeIDs, extraPredicates)
+	if len(eligible) == 0 {
+		return nil
+	}
+
+	// P1-M2 balanced：按 perfScore 下限过滤。
+	if minScore > 0 {
+		var filtered []*Client
+		for _, c := range eligible {
+			if s.perfScore(c) >= minScore {
+				filtered = append(filtered, c)
+			}
+		}
+		eligible = filtered
+		if len(eligible) == 0 {
+			log.Println("no client meets balanced min score for model:", model)
+			return nil
+		}
+	}
+
+	// P2: HRW 偏好子集（Rendezvous hashing）——同一用户偏好子集稳定，client 上下线只影响其哈希邻域。
+	if n := configs.Config.LBHRWSubsetSize; n > 0 && len(eligible) > n {
+		eligible = hrwSubset(userID, eligible, n)
+	}
+
+	// Score phase: currently implicit in the pick algorithm (future: weighted scoring).
+	// Pick phase.
+	return s.pick(model, eligible)
+}
+
+// eligibleClients 执行 LoadBalance 的 Predicate 阶段，返回合格 client 列表（不 pick）。
+// 处理：排除、冷却隔离、健康检查（含死连接清理）、价格帽、连接上限、额外 Predicate。
+func (s *Server) eligibleClients(model, userID string, excludeIDs map[string]bool, extraPredicates []Predicate) []*Client {
 	// Resolve price cap (math.MaxFloat64 = no cap configured, i.e. unlimited).
 	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
 	if s.UserPriceCapDB != nil && userID != "" {
@@ -301,12 +489,16 @@ func (s *Server) LoadBalanceExcluding(model, userID string, excludeIDs map[strin
 	// Predicate phase.
 	// Health is checked first and also identifies dead clients for background cleanup.
 	// Additional predicates (price, capacity, geo …) are applied to the survivors.
-	extraPredicates := []Predicate{priceEligible(maxIPPM, maxOPPM), s.connectionLimitEligible}
+	extraPredicates = append([]Predicate{priceEligible(maxIPPM, maxOPPM), s.connectionLimitEligible}, extraPredicates...)
 
 	var eligible []*Client
 	var dead []string
 	for id, c := range snapshot {
 		if excludeIDs != nil && excludeIDs[id] {
+			continue
+		}
+		// P0 熔断冷却：冷却中的 client 暂时隔离，但不删除、不通知（冷却结束自动恢复）。
+		if configs.Config.LBCooldownEnabled && c.InCooldown() {
 			continue
 		}
 		if !clientHealthy(c, model) {
@@ -337,10 +529,39 @@ func (s *Server) LoadBalanceExcluding(model, userID string, excludeIDs map[strin
 		log.Println("no eligible client for model:", model)
 		return nil
 	}
+	return eligible
+}
 
-	// Score phase: currently implicit in the pick algorithm (future: weighted scoring).
-	// Pick phase.
-	return s.pick(model, eligible)
+// clientPrice 返回 client 对指定模型的价格（未命中缓存输入/输出/命中缓存输入）。
+func clientPrice(c *Client, model string) (ippm, oppm, cippm float64) {
+	for _, m := range c.Models {
+		if m.Name == model {
+			return m.IPPM, m.OPPM, m.CIPPM
+		}
+	}
+	return 0, 0, 0
+}
+
+// hrwSubset Rendezvous hashing：按 fnv1a64(userID+clientID) 取 top-n。
+// 同一用户偏好子集稳定；client 上下线只影响其哈希邻域的用户（天然防抖）。
+func hrwSubset(userID string, eligible []*Client, n int) []*Client {
+	type hw struct {
+		c *Client
+		h uint64
+	}
+	hs := make([]hw, len(eligible))
+	for i, c := range eligible {
+		f := fnv.New64a()
+		f.Write([]byte(userID))
+		f.Write([]byte(c.ID))
+		hs[i] = hw{c, f.Sum64()}
+	}
+	sort.Slice(hs, func(i, j int) bool { return hs[i].h > hs[j].h })
+	out := make([]*Client, n)
+	for i := 0; i < n; i++ {
+		out[i] = hs[i].c
+	}
+	return out
 }
 
 // pick selects one client from eligible using the configured load-balance algorithm.
@@ -541,24 +762,41 @@ func (s *Server) perfScore(c *Client) float64 {
 	// 会员等级（仅用于获取连接数上限，不参与性能评分）
 	maxConn := s.effectiveMaxConnections(c)
 
-	// 在线稳定性 / 服务等级（从 ClientStatsDB 读取）
-	var totalOnlineSec, disconnectCount int64
-	if s.ClientStatsDB != nil {
-		if stats, err := s.ClientStatsDB.GetStats(c.ID); err == nil && stats != nil {
-			totalOnlineSec = stats.TotalOnlineSeconds
-			disconnectCount = stats.DisconnectCount
+	// 在线稳定性 / 服务等级
+	var stabS, servS float64
+	if configs.Config.LBScoreOffline {
+		// 离线模式：读缓存分（ScoreRefresher 后台刷新）；未初始化用中性值，避免新 client 被判死刑
+		var ok bool
+		stabS, servS, ok = c.CachedScores()
+		if !ok {
+			neutral := configs.Config.LBNeutralScore
+			if neutral <= 0 || neutral > 1 {
+				neutral = 0.5
+			}
+			stabS, servS = neutral, neutral
 		}
-	}
-
-	// 服务等级：历史贡献 token（从 TokenUsageDB 聚合）
-	var totalTokens int64
-	if s.TokenUsageDB != nil {
-		usages, err := s.TokenUsageDB.GetIncomeTokenUsage([]string{c.ID}, time.Time{}, time.Now())
-		if err == nil {
-			for _, u := range usages {
-				totalTokens += int64(u.TotalTokens)
+	} else {
+		// 现行为：热路径 DB 查询（从 ClientStatsDB 读取）
+		var totalOnlineSec, disconnectCount int64
+		if s.ClientStatsDB != nil {
+			if stats, err := s.ClientStatsDB.GetStats(c.ID); err == nil && stats != nil {
+				totalOnlineSec = stats.TotalOnlineSeconds
+				disconnectCount = stats.DisconnectCount
 			}
 		}
+
+		// 服务等级：历史贡献 token（从 TokenUsageDB 聚合）
+		var totalTokens int64
+		if s.TokenUsageDB != nil {
+			usages, err := s.TokenUsageDB.GetIncomeTokenUsage([]string{c.ID}, time.Time{}, time.Now())
+			if err == nil {
+				for _, u := range usages {
+					totalTokens += int64(u.TotalTokens)
+				}
+			}
+		}
+		stabS = stabilityScore(totalOnlineSec, disconnectCount)
+		servS = serviceScore(totalTokens, totalOnlineSec)
 	}
 
 	// 上行带宽：client 上报值，未上报则用默认值
@@ -570,8 +808,8 @@ func (s *Server) perfScore(c *Client) float64 {
 	return wCap*capacityScore(maxConn, c.GetActiveConnections()) +
 		wLat*latencyScore(c.GetLatency()) +
 		wFail*failureScore(c.GetFailures()) +
-		wStab*stabilityScore(totalOnlineSec, disconnectCount) +
-		wServ*serviceScore(totalTokens, totalOnlineSec) +
+		wStab*stabS +
+		wServ*servS +
 		wBw*bandwidthScore(bw)
 }
 
@@ -605,9 +843,13 @@ func (s *Server) pickSmart(model string, eligible []*Client) *Client {
 		scoredClients = append(scoredClients, scored{c: c, score: score})
 	}
 
-	// 按性能评分降序排序
+	// 按性能评分降序排序；P2: perf 接近（ε=0.01）时实测 cache 命中率高者优先（仅 tiebreak，不进主权重）
 	sort.Slice(scoredClients, func(i, j int) bool {
-		return scoredClients[i].score > scoredClients[j].score
+		di := scoredClients[i].score - scoredClients[j].score
+		if math.Abs(di) < 0.01 {
+			return scoredClients[i].c.GetCacheHitEMA() > scoredClients[j].c.GetCacheHitEMA()
+		}
+		return di > 0
 	})
 
 	// 取前 N 名候选
@@ -722,6 +964,36 @@ func (s *Server) GetAllModels() []*MarketplaceModel {
 	for _, item := range toRemove {
 		s.RemoveClient(item.model, item.client)
 	}
+	// Direct-only models have no websocket Client, but must still be discoverable
+	// by the marketplace alongside community-provided models.
+	marketplaceByName := make(map[string]*MarketplaceModel, len(marketplaceModels))
+	for _, model := range marketplaceModels {
+		marketplaceByName[model.Name] = model
+	}
+	s.directBackendsMu.RLock()
+	for modelName, backends := range s.directBackends {
+		if len(backends) == 0 || marketplaceByName[modelName] != nil {
+			continue
+		}
+		model := &MarketplaceModel{
+			Name:         modelName,
+			Type:         "model",
+			Size:         "unknown",
+			ClientModels: []*ClientModel{},
+		}
+		for _, backend := range backends {
+			for _, backendModel := range backend.Models {
+				if backendModel != nil && backendModel.Name == modelName {
+					model.Type = backendModel.Type
+					model.Size = backendModel.Size
+					model.Quantization = backendModel.Arch
+					break
+				}
+			}
+		}
+		marketplaceModels = append(marketplaceModels, model)
+	}
+	s.directBackendsMu.RUnlock()
 	return marketplaceModels
 }
 
@@ -760,15 +1032,29 @@ func (s *Server) GetModels() map[string]interface{} {
 	for _, model := range models {
 		modelMap[model.Name] = model
 	}
-	resultModels := make([]*openai.Model, 0, len(modelMap))
+	// P1-M2: tiers 暴露——每个模型标注供给层级 ["direct","community"]。
+	directSet := s.DirectModelSet()
+	for modelName := range directSet {
+		if _, exists := modelMap[modelName]; !exists {
+			modelMap[modelName] = &public.Model{Name: modelName}
+		}
+	}
+	resultModels := make([]map[string]interface{}, 0, len(modelMap))
 	for _, model := range modelMap {
-		resultModels = append(resultModels, &openai.Model{
-			ID:        model.Name,
-			Object:    "model",
-			OwnedBy:   "star-fire",
-			CreatedAt: time.Now().Unix(),
-			Root:      "",
-			Permission: []openai.Permission{
+		tiers := []string{"community"}
+		if directSet[model.Name] {
+			tiers = []string{"direct"}
+			if allClients[model.Name] != nil {
+				tiers = append(tiers, "community")
+			}
+		}
+		resultModels = append(resultModels, map[string]interface{}{
+			"id":       model.Name,
+			"object":   "model",
+			"owned_by": "star-fire",
+			"created":  time.Now().Unix(),
+			"root":     "",
+			"permission": []openai.Permission{
 				{
 					ID:                 model.Name + "-permission",
 					Object:             "permission",
@@ -779,6 +1065,7 @@ func (s *Server) GetModels() map[string]interface{} {
 					AllowView:          true,
 				},
 			},
+			"tiers": tiers,
 		})
 	}
 	result := make(map[string]interface{})
@@ -913,12 +1200,293 @@ func (s *Server) RemoveClientInstance(modelName string, client *Client) {
 }
 
 func (s *Server) GetClientByModel(model, clientID string) *Client {
-	allClients := s.clients.Load().(map[string]map[string]*Client)
+	loaded := s.clients.Load()
+	if loaded == nil {
+		return nil
+	}
+	allClients, ok := loaded.(map[string]map[string]*Client)
+	if !ok {
+		return nil
+	}
 	modelClients := allClients[model]
 	if modelClients == nil {
 		return nil
 	}
 	return modelClients[clientID]
+}
+
+// LoadDirectBackends 从 DB 载入 enabled 后端到内存注册表（启动时/CLI 变更后调用）。
+func (s *Server) LoadDirectBackends() error {
+	if s.DirectBackendDB == nil {
+		return nil
+	}
+	all, err := s.DirectBackendDB.List()
+	if err != nil {
+		return err
+	}
+	// Keep runtime counters and health state when replacing DB-backed objects.
+	// A refresh must not reset an in-flight load or clear a failure cooldown.
+	s.directBackendsMu.RLock()
+	previous := make(map[string]*DirectBackend)
+	for _, backends := range s.directBackends {
+		for _, backend := range backends {
+			previous[backend.ID] = backend
+		}
+	}
+	s.directBackendsMu.RUnlock()
+
+	m := map[string][]*DirectBackend{}
+	for _, b := range all {
+		if !b.Enabled {
+			continue
+		}
+		if b.Format != "" && b.Format != "openai" {
+			log.Printf("direct backend %s: format %q not supported in M1, skipped", b.ID, b.Format)
+			continue
+		}
+		if old := previous[b.ID]; old != nil {
+			atomic.StoreInt32(&b.ActiveConns, old.GetActive())
+			atomic.StoreInt32(&b.RecentFailures, old.GetFailures())
+			atomic.StoreInt64(&b.CooldownUntil, atomic.LoadInt64(&old.CooldownUntil))
+			atomic.StoreUint64(&b.LatencyEMA, atomic.LoadUint64(&old.LatencyEMA))
+			atomic.StoreInt32(&b.Healthy, atomic.LoadInt32(&old.Healthy))
+			atomic.StoreUint64(&b.CacheHitEMA, atomic.LoadUint64(&old.CacheHitEMA))
+		} else {
+			b.SetHealthy(true) // 初始乐观，健康检查会纠正
+		}
+		for _, mod := range b.Models {
+			if mod == nil || mod.Name == "" {
+				continue
+			}
+			m[mod.Name] = append(m[mod.Name], b)
+		}
+	}
+	s.directBackendsMu.Lock()
+	s.directBackends = m
+	s.directBackendsMu.Unlock()
+	log.Printf("direct backends loaded: %d model buckets", len(m))
+	return nil
+}
+
+// runDirectBackendRefresher reloads database changes so CLI backend updates take effect without a restart.
+func (s *Server) runDirectBackendRefresher() {
+	ticker := time.NewTicker(30 * time.Second)
+	defer ticker.Stop()
+	for range ticker.C {
+		if err := s.LoadDirectBackends(); err != nil {
+			log.Printf("refresh direct backends failed: %v", err)
+		}
+	}
+}
+
+// HasDirectSupply 返回指定模型是否有 Direct 供给（用于 tiers 暴露）。
+func (s *Server) HasDirectSupply(model string) bool {
+	s.directBackendsMu.RLock()
+	defer s.directBackendsMu.RUnlock()
+	return len(s.directBackends[model]) > 0
+}
+
+// DirectModelSet 返回所有有 Direct 供给的模型名集合。
+func (s *Server) DirectModelSet() map[string]bool {
+	s.directBackendsMu.RLock()
+	defer s.directBackendsMu.RUnlock()
+	set := make(map[string]bool, len(s.directBackends))
+	for m := range s.directBackends {
+		set[m] = true
+	}
+	return set
+}
+
+// PickDirect 选择固定后端。exclude 的 key 格式与 failedClients 一致："direct:"+ID。
+// 过滤：Enabled(已在载入时过滤)、IsHealthy、非冷却、Active<MaxConns、有该模型价格、价格帽。
+// 选择：Priority 最小层 → 层内 Active/MaxConns 最低。
+func (s *Server) PickDirect(model, userID string, exclude map[string]bool) *DirectBackend {
+	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
+	if s.UserPriceCapDB != nil && userID != "" {
+		maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
+	}
+	s.directBackendsMu.RLock()
+	list := s.directBackends[model]
+	s.directBackendsMu.RUnlock()
+
+	var best *DirectBackend
+	bestPrio := int(^uint(0) >> 1) // maxint
+	bestLoad := 2.0
+	for _, b := range list {
+		if exclude["direct:"+b.ID] || !b.IsHealthy() || b.InCooldown() {
+			continue
+		}
+		maxc := b.MaxConns
+		if maxc <= 0 {
+			maxc = 1
+		}
+		if int(b.GetActive()) >= maxc {
+			continue
+		}
+		ippm, oppm, _, ok := b.PriceFor(model)
+		if !ok || ippm > maxIPPM || oppm > maxOPPM {
+			continue
+		}
+		load := float64(b.GetActive()) / float64(maxc)
+		if b.Priority < bestPrio || (b.Priority == bestPrio && load < bestLoad) {
+			best, bestPrio, bestLoad = b, b.Priority, load
+		}
+	}
+	return best
+}
+
+// costPrice 计算候选的近似单价（P2 前用名义 IPPM/OPPM 权重）。
+// 单价 = IPPM×0.7 + OPPM×0.3。P2 落地后换 IPPM×(1−h)+CIPPM×h。
+func costPrice(ippm, oppm float64) float64 {
+	return ippm*0.7 + oppm*0.3
+}
+
+// PickCheapest 按单价升序选择最便宜的供给（cost 路由）。
+// 把众包 client 与 Direct 后端合并，按近似单价分层（容差 1e-9），
+// 层内众包走 pickSmart、Direct 按负载率。返回 (client, backend)，二者至多一个非 nil。
+// 溢出到次价层由调用方通过 exclude 控制（failedClients 记录已失败的 key）。
+// 注意：本方法只返回"当前最低价层"的候选；若该层无可用候选返回 nil,nil。
+func (s *Server) PickCheapest(model, userID string, exclude map[string]bool) (*Client, *DirectBackend) {
+	// 收集众包合格候选
+	clients := s.eligibleClients(model, userID, exclude, nil)
+
+	// 收集 Direct 合格候选
+	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
+	if s.UserPriceCapDB != nil && userID != "" {
+		maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
+	}
+	s.directBackendsMu.RLock()
+	directList := s.directBackends[model]
+	s.directBackendsMu.RUnlock()
+	var backends []*DirectBackend
+	for _, b := range directList {
+		if exclude["direct:"+b.ID] || !b.IsHealthy() || b.InCooldown() {
+			continue
+		}
+		maxc := b.MaxConns
+		if maxc <= 0 {
+			maxc = 1
+		}
+		if int(b.GetActive()) >= maxc {
+			continue
+		}
+		ippm, oppm, _, ok := b.PriceFor(model)
+		if !ok || ippm > maxIPPM || oppm > maxOPPM {
+			continue
+		}
+		backends = append(backends, b)
+	}
+
+	// 合并候选，按单价升序
+	type cand struct {
+		price float64
+		c     *Client
+		b     *DirectBackend
+	}
+	var cands []cand
+	for _, c := range clients {
+		ippm, oppm, _ := clientPrice(c, model)
+		cands = append(cands, cand{price: costPrice(ippm, oppm), c: c})
+	}
+	for _, b := range backends {
+		ippm, oppm, _, _ := b.PriceFor(model)
+		cands = append(cands, cand{price: costPrice(ippm, oppm), b: b})
+	}
+	if len(cands) == 0 {
+		return nil, nil
+	}
+	sort.Slice(cands, func(i, j int) bool { return cands[i].price < cands[j].price })
+
+	// 取最低价层（容差 1e-9）
+	minPrice := cands[0].price
+	var layer []cand
+	for _, cd := range cands {
+		if cd.price-minPrice <= 1e-9 {
+			layer = append(layer, cd)
+		} else {
+			break
+		}
+	}
+
+	// 层内：众包走 pickSmart，Direct 按负载率。
+	var layerClients []*Client
+	var layerBackends []*DirectBackend
+	for _, cd := range layer {
+		if cd.c != nil {
+			layerClients = append(layerClients, cd.c)
+		} else {
+			layerBackends = append(layerBackends, cd.b)
+		}
+	}
+	if len(layerClients) > 0 {
+		return s.pickSmart(model, layerClients), nil
+	}
+	// 只有 Direct：按负载率最低
+	var best *DirectBackend
+	bestLoad := 2.0
+	for _, b := range layerBackends {
+		maxc := b.MaxConns
+		if maxc <= 0 {
+			maxc = 1
+		}
+		load := float64(b.GetActive()) / float64(maxc)
+		if load < bestLoad {
+			best, bestLoad = b, load
+		}
+	}
+	return nil, best
+}
+
+// runDirectHealthCheck 每 30s GET {BaseURL}/models（Bearer APIKey），5s 超时。
+// 成功：SetHealthy(true) + SetLatencyEMA(rtt)；失败：SetHealthy(false)。
+// 连续 3 次失败打 WARN 日志（一次性，不刷屏）。
+func (s *Server) runDirectHealthCheck() {
+	const interval = 30 * time.Second
+	const timeout = 5 * time.Second
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	s.directHealthCheckOnce(timeout)
+	for range ticker.C {
+		s.directHealthCheckOnce(timeout)
+	}
+}
+
+func (s *Server) directHealthCheckOnce(timeout time.Duration) {
+	s.directBackendsMu.RLock()
+	seen := map[string]*DirectBackend{}
+	for _, list := range s.directBackends {
+		for _, b := range list {
+			seen[b.ID] = b
+		}
+	}
+	s.directBackendsMu.RUnlock()
+
+	for _, b := range seen {
+		url := strings.TrimRight(b.BaseURL, "/") + "/models"
+		req, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			b.SetHealthy(false)
+			continue
+		}
+		if b.APIKey != "" {
+			req.Header.Set("Authorization", "Bearer "+b.APIKey)
+		}
+		client := &http.Client{Timeout: timeout}
+		start := time.Now()
+		resp, err := client.Do(req)
+		if err != nil {
+			b.SetHealthy(false)
+			continue
+		}
+		resp.Body.Close()
+		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			b.SetHealthy(true)
+			b.SetLatencyEMA(float64(time.Since(start).Milliseconds()))
+			b.ResetFailures()
+		} else {
+			b.SetHealthy(false)
+		}
+	}
 }
 
 // GetClientByID 在所有模型中查找指定 clientID 的 client。
@@ -934,6 +1502,58 @@ func (s *Server) GetClientByID(clientID string) *Client {
 		}
 	}
 	return nil
+}
+
+// ResolveAffinity 校验亲和目标是否当前可用。返回 nil 表示不可用（调用方 MarkLease）。
+// 校验链：在线健康 + 非冷却 + 价格帽 + 软限流（Active < rate × effectiveMax）。
+// Direct 亲和由 PickDirect 天然处理（无状态 HTTP，粘性收益小，M1 先跳过）→ 返回 nil。
+func (s *Server) ResolveAffinity(entry AffinityEntry, model, userID string) *Client {
+	if entry.IsDirect {
+		return nil
+	}
+	loaded := s.clients.Load()
+	if loaded == nil {
+		return nil
+	}
+	all, ok := loaded.(map[string]map[string]*Client)
+	if !ok {
+		return nil
+	}
+	modelClients := all[model]
+	if modelClients == nil {
+		return nil
+	}
+	c := modelClients[entry.ClientID]
+	if c == nil {
+		return nil
+	}
+	if configs.Config.LBCooldownEnabled && c.InCooldown() {
+		return nil
+	}
+	if !clientHealthy(c, model) {
+		return nil
+	}
+	// 价格帽
+	maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
+	if s.UserPriceCapDB != nil && userID != "" {
+		maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
+	}
+	if !priceEligible(maxIPPM, maxOPPM)(c, model) {
+		return nil
+	}
+	// 软限流：粘性请求不把 client 顶满
+	rate := configs.Config.AffinitySoftLimitRate
+	if rate <= 0 || rate > 1 {
+		rate = 0.9
+	}
+	limit := int32(float64(s.effectiveMaxConnections(c)) * rate)
+	if limit < 1 {
+		limit = 1
+	}
+	if c.GetActiveConnections() >= limit {
+		return nil
+	}
+	return c
 }
 
 // GetUserClientConnections 汇总某用户所有在线 client 的当前连接数。
@@ -1138,6 +1758,10 @@ func (s *Server) LoadBalanceEmbedding(model, userID string) *Client {
 			log.Printf("Found embedding model: %s, checking clients: %d", modelName, len(clients))
 
 			for _, client := range clients {
+				// P0 熔断冷却：冷却中的 client 暂时隔离（不删除）。
+				if configs.Config.LBCooldownEnabled && client.InCooldown() {
+					continue
+				}
 				if !clientHealthy(client, model) {
 					continue
 				}

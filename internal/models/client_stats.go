@@ -83,3 +83,16 @@ func (csdb *ClientStatsDB) RecordOffline(clientID string) error {
 func (csdb *ClientStatsDB) GetStats(clientID string) (*ClientStats, error) {
 	return csdb.GetOrCreate(clientID)
 }
+
+// GetStatsBatch 批量拉取统计（不存在的 ID 不在结果里，调用方按缺失处理）。
+func (csdb *ClientStatsDB) GetStatsBatch(clientIDs []string) (map[string]*ClientStats, error) {
+	var rows []*ClientStats
+	if err := csdb.db.Where("client_id IN ?", clientIDs).Find(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]*ClientStats, len(rows))
+	for _, r := range rows {
+		out[r.ClientID] = r
+	}
+	return out, nil
+}

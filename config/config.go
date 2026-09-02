@@ -67,6 +67,31 @@ type Configuration struct {
 	LBWeightVIP    float64 // vip 权重
 	LBWeightSVIP   float64 // svip 权重
 
+	// P0 打分离线化 + 熔断冷却
+	LBScoreOffline       bool    // LB_SCORE_OFFLINE，默认 false：perfScore 慢变维度走离线缓存
+	ScoreRefreshInterval int     // SCORE_REFRESH_INTERVAL 秒，默认 30：慢变维度刷新周期
+	LBCooldownEnabled    bool    // LB_COOLDOWN_ENABLED，默认 false：失败熔断冷却开关
+	LBCooldownBaseMs     int     // LB_COOLDOWN_BASE_MS，默认 5000：冷却指数退避基数
+	LBCooldownMaxMs      int     // LB_COOLDOWN_MAX_MS，默认 300000：冷却上限
+	LBNeutralScore       float64 // LB_NEUTRAL_SCORE，默认 0.5：新 client stab/serv 中性值
+
+	// P1: Direct 固定后端（平台直连模型供给）
+	DirectBackendsEnabled bool // DIRECT_BACKENDS_ENABLED，默认 true：开启 Direct 主力池 + stability 路由
+
+	// P2: 会话亲和 + cache 命中反馈 + HRW 防抖
+	AffinityEnabled       bool    // AFFINITY_ENABLED，默认 false：开启会话亲和
+	AffinityTTLMin        int     // AFFINITY_TTL_MIN，默认 20（分钟，滑动）
+	AffinityLeaseSec      int     // AFFINITY_LEASE_SEC，默认 60
+	AffinitySoftLimitRate float64 // AFFINITY_SOFT_LIMIT_RATE，默认 0.9
+	AffinityMinHitRate    float64 // AFFINITY_MIN_HIT_RATE，默认 0.2
+	AffinityMissK         int     // AFFINITY_MISS_K，默认 3
+	AffinityMaxEntries    int     // AFFINITY_MAX_ENTRIES，默认 100000（LRU 上限）
+	LBHRWSubsetSize       int     // LB_HRW_SUBSET_SIZE，默认 0（关闭）
+
+	// P1-M2: 路由偏好 + 容忍度
+	RoutingDefault     string  // ROUTING_DEFAULT，默认 "stability"：stability|cost|balanced
+	LBBalancedMinScore float64 // LB_BALANCED_MIN_SCORE，默认 0.5：balanced 模式 perfScore 下限
+
 	// 数据库配置（支持 sqlite / mysql 一键切换）
 	DBDriver             string // sqlite | mysql
 	DBDSN                string // 完整 DSN（可选，优先级最高，设置后忽略 DB_HOST 等单项）
@@ -165,6 +190,72 @@ func loadConfig() Configuration {
 	lbWeightNormal, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_NORMAL", "1.0"), 64)
 	lbWeightVIP, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_VIP", "3.0"), 64)
 	lbWeightSVIP, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_SVIP", "8.0"), 64)
+
+	// P0 打分离线化 + 熔断冷却
+	lbScoreOffline, _ := strconv.ParseBool(getEnv("LB_SCORE_OFFLINE", "false"))
+	scoreRefreshInterval, _ := strconv.Atoi(getEnv("SCORE_REFRESH_INTERVAL", "30"))
+	if scoreRefreshInterval <= 0 {
+		scoreRefreshInterval = 30
+	}
+	lbCooldownEnabled, _ := strconv.ParseBool(getEnv("LB_COOLDOWN_ENABLED", "false"))
+	lbCooldownBaseMs, _ := strconv.Atoi(getEnv("LB_COOLDOWN_BASE_MS", "5000"))
+	if lbCooldownBaseMs <= 0 {
+		lbCooldownBaseMs = 5000
+	}
+	lbCooldownMaxMs, _ := strconv.Atoi(getEnv("LB_COOLDOWN_MAX_MS", "300000"))
+	if lbCooldownMaxMs <= 0 {
+		lbCooldownMaxMs = 300000
+	}
+	lbNeutralScore, _ := strconv.ParseFloat(getEnv("LB_NEUTRAL_SCORE", "0.5"), 64)
+	if lbNeutralScore <= 0 || lbNeutralScore > 1 {
+		lbNeutralScore = 0.5
+	}
+
+	// P1: Direct 固定后端（默认开启：Direct 主力池 + stability 路由）
+	directBackendsEnabled, _ := strconv.ParseBool(getEnv("DIRECT_BACKENDS_ENABLED", "true"))
+
+	// P2: 会话亲和 + cache 命中反馈 + HRW 防抖
+	affinityEnabled, _ := strconv.ParseBool(getEnv("AFFINITY_ENABLED", "false"))
+	affinityTTLMin, _ := strconv.Atoi(getEnv("AFFINITY_TTL_MIN", "20"))
+	if affinityTTLMin <= 0 {
+		affinityTTLMin = 20
+	}
+	affinityLeaseSec, _ := strconv.Atoi(getEnv("AFFINITY_LEASE_SEC", "60"))
+	if affinityLeaseSec <= 0 {
+		affinityLeaseSec = 60
+	}
+	affinitySoftLimitRate, _ := strconv.ParseFloat(getEnv("AFFINITY_SOFT_LIMIT_RATE", "0.9"), 64)
+	if affinitySoftLimitRate <= 0 || affinitySoftLimitRate > 1 {
+		affinitySoftLimitRate = 0.9
+	}
+	affinityMinHitRate, _ := strconv.ParseFloat(getEnv("AFFINITY_MIN_HIT_RATE", "0.2"), 64)
+	if affinityMinHitRate < 0 || affinityMinHitRate > 1 {
+		affinityMinHitRate = 0.2
+	}
+	affinityMissK, _ := strconv.Atoi(getEnv("AFFINITY_MISS_K", "3"))
+	if affinityMissK <= 0 {
+		affinityMissK = 3
+	}
+	affinityMaxEntries, _ := strconv.Atoi(getEnv("AFFINITY_MAX_ENTRIES", "100000"))
+	if affinityMaxEntries <= 0 {
+		affinityMaxEntries = 100000
+	}
+	lbHRWSubsetSize, _ := strconv.Atoi(getEnv("LB_HRW_SUBSET_SIZE", "0"))
+	if lbHRWSubsetSize < 0 {
+		lbHRWSubsetSize = 0
+	}
+
+	// P1-M2: 路由偏好 + 容忍度
+	routingDefault := strings.ToLower(strings.TrimSpace(getEnv("ROUTING_DEFAULT", "stability")))
+	switch routingDefault {
+	case "stability", "cost", "balanced":
+	default:
+		routingDefault = "stability"
+	}
+	lbBalancedMinScore, _ := strconv.ParseFloat(getEnv("LB_BALANCED_MIN_SCORE", "0.5"), 64)
+	if lbBalancedMinScore <= 0 || lbBalancedMinScore > 1 {
+		lbBalancedMinScore = 0.5
+	}
 
 	// 数据库配置（sqlite / mysql 一键切换）
 	dbDriver := strings.ToLower(strings.TrimSpace(getEnv("DB_DRIVER", "sqlite")))
@@ -265,6 +356,27 @@ func loadConfig() Configuration {
 		LBWeightNormal:   lbWeightNormal,
 		LBWeightVIP:      lbWeightVIP,
 		LBWeightSVIP:     lbWeightSVIP,
+
+		LBScoreOffline:       lbScoreOffline,
+		ScoreRefreshInterval: scoreRefreshInterval,
+		LBCooldownEnabled:    lbCooldownEnabled,
+		LBCooldownBaseMs:     lbCooldownBaseMs,
+		LBCooldownMaxMs:      lbCooldownMaxMs,
+		LBNeutralScore:       lbNeutralScore,
+
+		DirectBackendsEnabled: directBackendsEnabled,
+
+		AffinityEnabled:       affinityEnabled,
+		AffinityTTLMin:        affinityTTLMin,
+		AffinityLeaseSec:      affinityLeaseSec,
+		AffinitySoftLimitRate: affinitySoftLimitRate,
+		AffinityMinHitRate:    affinityMinHitRate,
+		AffinityMissK:         affinityMissK,
+		AffinityMaxEntries:    affinityMaxEntries,
+		LBHRWSubsetSize:       lbHRWSubsetSize,
+
+		RoutingDefault:     routingDefault,
+		LBBalancedMinScore: lbBalancedMinScore,
 
 		DBDriver:             dbDriver,
 		DBDSN:                dbDSN,

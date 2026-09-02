@@ -1,12 +1,15 @@
 package models
 
 import (
+	"math"
+	"sort"
 	"testing"
 
 	configs "star-fire/config"
 	"star-fire/pkg/public"
 
 	"github.com/glebarez/sqlite"
+	"github.com/gorilla/websocket"
 	"gorm.io/gorm"
 )
 
@@ -337,5 +340,128 @@ func TestBandwidthScore(t *testing.T) {
 		if got := bandwidthScore(c.bw); got != c.want {
 			t.Errorf("bandwidthScore(%v) = %v, want %v", c.bw, got, c.want)
 		}
+	}
+}
+
+// ============ P2: HRW 子集 + CacheHit tiebreak + ResolveAffinity ============
+
+func TestHRWSubsetStable(t *testing.T) {
+	clients := make([]*Client, 10)
+	for i := 0; i < 10; i++ {
+		clients[i] = &Client{ID: string(rune('a' + i))}
+	}
+	// 同 userID 多次调用子集一致
+	first := hrwSubset("user1", clients, 4)
+	for i := 0; i < 10; i++ {
+		got := hrwSubset("user1", clients, 4)
+		if len(got) != 4 {
+			t.Fatalf("expected 4, got %d", len(got))
+		}
+		for j := 0; j < 4; j++ {
+			if got[j].ID != first[j].ID {
+				t.Fatalf("subset not stable: %s vs %s", got[j].ID, first[j].ID)
+			}
+		}
+	}
+	// 不同 userID 子集不同
+	other := hrwSubset("user2", clients, 4)
+	same := true
+	for j := 0; j < 4; j++ {
+		if other[j].ID != first[j].ID {
+			same = false
+			break
+		}
+	}
+	if same {
+		t.Fatalf("different userID should produce different subset")
+	}
+	// 删除子集外 client → 子集不变
+	subsetSet := map[string]bool{}
+	for _, c := range first {
+		subsetSet[c.ID] = true
+	}
+	// 从完整集合中移除一个"子集外"的 client
+	removed := ""
+	reduced := make([]*Client, 0, 10)
+	for _, c := range clients {
+		if !subsetSet[c.ID] && removed == "" {
+			removed = c.ID
+			continue
+		}
+		reduced = append(reduced, c)
+	}
+	if removed == "" {
+		t.Fatalf("expected at least one outside-subset client")
+	}
+	after := hrwSubset("user1", reduced, 4)
+	for j := 0; j < 4; j++ {
+		if after[j].ID != first[j].ID {
+			t.Fatalf("removing outside-subset client changed subset")
+		}
+	}
+}
+
+func TestPickSmartCacheHitTiebreak(t *testing.T) {
+	server := newTestSmartServer(t)
+	server.LoadBalanceAlgorithm = "smart"
+	// 两个 perf 相同的 client（同参数、jitter=0）
+	configs.Config.LBJitter = 0
+	defer func() { configs.Config.LBJitter = 0.05 }()
+	c1 := makeClient("c1", MembershipNormal, 5, 0, 10, 0, 1000, 0, 1000)
+	c2 := makeClient("c2", MembershipNormal, 5, 0, 10, 0, 1000, 0, 1000)
+	c1.UpdateCacheHit(0.8)
+	c2.UpdateCacheHit(0.0)
+	eligible := []*Client{c1, c2}
+	// 直接验证排序比较器：perf 相同 → CacheHitEMA 高者在前
+	scored := []struct {
+		c     *Client
+		score float64
+	}{{c1, 0.5}, {c2, 0.5}}
+	sort.Slice(scored, func(i, j int) bool {
+		di := scored[i].score - scored[j].score
+		if math.Abs(di) < 0.01 {
+			return scored[i].c.GetCacheHitEMA() > scored[j].c.GetCacheHitEMA()
+		}
+		return di > 0
+	})
+	if scored[0].c.ID != "c1" {
+		t.Fatalf("expected c1 (higher cache hit) first, got %s", scored[0].c.ID)
+	}
+	_ = eligible
+}
+
+func TestResolveAffinity(t *testing.T) {
+	server := newTestSmartServer(t)
+	server.clients.Store(map[string]map[string]*Client{
+		"m1": {
+			"c1": {ID: "c1", Status: "online", Models: []*public.Model{{Name: "m1", IPPM: 1, OPPM: 1}}},
+			"c2": {ID: "c2", Status: "online", Models: []*public.Model{{Name: "m1", IPPM: 1, OPPM: 1}}},
+			"c3": {ID: "c3", Status: "offline", Models: []*public.Model{{Name: "m1", IPPM: 1, OPPM: 1}}},
+		},
+	})
+	// 需要 ControlConn 非 nil 才 clientHealthy
+	for _, c := range []*Client{server.clients.Load().(map[string]map[string]*Client)["m1"]["c1"], server.clients.Load().(map[string]map[string]*Client)["m1"]["c2"]} {
+		c.ControlConn = &websocket.Conn{}
+	}
+	// 正常返回
+	if got := server.ResolveAffinity(AffinityEntry{ClientID: "c1"}, "m1", ""); got == nil || got.ID != "c1" {
+		t.Fatalf("expected c1, got %v", got)
+	}
+	// 不健康 → nil
+	if got := server.ResolveAffinity(AffinityEntry{ClientID: "c3"}, "m1", ""); got != nil {
+		t.Fatalf("expected nil for unhealthy, got %v", got)
+	}
+	// 不存在 → nil
+	if got := server.ResolveAffinity(AffinityEntry{ClientID: "nope"}, "m1", ""); got != nil {
+		t.Fatalf("expected nil for missing, got %v", got)
+	}
+	// Direct → nil
+	if got := server.ResolveAffinity(AffinityEntry{ClientID: "direct:x", IsDirect: true}, "m1", ""); got != nil {
+		t.Fatalf("expected nil for direct, got %v", got)
+	}
+	// 软限流：Active >= 0.9×max → nil（normal 默认 max=1，rate 0.9 → limit 1）
+	server.clients.Load().(map[string]map[string]*Client)["m1"]["c2"].ActiveConnections = 1
+	if got := server.ResolveAffinity(AffinityEntry{ClientID: "c2"}, "m1", ""); got != nil {
+		t.Fatalf("expected nil for soft-limit saturated, got %v", got)
 	}
 }

@@ -114,6 +114,7 @@ type Config struct {
 	ProxyBackends                   []ProxyBackend
 	BandwidthMbps                   float64 // 本机到 server 的上行带宽（Mbps），上报给 server 用于负载均衡
 	MaxConnections                  int     // 自定义连接数上限（0 = 使用会员默认），Python 滑块配置
+	Debug                           bool    // 是否输出高频 [TRACE] 链路日志（请求/响应体等），默认关闭
 }
 
 func LoadConfig() *Config {
@@ -143,6 +144,7 @@ func LoadConfig() *Config {
 	flag.BoolVar(&cfg.Deamon, "daemon", false, "以守护进程方式运行")
 	flag.IntVar(&cfg.APPPort, "port", 19527, "服务端口 (默认:19527)")
 	flag.BoolVar(&cfg.OpenAIOnly, "openai-only", false, "仅使用 OpenAI 引擎，不注册本地引擎模型到服务器")
+	flag.BoolVar(&cfg.Debug, "debug", false, "输出高频 [TRACE] 链路日志（请求/响应体等）")
 	flag.StringVar(&cfg.ConfigFile, "config", "starfire_config.json", "配置文件路径 (默认: starfire_config.json)")
 	flag.Float64Var(&cfg.BandwidthMbps, "bandwidth", 0, "本机到 server 的上行带宽 (Mbps)，0=自动探测或使用默认")
 
@@ -308,6 +310,7 @@ func loadConfigFile(cfg *Config, explicitFlags map[string]bool) {
 		ModelPrices      map[string]ModelPrice `json:"model_prices"`
 		RegisteredModels []string              `json:"registered_models"`
 		BandwidthMbps    float64               `json:"bandwidth_mbps"`
+		Debug            bool                  `json:"debug"`
 	}
 	if err := json.Unmarshal(data, &fileCfg); err != nil {
 		return // 格式错误，静默忽略
@@ -356,6 +359,9 @@ func loadConfigFile(cfg *Config, explicitFlags map[string]bool) {
 	}
 	if fileCfg.BandwidthMbps > 0 && !explicitFlags["bandwidth"] {
 		cfg.BandwidthMbps = fileCfg.BandwidthMbps
+	}
+	if fileCfg.Debug && !explicitFlags["debug"] {
+		cfg.Debug = true
 	}
 	cfg.RegisteredModels = append([]string(nil), fileCfg.RegisteredModels...)
 

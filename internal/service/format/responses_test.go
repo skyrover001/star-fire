@@ -282,6 +282,37 @@ func TestResponsesConverter_StreamError(t *testing.T) {
 	}
 }
 
+func TestResponsesConverter_StreamCustomToolAndOutOfOrderArguments(t *testing.T) {
+	acc := (&ResponsesConverter{}).NewStreamAccumulator()
+	frames := []string{
+		`{"type":"response.custom_tool_call_input.delta","output_index":1,"item_id":"ct_1","delta":"patch"}`,
+		`{"type":"response.output_item.added","output_index":1,"item":{"type":"custom_tool_call","id":"ct_1","call_id":"call_patch","name":"apply_patch","input":""}}`,
+		`{"type":"response.custom_tool_call_input.done","output_index":1,"item_id":"ct_1","arguments":" body"}`,
+		`{"type":"response.completed","response":{"status":"completed"}}`,
+	}
+	events := feedAll(t, acc, frames)
+	if len(events) != 3 {
+		t.Fatalf("events = %d, want 3", len(events))
+	}
+	if events[0].ToolCall.ID != "call_patch" || events[0].ToolCall.Name != "apply_patch" || rawToString(events[0].ToolCall.Arguments) != "patch" {
+		t.Errorf("tool metadata/pending args = %+v", events[0].ToolCall)
+	}
+	if rawToString(events[1].ToolCall.Arguments) != " body" {
+		t.Errorf("done arguments = %q", rawToString(events[1].ToolCall.Arguments))
+	}
+	if events[2].FinishReason != "tool_calls" {
+		t.Errorf("finish reason = %q, want tool_calls", events[2].FinishReason)
+	}
+}
+
+func TestResponsesConverter_StreamIncompleteContentFilter(t *testing.T) {
+	acc := (&ResponsesConverter{}).NewStreamAccumulator()
+	events := feedAll(t, acc, []string{`{"type":"response.incomplete","response":{"status":"incomplete","incomplete_details":{"reason":"content_filter"}}}`})
+	if len(events) != 1 || events[0].Type != public.StreamEventDone || events[0].FinishReason != "content_filter" {
+		t.Fatalf("events = %+v, want done/content_filter", events)
+	}
+}
+
 // ---- 状态机隔离 ----
 
 func TestResponsesConverter_StreamIsolation(t *testing.T) {

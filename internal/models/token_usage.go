@@ -108,6 +108,30 @@ func (tdb *TokenUsageDB) GetIncomeTokenUsage(clientIDs []string, startTime, endT
 	return usages, nil
 }
 
+// GetTotalTokensByClientIDs 按 client 聚合 total_tokens（since 为零值 = 全部历史，对齐现 perfScore 语义）。
+// 命中索引 idx_token_usages_client_timestamp。
+func (tdb *TokenUsageDB) GetTotalTokensByClientIDs(clientIDs []string, since time.Time) (map[string]int64, error) {
+	type row struct {
+		ClientID string
+		Total    int64
+	}
+	var rows []row
+	q := tdb.db.Model(&TokenUsage{}).
+		Select("client_id, SUM(total_tokens) AS total").
+		Where("client_id IN ?", clientIDs)
+	if !since.IsZero() {
+		q = q.Where("timestamp >= ?", since)
+	}
+	if err := q.Group("client_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[r.ClientID] = r.Total
+	}
+	return out, nil
+}
+
 // GetUserTokenStats
 func (tdb *TokenUsageDB) GetUserTokenStats(userID string, startTime, endTime time.Time) (map[string]int, error) {
 	type Result struct {

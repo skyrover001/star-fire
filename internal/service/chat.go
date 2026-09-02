@@ -2,6 +2,8 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -189,14 +191,84 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 	failedClients := map[string]bool{}
 	start := time.Now()
 
+	// P1-M2: 解析路由偏好 + 容忍度。
+	routing := resolveRouting(c, extendedRequest.Routing)
+	maxLatencyMs := extendedRequest.MaxLatencyMs
+	minStability := extendedRequest.MinStability
+
+	// P2: 会话亲和 L0 短路——命中且目标可用则跳过 LoadBalance 直接用粘住 client。
+	var affinityKey string
+	var affinityClient *models.Client
+	var affinityHit bool
+	if server.Affinity != nil {
+		affinityKey = affinityKeyFromChat(request)
+		if affinityKey == "" {
+			affinityKey = userIDStr + ":" + request.Model
+		}
+		if entry, ok := server.Affinity.Get(affinityKey); ok {
+			if ac := server.ResolveAffinity(entry, request.Model, userIDStr); ac != nil {
+				affinityClient = ac
+			} else {
+				server.Affinity.MarkLease(affinityKey)
+			}
+		}
+	}
+
 	for attempt := 0; attempt < public.MAX_CHAT_RETRY; attempt++ {
 		// 全局超时检查，避免极端情况下重试耗时过长
 		if time.Since(start) > public.CHAT_RETRY_TOTAL_TIMEOUT*time.Second {
 			break
 		}
 
-		// 1. 选 client（排除已失败的）
-		client := server.LoadBalanceExcluding(request.Model, userIDStr, failedClients)
+		// 0. Direct 主力池优先（M1 stability 路由）：命中则直连固定后端，失败回退 crowdsource。
+		//    cost 路由：PickCheapest 已把 Direct 并入最低价层，此处不再单独优先。
+		if configs.Config.DirectBackendsEnabled && routing != RoutingCost {
+			if b := server.PickDirect(request.Model, userIDStr, failedClients); b != nil {
+				failedClients["direct:"+b.ID] = true
+				if handleDirectChat(c, server, b, extendedRequest, userIDStr) {
+					return
+				}
+				time.Sleep(backoff(attempt))
+				continue
+			}
+		}
+
+		// 1. 选 client（排除已失败的）。attempt 0 且亲和命中 → 直接用粘住 client。
+		var client *models.Client
+		if attempt == 0 && affinityClient != nil {
+			client = affinityClient
+			affinityHit = true
+		} else {
+			switch routing {
+			case RoutingCost:
+				// cost：合并两池按单价选最低价层；层内众包走 pickSmart、Direct 按负载率。
+				cc, cb := server.PickCheapest(request.Model, userIDStr, failedClients)
+				if cb != nil {
+					failedClients["direct:"+cb.ID] = true
+					if handleDirectChat(c, server, cb, extendedRequest, userIDStr) {
+						return
+					}
+					time.Sleep(backoff(attempt))
+					continue
+				}
+				client = cc
+			case RoutingBalanced:
+				// balanced：perfScore 下限过滤 + 容忍度；无候选溢出 Direct。
+				client = server.LoadBalanceBalanced(request.Model, userIDStr, failedClients, maxLatencyMs, minStability)
+				if client == nil && configs.Config.DirectBackendsEnabled {
+					if b := server.PickDirect(request.Model, userIDStr, failedClients); b != nil {
+						failedClients["direct:"+b.ID] = true
+						if handleDirectChat(c, server, b, extendedRequest, userIDStr) {
+							return
+						}
+						time.Sleep(backoff(attempt))
+						continue
+					}
+				}
+			default: // stability
+				client = server.LoadBalanceWithTolerance(request.Model, userIDStr, failedClients, maxLatencyMs, minStability)
+			}
+		}
 		if client == nil {
 			break
 		}
@@ -302,6 +374,19 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		case public.MESSAGE, public.MESSAGE_STREAM:
 			// 成功！进入正常处理流程
 			client.ResetFailures() // smart 负载均衡：请求成功，清零失败计数
+			// P2: 成功写回亲和。租约未过期且换了 client → 不覆盖（下次仍优先试原 client = 回迁）。
+			if server.Affinity != nil {
+				if affinityHit || server.Affinity.LeaseExpired(affinityKey) {
+					server.Affinity.Touch(affinityKey, client.ID, false)
+				}
+			}
+			// P2: 传给计费层做实测命中校验
+			if server.Affinity != nil {
+				c.Set("affinity_key", affinityKey)
+				if affinityHit {
+					c.Set("affinity_hit", true)
+				}
+			}
 			handleChatResponseWithFirst(c, server, fingerPrint, time.Now(), client.ID, ippm, oppm, cippm, request.Model, response, respConn)
 			return
 		case public.CLOSE:
@@ -359,6 +444,23 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 // backoff 指数退避：attempt=0 -> 100ms, 1 -> 200ms, 2 -> 400ms
 func backoff(attempt int) time.Duration {
 	return time.Duration(public.CHAT_RETRY_BASE_DELAY*(1<<attempt)) * time.Millisecond
+}
+
+// affinityKeyFromChat 会话指纹：sha256(model + 前两条消息的 role+content 前 256B)[:16]，hex。
+// 多轮对话 messages 只会追加，开头前缀稳定 ⇒ 同会话同 key。
+func affinityKeyFromChat(req openai.ChatCompletionRequest) string {
+	h := sha256.New()
+	h.Write([]byte(req.Model))
+	for i := 0; i < len(req.Messages) && i < 2; i++ {
+		m := req.Messages[i]
+		h.Write([]byte(m.Role))
+		content := m.Content
+		if len(content) > 256 {
+			content = content[:256]
+		}
+		h.Write([]byte(content))
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
 }
 
 // containsVideoInput 判断请求体是否含视频输入（video_url / input_video / video 块）。
@@ -776,4 +878,24 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 	}(clientID, model,
 		(ippm*float64(inputTokens-cachedTokens)+cippm*float64(cachedTokens)+oppm*float64(outputTokens))/1000000,
 		inputTokens, outputTokens, totalTokens, cachedTokens)
+
+	// P2: 实测命中反馈（纯内存，零 DB）。仅用于 tiebreak 与亲和失效校验，不进 perfScore。
+	if inputTokens > 0 {
+		h := float64(cachedTokens) / float64(inputTokens)
+		if cl := server.GetClientByID(clientID); cl != nil {
+			cl.UpdateCacheHit(h)
+		}
+		// 亲和实测校验：粘性命中但实测低命中 → 连续 K 次删除亲和
+		if server.Affinity != nil {
+			if keyVal, ok := c.Get("affinity_key"); ok {
+				if hit, _ := c.Get("affinity_hit"); hit == true {
+					if h < configs.Config.AffinityMinHitRate {
+						if server.Affinity.RecordMiss(keyVal.(string)) >= int32(configs.Config.AffinityMissK) {
+							server.Affinity.Delete(keyVal.(string))
+						}
+					} // h 达标 → Touch 已在成功分支做过，MissCount 由 Touch 清零
+				}
+			}
+		}
+	}
 }

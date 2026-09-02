@@ -110,10 +110,13 @@ type responsesContentPart struct {
 }
 
 type responsesResponse struct {
-	ID     string          `json:"id"`
-	Status string          `json:"status"`
-	Output []responsesItem `json:"output"`
-	Usage  responsesUsage  `json:"usage"`
+	ID                string          `json:"id"`
+	Status            string          `json:"status"`
+	Output            []responsesItem `json:"output"`
+	Usage             responsesUsage  `json:"usage"`
+	IncompleteDetails struct {
+		Reason string `json:"reason"`
+	} `json:"incomplete_details"`
 }
 
 type responsesUsage struct {
@@ -1085,14 +1088,26 @@ type responsesAccumulator struct {
 	status          string
 	sawFunctionCall bool
 	done            bool
+	toolsByOutput   map[int]*responseStreamTool
+	toolsByItemID   map[string]*responseStreamTool
+	pendingArgs     map[int]string
+}
+
+type responseStreamTool struct {
+	callID string
+	name   string
+	args   string
 }
 
 func (a *responsesAccumulator) Feed(data []byte) ([]*public.CanonicalStreamEvent, error) {
 	var ev struct {
-		Type     string          `json:"type"`
-		Delta    string          `json:"delta"`
-		Response json.RawMessage `json:"response"`
-		Item     json.RawMessage `json:"item"`
+		Type        string          `json:"type"`
+		Delta       string          `json:"delta"`
+		Arguments   string          `json:"arguments"`
+		ItemID      string          `json:"item_id"`
+		OutputIndex *int            `json:"output_index"`
+		Response    json.RawMessage `json:"response"`
+		Item        json.RawMessage `json:"item"`
 	}
 	if err := json.Unmarshal(data, &ev); err != nil {
 		return nil, err
@@ -1102,55 +1117,158 @@ func (a *responsesAccumulator) Feed(data []byte) ([]*public.CanonicalStreamEvent
 	case "response.output_text.delta":
 		return []*public.CanonicalStreamEvent{{Type: public.StreamEventTextDelta, Text: ev.Delta}}, nil
 
-	case "response.output_item.added":
+	case "response.output_item.added", "response.output_item.done":
 		var item responsesItem
 		if err := json.Unmarshal(ev.Item, &item); err != nil {
 			return nil, err
 		}
-		if item.Type == "function_call" {
-			a.sawFunctionCall = true
-			return []*public.CanonicalStreamEvent{{
-				Type: public.StreamEventToolCallDelta,
-				ToolCall: &public.CanonicalToolCall{
-					ID:        item.CallID,
-					Name:      item.Name,
-					Arguments: marshalString(item.Arguments),
-				},
-			}}, nil
+		if item.Type == "function_call" || item.Type == "custom_tool_call" || item.Type == "web_search_call" {
+			return a.addTool(item, ev.OutputIndex)
 		}
 		return nil, nil
 
-	case "response.function_call_arguments.delta":
-		return []*public.CanonicalStreamEvent{{
-			Type: public.StreamEventToolCallDelta,
-			ToolCall: &public.CanonicalToolCall{
-				Arguments: marshalString(ev.Delta),
-			},
-		}}, nil
+	case "response.function_call_arguments.delta", "response.custom_tool_call_input.delta":
+		return a.addToolArgs(ev.ItemID, ev.OutputIndex, ev.Delta)
 
-	case "response.completed":
+	case "response.function_call_arguments.done", "response.custom_tool_call_input.done":
+		return a.completeToolArgs(ev.ItemID, ev.OutputIndex, ev.Arguments)
+
+	case "response.completed", "response.incomplete", "response.done":
 		a.done = true
 		var resp responsesResponse
 		_ = json.Unmarshal(ev.Response, &resp)
+		if resp.Status == "" {
+			if ev.Type == "response.incomplete" {
+				resp.Status = "incomplete"
+			} else {
+				resp.Status = "completed"
+			}
+		}
 		a.status = resp.Status
 		a.inputTokens = resp.Usage.InputTokens
 		a.outputTokens = resp.Usage.OutputTokens
 		a.cachedTokens = resp.Usage.InputTokensDetails.CachedTokens
 		a.totalTokens = resp.Usage.TotalTokens
+		finishReason := a.finishReason()
+		if resp.IncompleteDetails.Reason == "content_filter" {
+			finishReason = "content_filter"
+		}
 		u := a.buildUsage()
 		return []*public.CanonicalStreamEvent{{
 			Type:         public.StreamEventDone,
-			FinishReason: a.finishReason(),
+			FinishReason: finishReason,
 			Usage:        &u,
 		}}, nil
 
-	case "response.failed":
+	case "response.failed", "response.error":
 		a.done = true
 		return []*public.CanonicalStreamEvent{{Type: public.StreamEventError, Text: ev.Delta}}, nil
 
 	default:
 		return nil, nil
 	}
+}
+
+func (a *responsesAccumulator) addTool(item responsesItem, outputIndex *int) ([]*public.CanonicalStreamEvent, error) {
+	if a.toolsByOutput == nil {
+		a.toolsByOutput = make(map[int]*responseStreamTool)
+		a.toolsByItemID = make(map[string]*responseStreamTool)
+	}
+	if a.pendingArgs == nil {
+		a.pendingArgs = make(map[int]string)
+	}
+	itemID := item.ID
+	tool := a.toolsByItemID[itemID]
+	if tool == nil && outputIndex != nil {
+		tool = a.toolsByOutput[*outputIndex]
+	}
+	if tool == nil {
+		tool = &responseStreamTool{}
+	}
+	tool.callID = firstNonEmpty(item.CallID, item.ID)
+	tool.name = item.Name
+	args := streamToolArgs(item)
+	if args != "" {
+		tool.args = args
+	}
+	if outputIndex != nil {
+		a.toolsByOutput[*outputIndex] = tool
+		if pending := a.pendingArgs[*outputIndex]; pending != "" {
+			tool.args += pending
+			delete(a.pendingArgs, *outputIndex)
+		}
+	}
+	if itemID != "" {
+		a.toolsByItemID[itemID] = tool
+	}
+	a.sawFunctionCall = true
+	return []*public.CanonicalStreamEvent{{
+		Type:     public.StreamEventToolCallDelta,
+		ToolCall: &public.CanonicalToolCall{ID: tool.callID, Name: tool.name, Arguments: marshalString(tool.args)},
+	}}, nil
+}
+
+func (a *responsesAccumulator) addToolArgs(itemID string, outputIndex *int, args string) ([]*public.CanonicalStreamEvent, error) {
+	if args == "" {
+		return nil, nil
+	}
+	var tool *responseStreamTool
+	if itemID != "" && a.toolsByItemID != nil {
+		tool = a.toolsByItemID[itemID]
+	}
+	if tool == nil && outputIndex != nil && a.toolsByOutput != nil {
+		tool = a.toolsByOutput[*outputIndex]
+	}
+	if tool == nil {
+		if outputIndex != nil {
+			if a.pendingArgs == nil {
+				a.pendingArgs = make(map[int]string)
+			}
+			a.pendingArgs[*outputIndex] += args
+		}
+		return nil, nil
+	}
+	tool.args += args
+	return []*public.CanonicalStreamEvent{{
+		Type:     public.StreamEventToolCallDelta,
+		ToolCall: &public.CanonicalToolCall{Arguments: marshalString(args)},
+	}}, nil
+}
+
+func (a *responsesAccumulator) completeToolArgs(itemID string, outputIndex *int, args string) ([]*public.CanonicalStreamEvent, error) {
+	if args == "" {
+		return nil, nil
+	}
+	var tool *responseStreamTool
+	if itemID != "" && a.toolsByItemID != nil {
+		tool = a.toolsByItemID[itemID]
+	}
+	if tool == nil && outputIndex != nil && a.toolsByOutput != nil {
+		tool = a.toolsByOutput[*outputIndex]
+	}
+	if tool == nil {
+		return a.addToolArgs(itemID, outputIndex, args)
+	}
+	if tool.args == args || strings.HasSuffix(tool.args, args) {
+		return nil, nil
+	}
+	if strings.HasPrefix(args, tool.args) {
+		return a.addToolArgs(itemID, outputIndex, args[len(tool.args):])
+	}
+	return a.addToolArgs(itemID, outputIndex, args)
+}
+
+func streamToolArgs(item responsesItem) string {
+	if item.Type == "custom_tool_call" && item.Input != "" {
+		return item.Input
+	}
+	if item.Arguments != "" {
+		return item.Arguments
+	}
+	if len(item.Action) > 0 {
+		return string(compactJSON(item.Action))
+	}
+	return ""
 }
 
 func (a *responsesAccumulator) Flush() (*public.CanonicalStreamEvent, error) {

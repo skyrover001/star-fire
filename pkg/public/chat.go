@@ -21,6 +21,14 @@ type ExtendedChatRequest struct {
 	// video part，反序列化时会丢弃）时，server 用它原样透传给 client，client 据此
 	// 走原始 JSON 直连上游，避免视频 part 丢失。仅视频请求时填充，普通请求为空。
 	RawBody json.RawMessage `json:"raw_body,omitempty"`
+
+	// P1-M2: 路由偏好 + 容忍度（仅 server 消费，不透传给后端）
+	// Routing 路由偏好：stability|cost|balanced，空则回退 header/APIKey/config。
+	Routing string `json:"routing,omitempty"`
+	// MaxLatencyMs 容忍度：最大可接受延迟（ms），0 表示不限制。
+	MaxLatencyMs int `json:"max_latency_ms,omitempty"`
+	// MinStability 容忍度：最低稳定性分 [0,1]，0 表示不限制。
+	MinStability float64 `json:"min_stability,omitempty"`
 }
 
 // ExtraFields 返回 go-openai 未覆盖、需要额外合并进请求体的字段。

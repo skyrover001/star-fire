@@ -38,6 +38,7 @@ type Client struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	cfg             *config.Config
+	Debug           bool // 是否输出高频 [TRACE] 链路日志
 	ModelPriceScope map[string]struct {
 		inputPriceMax       float64
 		outputPriceMax      float64
@@ -60,6 +61,7 @@ func NewClient(cfg *config.Config) (*Client, error) {
 		Models:       []*public.Model{},
 		routingRR:    make(map[string]int),
 		cfg:          cfg,
+		Debug:        cfg.Debug,
 		ModelPriceScope: make(map[string]struct {
 			inputPriceMax       float64
 			outputPriceMax      float64

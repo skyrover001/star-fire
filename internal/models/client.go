@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	configs "star-fire/config"
 	"star-fire/pkg/public"
 	"sync"
@@ -66,6 +67,47 @@ type Client struct {
 
 	// 延迟 EMA 平滑值（非 DB 字段，仅内存）
 	LatencyEMA float64 `json:"-" gorm:"-"`
+
+	// P0: perfScore 慢变维度离线缓存（math.Float64bits 存储，原子读写；ScoreUpdatedAt==0 表示未初始化）
+	CachedStabilityScore uint64 `json:"-" gorm:"-"`
+	CachedServiceScore   uint64 `json:"-" gorm:"-"`
+	ScoreUpdatedAt       int64  `json:"-" gorm:"-"` // unix 秒
+
+	// P0: 熔断冷却截止时间（unix 纳秒，0=无冷却）
+	CooldownUntil int64 `json:"-" gorm:"-"`
+
+	// P2: 实测 cache 命中率 EMA（float64bits 原子；仅用于 tiebreak 与 cost 有效单价，不进 perfScore）
+	CacheHitEMA uint64 `json:"-" gorm:"-"`
+}
+
+// UpdateCacheHit 以 EMA(alpha=0.2) 更新实测命中率，h ∈ [0,1]。
+func (c *Client) UpdateCacheHit(h float64) {
+	if h < 0 {
+		h = 0
+	}
+	if h > 1 {
+		h = 1
+	}
+	const alpha = 0.2
+	for {
+		old := atomic.LoadUint64(&c.CacheHitEMA)
+		if old == 0 {
+			if atomic.CompareAndSwapUint64(&c.CacheHitEMA, 0, math.Float64bits(h)) {
+				return
+			}
+			continue
+		}
+		prev := math.Float64frombits(old)
+		next := alpha*h + (1-alpha)*prev
+		if atomic.CompareAndSwapUint64(&c.CacheHitEMA, old, math.Float64bits(next)) {
+			return
+		}
+	}
+}
+
+// GetCacheHitEMA 返回当前 EMA（未初始化返回 0）。
+func (c *Client) GetCacheHitEMA() float64 {
+	return math.Float64frombits(atomic.LoadUint64(&c.CacheHitEMA))
 }
 
 // IncrActiveConnections 原子增加当前处理请求数
@@ -109,18 +151,71 @@ func (c *Client) GetLatency() int {
 }
 
 // IncrFailures 原子增加最近失败次数（smart 负载均衡失败率维度）。
+// 若熔断冷却开启，同时按指数退避触发冷却（4xx 路径不调用本方法，天然不触发冷却）。
 func (c *Client) IncrFailures() {
 	atomic.AddInt32(&c.RecentFailures, 1)
+	if configs.Config.LBCooldownEnabled {
+		c.TripCooldown()
+	}
 }
 
-// ResetFailures 原子清零最近失败次数（请求成功时调用）。
+// ResetFailures 原子清零最近失败次数（请求成功时调用），并清除冷却（成功即完全恢复）。
 func (c *Client) ResetFailures() {
 	atomic.StoreInt32(&c.RecentFailures, 0)
+	c.ClearCooldown()
 }
 
 // GetFailures 原子读取最近失败次数。
 func (c *Client) GetFailures() int32 {
 	return atomic.LoadInt32(&c.RecentFailures)
+}
+
+// SetCachedScores 由 ScoreRefresher 写入慢变维度分（stab/serv ∈ [0,1]）。
+func (c *Client) SetCachedScores(stab, serv float64) {
+	atomic.StoreUint64(&c.CachedStabilityScore, math.Float64bits(stab))
+	atomic.StoreUint64(&c.CachedServiceScore, math.Float64bits(serv))
+	atomic.StoreInt64(&c.ScoreUpdatedAt, time.Now().Unix())
+}
+
+// CachedScores 返回缓存分；ok=false 表示从未刷新过（调用方应使用中性值）。
+func (c *Client) CachedScores() (stab, serv float64, ok bool) {
+	if atomic.LoadInt64(&c.ScoreUpdatedAt) == 0 {
+		return 0, 0, false
+	}
+	return math.Float64frombits(atomic.LoadUint64(&c.CachedStabilityScore)),
+		math.Float64frombits(atomic.LoadUint64(&c.CachedServiceScore)), true
+}
+
+// TripCooldown 按 RecentFailures 指数退避设置冷却：base × 2^(failures-1)，上限 max。
+func (c *Client) TripCooldown() {
+	base := time.Duration(configs.Config.LBCooldownBaseMs) * time.Millisecond
+	max := time.Duration(configs.Config.LBCooldownMaxMs) * time.Millisecond
+	if base <= 0 {
+		base = 5 * time.Second
+	}
+	if max <= 0 {
+		max = 5 * time.Minute
+	}
+	n := c.GetFailures()
+	if n < 1 {
+		n = 1
+	}
+	d := base << uint(n-1) // 溢出防护：n-1 > 30 时直接取 max
+	if n > 30 || d > max || d <= 0 {
+		d = max
+	}
+	atomic.StoreInt64(&c.CooldownUntil, time.Now().Add(d).UnixNano())
+}
+
+// InCooldown 是否处于冷却期。
+func (c *Client) InCooldown() bool {
+	u := atomic.LoadInt64(&c.CooldownUntil)
+	return u != 0 && time.Now().UnixNano() < u
+}
+
+// ClearCooldown 清除冷却（成功恢复）。
+func (c *Client) ClearCooldown() {
+	atomic.StoreInt64(&c.CooldownUntil, 0)
 }
 
 type ConnectionResult struct {

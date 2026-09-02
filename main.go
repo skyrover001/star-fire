@@ -5,12 +5,14 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	configs "star-fire/config"
 	"star-fire/internal/models"
+	"star-fire/pkg/public"
 	"star-fire/routes"
 	"strconv"
 	"strings"
@@ -20,10 +22,54 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+// maskAPIKey 脱敏 APIKey：仅显示前 4 + 后 4，中间用 **** 代替。
+func maskAPIKey(key string) string {
+	if len(key) <= 8 {
+		return "****"
+	}
+	return key[:4] + "****" + key[len(key)-4:]
+}
+
+// printUsage 打印所有 CLI 命令的用法说明。
+func printUsage() {
+	fmt.Println("星火算力平台 CLI 用法:")
+	fmt.Println("  starfire [命令] [参数...]")
+	fmt.Println("  不带任何命令时启动 HTTP 服务。")
+	fmt.Println()
+	fmt.Println("通用:")
+	fmt.Println("  starfire --help | -h | help        显示本帮助")
+	fmt.Println()
+	fmt.Println("会员 / 余额:")
+	fmt.Println("  starfire set-bonus <金额>          设置注册赠送余额，如 starfire set-bonus 10")
+	fmt.Println("  starfire get-bonus                 查看当前注册赠送余额")
+	fmt.Println("  starfire set-membership <用户名> <normal|vip|svip> [天数] [consumer|contributor]")
+	fmt.Println("                                     设置会员等级；天数默认 365，传 0 表示永久；类型默认 consumer")
+	fmt.Println("  starfire get-membership <用户名>   查看用户会员信息")
+	fmt.Println("  starfire list-users [page] [size]  分页列出用户（默认第 1 页，每页 20）")
+	fmt.Println()
+	fmt.Println("数据库迁移:")
+	fmt.Println("  starfire migrate-db [-sqlite=<路径>] [-force] [-users-only]")
+	fmt.Println("                                     将 SQLite 数据迁移到 MySQL（目标由 DB_* 环境变量指定）")
+	fmt.Println()
+	fmt.Println("Direct 后端管理:")
+	fmt.Println("  starfire add-backend <id> <名称> <base_url> <api_key> <优先级> <并发> <模型列表>")
+	fmt.Println("                                     添加 Direct 后端；模型支持 name 或 name:ippm:oppm:cippm")
+	fmt.Println("                                     示例: starfire add-backend vllm-1 \"vLLM 集群 1\" http://vllm-1:8000/v1 sk-xxx 1 8 qwen3-32b:1.5:2.0:0.3,qwen3-8b")
+	fmt.Println("  starfire list-backends             列出所有 Direct 后端（含模型价格）")
+	fmt.Println("  starfire enable-backend <id>       启用 Direct 后端（重启后生效）")
+	fmt.Println("  starfire disable-backend <id>      禁用 Direct 后端（重启后生效）")
+	fmt.Println("  starfire del-backend <id>          删除 Direct 后端（重启后生效）")
+	fmt.Println()
+	fmt.Println("提示: 后端管理命令的变更会在服务运行期间 30 秒内自动加载。")
+}
+
 func main() {
 	// 命令行模式：配置注册赠送余额（不启动 HTTP 服务）
 	if len(os.Args) > 1 {
 		switch os.Args[1] {
+		case "--help", "-h", "help":
+			printUsage()
+			return
 		case "set-bonus":
 			// 用法: starfire set-bonus <金额>
 			if len(os.Args) < 3 {
@@ -188,6 +234,130 @@ func main() {
 			if err := models.MigrateSQLiteToMySQL(force, usersOnly); err != nil {
 				log.Fatalf("迁移失败: %v", err)
 			}
+			return
+		case "add-backend":
+			// 用法: starfire add-backend <id> <name> <base_url> <api_key> <priority> <max_conns> <model1,model2,...>
+			// 模型参数支持 "name" 或 "name:ippm:oppm:cippm"（价格可选，缺省 0）。
+			// 示例: starfire add-backend vllm-1 "vLLM 集群 1" http://vllm-1:8000/v1 sk-xxx 1 8 qwen3-32b:1.5:2.0:0.3,qwen3-8b
+			if len(os.Args) < 9 {
+				log.Fatal("用法: starfire add-backend <id> <name> <base_url> <api_key> <priority> <max_conns> <model1,model2,...>")
+			}
+			id := os.Args[2]
+			name := os.Args[3]
+			baseURL := os.Args[4]
+			apiKey := os.Args[5]
+			priority, err := strconv.Atoi(os.Args[6])
+			if err != nil {
+				log.Fatal("priority 必须是整数")
+			}
+			maxConns, err := strconv.Atoi(os.Args[7])
+			if err != nil || maxConns <= 0 {
+				log.Fatal("max_conns 必须是大于 0 的整数")
+			}
+			modelSpecs := strings.Split(os.Args[8], ",")
+			var ms []*public.Model
+			for _, spec := range modelSpecs {
+				spec = strings.TrimSpace(spec)
+				if spec == "" {
+					continue
+				}
+				parts := strings.Split(spec, ":")
+				m := &public.Model{Name: strings.TrimSpace(parts[0])}
+				if m.Name == "" {
+					continue
+				}
+				// 可选价格 name:ippm:oppm:cippm
+				if len(parts) >= 4 {
+					ippm, e1 := strconv.ParseFloat(strings.TrimSpace(parts[1]), 64)
+					oppm, e2 := strconv.ParseFloat(strings.TrimSpace(parts[2]), 64)
+					cippm, e3 := strconv.ParseFloat(strings.TrimSpace(parts[3]), 64)
+					if e1 != nil || e2 != nil || e3 != nil {
+						log.Fatalf("模型 %s 价格格式错误，应为 name:ippm:oppm:cippm", m.Name)
+					}
+					m.IPPM, m.OPPM, m.CIPPM = ippm, oppm, cippm
+				}
+				ms = append(ms, m)
+			}
+			if len(ms) == 0 {
+				log.Fatal("至少需要一个模型")
+			}
+			server := models.NewServer()
+			b := &models.DirectBackend{
+				ID:       id,
+				Name:     name,
+				BaseURL:  baseURL,
+				APIKey:   apiKey,
+				Format:   "openai",
+				Enabled:  true,
+				MaxConns: maxConns,
+				Priority: priority,
+				Models:   ms,
+			}
+			if err := server.DirectBackendDB.Save(b); err != nil {
+				log.Fatalf("添加后端失败: %v", err)
+			}
+			log.Printf("✓ 已添加后端 %s (%s)，模型: %s，优先级: %d，并发上限: %d", id, name, strings.Join(modelSpecs, ","), priority, maxConns)
+			log.Printf("  服务会在 30 秒内自动加载变更")
+			return
+		case "list-backends":
+			// 用法: starfire list-backends
+			server := models.NewServer()
+			backends, err := server.DirectBackendDB.List()
+			if err != nil {
+				log.Fatalf("查询后端失败: %v", err)
+			}
+			if len(backends) == 0 {
+				log.Printf("暂无 Direct 后端")
+				return
+			}
+			log.Printf("共 %d 个 Direct 后端:", len(backends))
+			for _, b := range backends {
+				status := "禁用"
+				if b.Enabled {
+					status = "启用"
+				}
+				models := make([]string, 0, len(b.Models))
+				for _, m := range b.Models {
+					models = append(models, fmt.Sprintf("%s(%.4g/%.4g/%.4g)", m.Name, m.IPPM, m.OPPM, m.CIPPM))
+				}
+				// APIKey 脱敏：仅显示前 4 + 后 4
+				masked := maskAPIKey(b.APIKey)
+				log.Printf("  %-16s %-20s 格式:%s 状态:%s 优先级:%d 并发:%d 模型:[%s] key:%s",
+					b.ID, b.Name, b.Format, status, b.Priority, b.MaxConns, strings.Join(models, ","), masked)
+			}
+			return
+		case "enable-backend":
+			// 用法: starfire enable-backend <id>
+			if len(os.Args) < 3 {
+				log.Fatal("用法: starfire enable-backend <id>")
+			}
+			server := models.NewServer()
+			if err := server.DirectBackendDB.SetEnabled(os.Args[2], true); err != nil {
+				log.Fatalf("启用后端失败: %v", err)
+			}
+			log.Printf("✓ 已启用后端 %s（服务会在 30 秒内自动加载）", os.Args[2])
+			return
+		case "disable-backend":
+			// 用法: starfire disable-backend <id>
+			if len(os.Args) < 3 {
+				log.Fatal("用法: starfire disable-backend <id>")
+			}
+			server := models.NewServer()
+			if err := server.DirectBackendDB.SetEnabled(os.Args[2], false); err != nil {
+				log.Fatalf("禁用后端失败: %v", err)
+			}
+			log.Printf("✓ 已禁用后端 %s（服务会在 30 秒内自动加载）", os.Args[2])
+			return
+		case "del-backend":
+			// 用法: starfire del-backend <id>
+			if len(os.Args) < 3 {
+				log.Fatal("用法: starfire del-backend <id>")
+			}
+			server := models.NewServer()
+			if err := server.DirectBackendDB.Delete(os.Args[2]); err != nil {
+				log.Fatalf("删除后端失败: %v", err)
+			}
+			log.Printf("✓ 已删除后端 %s（服务会在 30 秒内自动加载）", os.Args[2])
 			return
 		}
 	}
