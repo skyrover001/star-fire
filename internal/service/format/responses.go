@@ -58,6 +58,16 @@ func (t *responsesTool) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
+// MarshalJSON 在 Raw 非空时原样输出原始工具 JSON（用于非 function 工具透传），
+// 否则按字段序列化。这样 web_search/tool_search 等工具定义不会被强制改写。
+func (t responsesTool) MarshalJSON() ([]byte, error) {
+	if len(t.Raw) > 0 {
+		return t.Raw, nil
+	}
+	type alias responsesTool
+	return json.Marshal(alias(t))
+}
+
 // responsesItem 表示 input/output 数组中的一个 item。
 type responsesItem struct {
 	Type string `json:"type"`
@@ -389,6 +399,15 @@ func (c *ResponsesConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) (
 	}
 
 	for _, t := range cr.Tools {
+		// 非 function 工具（web_search/tool_search 等）保留原始 JSON 透传，
+		// 避免强制转成 function 导致上游模型工具定义被破坏。
+		if t.Type != "function" && len(t.Raw) > 0 {
+			req.Tools = append(req.Tools, responsesTool{
+				Type: t.Type,
+				Raw:  t.Raw,
+			})
+			continue
+		}
 		req.Tools = append(req.Tools, responsesTool{
 			Type:        "function",
 			Name:        t.Name,

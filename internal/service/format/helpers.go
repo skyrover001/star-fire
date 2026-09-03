@@ -158,46 +158,9 @@ func webSearchActionMap(arguments string) map[string]any {
 	}
 }
 
-// webSearchQuerySchema 是注入给 web_search 工具的参数 schema。
-// Codex 把 web_search 声明为 function 类型但 parameters 为空对象
-// （{"properties":{},"type":"object"}），下游模型（如 GLM）看到空 schema
-// 不知道要填什么，会编造非标准字段（如 {"arg-a":"..."}）而非 {"query":"..."}。
-// 这里注入标准的 query 字符串属性 schema，引导模型生成 {"query":"<搜索词>"}。
-const webSearchQuerySchema = `{"type":"object","properties":{"query":{"type":"string","description":"The search query text to search the web for."}},"required":["query"]}`
-
 // isWebSearchTool 判断工具是否为 web_search（按 name 或 type 识别）。
 func isWebSearchTool(name, toolType string) bool {
 	return name == "web_search" || toolType == "web_search"
-}
-
-// hasParameter 判断参数 schema 是否已声明指定属性。
-// 用于避免重复注入 query schema（若上游已带 query 字段则跳过）。
-// parameters 接受 json.RawMessage、[]byte、string 或 nil；其他类型视为无属性。
-func hasParameter(parameters any, key string) bool {
-	var raw json.RawMessage
-	switch p := parameters.(type) {
-	case nil:
-		return false
-	case json.RawMessage:
-		raw = p
-	case []byte:
-		raw = json.RawMessage(p)
-	case string:
-		raw = json.RawMessage(p)
-	default:
-		return false
-	}
-	if len(raw) == 0 {
-		return false
-	}
-	var schema struct {
-		Properties map[string]json.RawMessage `json:"properties"`
-	}
-	if json.Unmarshal(raw, &schema) != nil {
-		return false
-	}
-	_, ok := schema.Properties[key]
-	return ok
 }
 
 // normalizeToolArguments 把工具调用参数归一化为合法 JSON 字符串，供 Chat Completions

@@ -607,7 +607,8 @@ func TestResponsesUserWriter_EmitsStructuralEvents(t *testing.T) {
 }
 
 // TestResponsesConverter_NonFunctionTools 验证非 function 工具（web_search/tool_search）
-// 在下游 Chat 转换时被归一化为 function 类型且 name 非空（后端只接受 function）。
+// 在下游 Chat 转换时的处理：web_search 被剥离（后端不支持联网搜索），
+// tool_search 归一化为 function 类型且 name 非空（后端只接受 function）。
 func TestResponsesConverter_NonFunctionTools(t *testing.T) {
 	c := &ResponsesConverter{}
 	body := `{
@@ -639,7 +640,8 @@ func TestResponsesConverter_NonFunctionTools(t *testing.T) {
 		t.Errorf("Tools[2] = %+v, want tool_search with Raw", got.Tools[2])
 	}
 
-	// 下游 Chat 转换：非 function 工具归一化为 function，name 非空
+	// 下游 Chat 转换：web_search 被剥离（后端不支持联网搜索），
+	// tool_search 归一化为 function，name 非空
 	oc := &OpenAIConverter{}
 	built, err := oc.BuildUpstreamRequest(got)
 	if err != nil {
@@ -656,10 +658,11 @@ func TestResponsesConverter_NonFunctionTools(t *testing.T) {
 	if err := json.Unmarshal(built, &obj); err != nil {
 		t.Fatal(err)
 	}
-	if len(obj.Tools) != 3 {
-		t.Fatalf("built tools = %d, want 3", len(obj.Tools))
+	// web_search 被剥离 → 只剩 exec_command + tool_search 两个工具
+	if len(obj.Tools) != 2 {
+		t.Fatalf("built tools = %d, want 2 (web_search stripped)", len(obj.Tools))
 	}
-	// 所有工具都应是 function 类型且 name 非空
+	// 剩余工具都应是 function 类型且 name 非空
 	for i, tool := range obj.Tools {
 		if tool.Type != "function" {
 			t.Errorf("tools[%d] type = %v, want function", i, tool.Type)
@@ -668,13 +671,13 @@ func TestResponsesConverter_NonFunctionTools(t *testing.T) {
 			t.Errorf("tools[%d] function.name is empty", i)
 		}
 	}
-	// web_search → function name = web_search
-	if obj.Tools[1].Function.Name != "web_search" {
-		t.Errorf("tools[1] function.name = %q, want web_search", obj.Tools[1].Function.Name)
+	// 第一个工具是 exec_command（function 保留）
+	if obj.Tools[0].Function.Name != "exec_command" {
+		t.Errorf("tools[0] function.name = %q, want exec_command", obj.Tools[0].Function.Name)
 	}
 	// tool_search → function name = tool_search
-	if obj.Tools[2].Function.Name != "tool_search" {
-		t.Errorf("tools[2] function.name = %q, want tool_search", obj.Tools[2].Function.Name)
+	if obj.Tools[1].Function.Name != "tool_search" {
+		t.Errorf("tools[1] function.name = %q, want tool_search", obj.Tools[1].Function.Name)
 	}
 }
 
@@ -1478,5 +1481,82 @@ func TestResponsesToChat_ToolMessageMissingToolCallID(t *testing.T) {
 	}
 	if tcid != "fc_abc" {
 		t.Errorf("tool_call_id = %v, want fc_abc (from preceding assistant)", tcid)
+	}
+}
+
+// TestResponsesConverter_NonFunctionToolsUpstream 验证非 function 工具
+// （web_search/tool_search）在 Responses 上游请求中保留原始 JSON 透传，
+// 而不是被强制转成 function 类型（这是 Codex WebSearch 续接失败的关键修复）。
+func TestResponsesConverter_NonFunctionToolsUpstream(t *testing.T) {
+	c := &ResponsesConverter{}
+	body := `{
+		"model": "GLM-5.3-Flash",
+		"input": [{"role":"user","content":"hi"}],
+		"tools": [
+			{"type":"function","name":"exec_command","description":"run","parameters":{"type":"object"}},
+			{"type":"web_search","search_context_size":"high"},
+			{"type":"tool_search","max_results":5}
+		]
+	}`
+	cr, err := c.ParseRequest([]byte(body))
+	if err != nil {
+		t.Fatalf("ParseRequest error: %v", err)
+	}
+
+	out, err := c.BuildUpstreamRequest(cr)
+	if err != nil {
+		t.Fatalf("BuildUpstreamRequest error: %v", err)
+	}
+
+	var obj struct {
+		Tools []json.RawMessage `json:"tools"`
+	}
+	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatalf("invalid JSON: %v\nbody=%s", err, string(out))
+	}
+	if len(obj.Tools) != 3 {
+		t.Fatalf("len(tools) = %d, want 3", len(obj.Tools))
+	}
+
+	// function 工具：正常 function 结构
+	var fn struct {
+		Type string `json:"type"`
+		Name string `json:"name"`
+	}
+	if err := json.Unmarshal(obj.Tools[0], &fn); err != nil {
+		t.Fatal(err)
+	}
+	if fn.Type != "function" || fn.Name != "exec_command" {
+		t.Errorf("tools[0] = %s, want function exec_command", string(obj.Tools[0]))
+	}
+
+	// web_search：保留原始 JSON（type=web_search + search_context_size）
+	var ws struct {
+		Type              string `json:"type"`
+		SearchContextSize string `json:"search_context_size"`
+	}
+	if err := json.Unmarshal(obj.Tools[1], &ws); err != nil {
+		t.Fatal(err)
+	}
+	if ws.Type != "web_search" {
+		t.Errorf("tools[1] type = %q, want web_search (was forced to function)", ws.Type)
+	}
+	if ws.SearchContextSize != "high" {
+		t.Errorf("tools[1] search_context_size = %q, want high (raw JSON lost)", ws.SearchContextSize)
+	}
+
+	// tool_search：保留原始 JSON（type=tool_search + max_results）
+	var ts struct {
+		Type       string `json:"type"`
+		MaxResults int    `json:"max_results"`
+	}
+	if err := json.Unmarshal(obj.Tools[2], &ts); err != nil {
+		t.Fatal(err)
+	}
+	if ts.Type != "tool_search" {
+		t.Errorf("tools[2] type = %q, want tool_search (was forced to function)", ts.Type)
+	}
+	if ts.MaxResults != 5 {
+		t.Errorf("tools[2] max_results = %d, want 5 (raw JSON lost)", ts.MaxResults)
 	}
 }
