@@ -797,6 +797,50 @@ func TestResponsesToChat_ThinkingAndToolCalls(t *testing.T) {
 	}
 }
 
+// TestResponsesToChat_EmptyFunctionArguments verifies that an interrupted
+// Codex function call still produces a valid Chat Completions tool call.
+func TestResponsesToChat_EmptyFunctionArguments(t *testing.T) {
+	rc := &ResponsesConverter{}
+	cr, err := rc.ParseRequest([]byte(`{
+		"model":"gpt-4o",
+		"input":[
+			{"role":"user","content":"continue"},
+			{"type":"function_call","call_id":"chatcmpl-tool-interrupted","name":"exec_command","arguments":""}
+		]
+	}`))
+	if err != nil {
+		t.Fatalf("ParseRequest error: %v", err)
+	}
+
+	chatBody, err := (&OpenAIConverter{}).BuildUpstreamRequest(cr)
+	if err != nil {
+		t.Fatalf("BuildUpstreamRequest error: %v", err)
+	}
+	var payload struct {
+		Messages []struct {
+			Role      string `json:"role"`
+			ToolCalls []struct {
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(chatBody, &payload); err != nil {
+		t.Fatalf("invalid Chat request JSON: %v", err)
+	}
+	for _, message := range payload.Messages {
+		if message.Role == "assistant" && len(message.ToolCalls) == 1 {
+			if got := message.ToolCalls[0].Function.Arguments; got != "{}" {
+				t.Fatalf("function.arguments = %q, want {}", got)
+			}
+			return
+		}
+	}
+	t.Fatal("assistant tool call missing from Chat request")
+}
+
 // TestResponsesToChat_WebSearchCallPassback 验证 web_search_call 输入 item（含搜索结果
 // output）被转成下游 tool 消息（带 content），而非 content:null 的畸形消息。
 func TestResponsesToChat_WebSearchCallPassback(t *testing.T) {

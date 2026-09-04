@@ -250,13 +250,20 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 				if callID == "" {
 					callID = "call_" + randSuffix()
 				}
+				arguments := normalizeToolArguments(rawToString(tc.Arguments))
+				// OpenAI Chat Completions 的 function.arguments 是必填字符串。
+				// Codex 在工具调用中断时可能保留 name 和 call_id，但 arguments
+				// 为空；空字符串会因 omitempty 被省略，导致严格下游返回 400。
+				if strings.TrimSpace(arguments) == "" {
+					arguments = "{}"
+				}
 				// 任何工具调用的 arguments 都必须是 JSON。上游模型可能生成畸形调用，
 				// 把自由文本（patch 内容等）塞进 arguments（甚至塞错工具名）。这里
 				// 对非 JSON 的 arguments 归一化为 {"input":"<原文>"}，避免上游 400。
 				m.ToolCalls = append(m.ToolCalls, openai.ToolCall{
 					ID:       callID,
 					Type:     openai.ToolTypeFunction,
-					Function: openai.FunctionCall{Name: tc.Name, Arguments: normalizeToolArguments(rawToString(tc.Arguments))},
+					Function: openai.FunctionCall{Name: tc.Name, Arguments: arguments},
 				})
 			}
 		}

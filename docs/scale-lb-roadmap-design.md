@@ -358,6 +358,20 @@ if configs.Config.LBHRWSubsetSize > 0 && len(eligible) > subsetSize {
 - 仿真：`lb_saturation_test.py` 加会话模型（每用户连续 10 请求），统计"会话内 client 切换次数"上线前后对比。
 - 回滚：`AFFINITY_ENABLED=false`、`LB_HRW_SUBSET_SIZE=0`。
 
+### P2.10 Direct 后端会话粘性（prefix-cache 亲和，补缺口）
+
+> **缺口**：P2.1 声称"同一会话路由到同一 client（Direct 或 Tunneled）"，但实现中 `ResolveAffinity` 对 `IsDirect` 直接返回 nil，`PickDirect` 按 `Priority → 负载率` 轮转——**多 Direct 后端部署时同一会话会在多个后端间漂移，稀释 prefix-cache 命中**。Direct 后端（vLLM/SGLang 固定端点）是能力上最适合 prefix-cache 的供给（KV cache 是后端进程内存态），粘性收益**高**，原"无状态 HTTP，粘性收益小"的注释对 prefix-cache 场景不成立。
+
+**方案**（代码级规格见 `docs/impl/p2-affinity-cache.md` 改动四B）：
+
+1. **复用现有亲和表**：`AffinityEntry.IsDirect` + `AffinityStore.Touch(key, "direct:"+ID, true)` 已支持 Direct，无需新存储。
+2. **新增 `Server.ResolveDirectAffinity(entry, model, userID) *DirectBackend`**：校验链对齐 `PickDirect`（健康/冷却/Active<MaxConns/价格帽）+ 软限流。
+3. **新会话一致性哈希**：`pickDirectSticky` 用 `fnv1a64(userID+model+backendID)` 取最高者——同一用户+模型新会话稳定落同一后端（防抖，与 HRW 同理念），替代 `PickDirect` 的负载率轮转作为 Direct 默认选择。
+4. **成功写回 + 实测校验**：`handleDirectChat` 成功尾部 `Touch(key, b.ID, true)`；粘性命中但 `cached_tokens` 低 → 连续 K 次 `Delete`（复用 P2.4 逻辑）。
+5. **独立开关** `DIRECT_AFFINITY_ENABLED`（默认 false，依赖 `AFFINITY_ENABLED=true`），关闭时完全走现状 `PickDirect`/`PickCheapest`，可随时回滚。
+
+**取舍**：默认纯一致性哈希（同质后端稳定最优）；若现网 Direct 有主备分层需求，可升级为"Priority 分层 + 层内哈希"（见 impl 规格 4B.5 变体 B）。
+
 ---
 
 ## P3 众包池规模化：注册表分片 + P2C + 心跳降频
@@ -484,6 +498,7 @@ else：
 | P2 | `AFFINITY_TTL_MIN` / `AFFINITY_LEASE_SEC` | 20 / 60 | 亲和 TTL 与租约 |
 | P2 | `AFFINITY_MIN_HIT_RATE` / `AFFINITY_MISS_K` | 0.2 / 3 | 粘性实测命中校验阈值与连续 miss 上限 |
 | P2 | `AFFINITY_SOFT_LIMIT_RATE` | 0.9 | 粘性命中软限流 |
+| P2 | `DIRECT_AFFINITY_ENABLED` | false | Direct 后端会话粘性（prefix-cache），依赖 `AFFINITY_ENABLED=true` |
 | P2 | `LB_HRW_SUBSET_SIZE` | 0（关） | HRW 偏好子集大小 |
 | P3 | `LB_P2C_THRESHOLD` | 64 | 超过则用 P2C 采样 |
 | P4 | `REDIS_ADDR` 等 | — | 状态外置 |

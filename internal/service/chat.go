@@ -118,11 +118,12 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	// ===== 调试日志结束 =====
 
 	// ===== 链路日志：server 收到的完整请求体（用于排查上游 400 validation errors）=====
-	if rawBody, err := json.Marshal(extendedRequest); err == nil {
-		log.Printf("[TRACE] server received request user=%s body=%s", userIDStr, string(rawBody))
-	} else {
-		log.Printf("[TRACE] server marshal request body error: %v", err)
-	}
+	// 默认关闭：每请求全量 body 会刷爆日志。排查时取消注释。
+	// if rawBody, err := json.Marshal(extendedRequest); err == nil {
+	// 	log.Printf("[TRACE] server received request user=%s body=%s", userIDStr, string(rawBody))
+	// } else {
+	// 	log.Printf("[TRACE] server marshal request body error: %v", err)
+	// }
 
 	// Balance pre-check: reject if balance insufficient (OpenAI-compatible error)
 	balance, _, _ := server.UserDB.GetBalance(userIDStr)
@@ -294,14 +295,16 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 			log.Printf("save fingerprint and client relation failed: %v", err)
 		}
 
-		log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
+		// 默认关闭：每请求一行会刷爆日志。排查时取消注释。
+		// log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
 
 		// ===== 链路日志：server 实际发给 client 的请求体 =====
-		if rawBody, err := json.Marshal(extendedRequest); err == nil {
-			log.Printf("[TRACE] attempt %d send to client %s body=%s", attempt, client.ID, string(rawBody))
-		} else {
-			log.Printf("[TRACE] attempt %d marshal body error: %v", attempt, err)
-		}
+		// 默认关闭：每请求全量 body 会刷爆日志。排查时取消注释。
+		// if rawBody, err := json.Marshal(extendedRequest); err == nil {
+		// 	log.Printf("[TRACE] attempt %d send to client %s body=%s", attempt, client.ID, string(rawBody))
+		// } else {
+		// 	log.Printf("[TRACE] attempt %d marshal body error: %v", attempt, err)
+		// }
 
 		// 4. 发送请求到 client
 		if err := client.ControlConn.WriteJSON(public.WSMessage{
@@ -700,10 +703,11 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			return true
 		}
 
-		if chatResponse.Usage != nil {
-			log.Printf("chatResponse: usage prompt=%d, completion=%d, total=%d",
-				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
-		}
+		// 默认关闭：每流式块刷日志。排查时取消注释。
+		// if chatResponse.Usage != nil {
+		// 	log.Printf("chatResponse: usage prompt=%d, completion=%d, total=%d",
+		// 		chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
+		// }
 
 		// 发送数据到客户端
 		_, err = c.Writer.Write([]byte("data: " + string(jsonData) + "\n\n"))
@@ -716,8 +720,9 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 		// 检查是否有 usage 信息（可能在 finish_reason 之后的单独数据块中）
 		if chatResponse.Usage != nil && chatResponse.Usage.TotalTokens > 0 {
-			log.Printf("Recording usage: prompt=%d, completion=%d, total=%d",
-				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
+			// 默认关闭：每请求刷日志。排查时取消注释。
+			// log.Printf("Recording usage: prompt=%d, completion=%d, total=%d",
+			// 	chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
 
 			// 提取缓存命中tokens
 			cachedTokens := 0
@@ -738,7 +743,8 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 		// 检查是否完成（finish_reason 为 stop、tool_calls 或 length）
 		if len(chatResponse.Choices) > 0 && chatResponse.Choices[0].FinishReason != "" {
-			log.Printf("Received finish_reason: %s", chatResponse.Choices[0].FinishReason)
+			// 默认关闭：每请求刷日志。排查时取消注释。
+			// log.Printf("Received finish_reason: %s", chatResponse.Choices[0].FinishReason)
 			// 如果这个数据块中已经有 usage，直接处理
 			if usage, hasUsage := content["usage"].(map[string]interface{}); hasUsage {
 				promptTokens := int(usage["prompt_tokens"].(float64))
@@ -753,8 +759,9 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 					}
 				}
 
-				log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d, cached=%d",
-					promptTokens, completionTokens, totalTokens, cachedTokens)
+				// 默认关闭：每请求刷日志。排查时取消注释。
+				// log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d, cached=%d",
+				// 	promptTokens, completionTokens, totalTokens, cachedTokens)
 
 				recordTokenUsage(c, server, fingerPrint, reqModel,
 					promptTokens, completionTokens, totalTokens, cachedTokens, clientID, ippm, oppm, cippm)
@@ -765,7 +772,8 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 				return true
 			}
 			// 如果没有 usage，继续等待下一个可能包含 usage 的数据块
-			log.Printf("Finish reason received but no usage yet, waiting for usage block...")
+			// 默认关闭：每请求刷日志。排查时取消注释。
+			// log.Printf("Finish reason received but no usage yet, waiting for usage block...")
 		}
 
 		return false
@@ -834,7 +842,8 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		log.Printf("保存token使用记录失败: %v", err)
 		return
 	}
-	log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
+	// 默认关闭：每请求一行会刷爆日志。排查时取消注释。
+	// log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
 
 	// 根据client的用户userid 获取最新的总收入（异步执行，避免阻塞聊天请求）
 	chatClient := server.GetClientByModel(model, clientID)

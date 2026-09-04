@@ -1,8 +1,9 @@
 # P2 实施规格：会话亲和 + cache 命中反馈 + HRW 防抖
 
 > 上游设计：`docs/scale-lb-roadmap-design.md` P2 章节
-> 状态：待实施 | 依赖：P0（缓存分让亲和校验零 DB 成本；冷却检查复用） | 回滚：`AFFINITY_ENABLED=false`、`LB_HRW_SUBSET_SIZE=0`
-> 核心原则：路由决策用**确定性预测命中**（亲和键→原 client），实测 `cached_tokens` 只做反馈校验与 tiebreak；CacheHitEMA **不进 perfScore 主权重**（防正反馈马太效应）。
+> 状态：待实施 | 依赖：P0（缓存分让亲和校验零 DB 成本；冷却检查复用） | 回滚：`AFFINITY_ENABLED=false`、`LB_HRW_SUBSET_SIZE=0`、`DIRECT_AFFINITY_ENABLED=false`
+> 核心原则：路由决策用**确定性预测命中**（亲和键→原 client/后端），实测 `cached_tokens` 只做反馈校验与 tiebreak；CacheHitEMA **不进 perfScore 主权重**（防正反馈马太效应）。
+> **Direct 粘性（改动四B）**：Direct 后端是 prefix-cache 最佳候选，多后端部署需会话粘性（一致性哈希 + 亲和写回），独立开关 `DIRECT_AFFINITY_ENABLED`。
 
 ## 0. 现状代码事实（已核实）
 
@@ -112,10 +113,11 @@ if key == "" { key = userIDStr + ":" + canonical.Model }   // 3. 兜底
 service 包无法调 `clientHealthy`（包级私有），Server 暴露：
 
 ```go
-// ResolveAffinity 校验亲和目标是否当前可用。返回 nil 表示不可用（调用方 MarkLease）。
+// ResolveAffinity 校验亲和目标（众包 client）是否当前可用。返回 nil 表示不可用（调用方 MarkLease）。
 // 校验链：在线健康 + 非冷却 + 价格帽 + 软限流（Active < rate × effectiveMax）。
+// 注意：entry.IsDirect 时本方法不适用，走 ResolveDirectAffinity（见改动四B）。
 func (s *Server) ResolveAffinity(entry AffinityEntry, model, userID string) *Client {
-    if entry.IsDirect { return nil } // direct 亲和由 PickDirect 天然处理（无状态 HTTP，粘性收益小，M1 先跳过）
+    if entry.IsDirect { return nil } // 交给 ResolveDirectAffinity
     all := s.clients.Load().(map[string]map[string]*Client)
     c := all[model][entry.ClientID]
     if c == nil { return nil }
@@ -136,6 +138,206 @@ func (s *Server) ResolveAffinity(entry AffinityEntry, model, userID string) *Cli
     return c
 }
 ```
+
+## 4B. 改动四B：Direct 后端会话亲和（prefix-cache 粘性）
+
+> **背景（本节的动机）**：Direct 后端（vLLM/SGLang 等固定 OpenAI 兼容端点）是**能力上最适合 prefix-cache 的供给**——KV cache 是后端进程内存态，同一会话连续请求打到同一后端即可命中。但现状 `ResolveAffinity` 对 `IsDirect` 直接返回 nil，且 `PickDirect` 按 `Priority → 负载率` 轮转，**多后端部署时同一会话会在多个后端间漂移，稀释 cache 命中**。原注释"无状态 HTTP，粘性收益小"对 prefix-cache 场景是**错误**的：HTTP 无状态 ≠ 后端无 KV cache 状态，粘性收益反而**高**。本节补齐该缺口，复用现有 `AffinityEntry.IsDirect` + `AffinityStore.Touch(key, "direct:"+ID, true)`，不新增存储。
+
+### 4B.1 新增 Server 方法：ResolveDirectAffinity（internal/models/server.go）
+
+与 `ResolveAffinity` 同构，但校验对象是 `DirectBackend`（从 `s.directBackends[model]` 按 `"direct:"+ID` 定位），校验链对齐 `PickDirect` 的过滤条件：
+
+```go
+// ResolveDirectAffinity 校验亲和目标（Direct 后端）是否当前可用。返回 nil 表示不可用（调用方 MarkLease）。
+// 校验链：Enabled(载入时已过滤) + IsHealthy + 非冷却 + Active<MaxConns + 有该模型价格 + 价格帽 + 软限流。
+// 软限流：粘性请求不把后端顶满（Active < rate × MaxConns），与 ResolveAffinity 语义一致。
+func (s *Server) ResolveDirectAffinity(entry AffinityEntry, model, userID string) *DirectBackend {
+    if !entry.IsDirect { return nil }
+    s.directBackendsMu.RLock()
+    list := s.directBackends[model]
+    s.directBackendsMu.RUnlock()
+    for _, b := range list {
+        if b.ID != entry.ClientID { continue } // entry.ClientID 存的是 "direct:"+ID 的裸 ID
+        if !b.IsHealthy() || b.InCooldown() { return nil }
+        maxc := b.MaxConns
+        if maxc <= 0 { maxc = 1 }
+        if int(b.GetActive()) >= maxc { return nil }
+        ippm, oppm, _, ok := b.PriceFor(model)
+        if !ok { return nil }
+        // 价格帽
+        maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
+        if s.UserPriceCapDB != nil && userID != "" {
+            maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
+        }
+        if ippm > maxIPPM || oppm > maxOPPM { return nil }
+        // 软限流
+        rate := configs.Config.AffinitySoftLimitRate
+        if rate <= 0 || rate > 1 { rate = 0.9 }
+        limit := int32(float64(maxc) * rate)
+        if limit < 1 { limit = 1 }
+        if b.GetActive() >= limit { return nil }
+        return b
+    }
+    return nil
+}
+```
+
+> **ID 约定**：`AffinityEntry.ClientID` 对 Direct 存**裸 ID**（`b.ID`），与 `PickDirect` 的 `exclude["direct:"+b.ID]` 区分——亲和表内不重复拼前缀，`Touch` 时由调用方拼 `"direct:"+ID` 写入。这样 `ResolveDirectAffinity` 内 `b.ID != entry.ClientID` 直接比较即可。
+
+### 4B.2 新会话的确定性选择：Direct HRW 一致性哈希（无亲和条目时）
+
+多后端场景下，新会话（无亲和条目）若走 `PickDirect` 的负载率轮转，同一用户的新会话仍会漂移。为让**同一用户的新会话也稳定落在同一后端**（prefix-cache 概率命中），新增一致性哈希选择，替代 `PickDirect` 作为 Direct 的默认选择：
+
+```go
+// pickDirectSticky 选择 Direct 后端：优先亲和命中（entry 非空且可用），否则按一致性哈希。
+// 一致性哈希：fnv1a64(userID+model+backendID) 取最高者——同一用户+模型稳定落在同一后端；
+// 后端上下线只影响其哈希邻域（天然防抖，与 HRW 子集同理念）。
+func (s *Server) pickDirectSticky(model, userID string, exclude map[string]bool, entry *AffinityEntry) *DirectBackend {
+    // 1. 亲和命中优先
+    if entry != nil && entry.IsDirect {
+        if b := s.ResolveDirectAffinity(*entry, model, userID); b != nil {
+            return b
+        }
+    }
+    // 2. 一致性哈希兜底（过滤条件与 PickDirect 一致）
+    maxIPPM, maxOPPM := math.MaxFloat64, math.MaxFloat64
+    if s.UserPriceCapDB != nil && userID != "" {
+        maxIPPM, maxOPPM, _ = s.UserPriceCapDB.GetPriceCap(userID, model)
+    }
+    s.directBackendsMu.RLock()
+    list := s.directBackends[model]
+    s.directBackendsMu.RUnlock()
+    var best *DirectBackend
+    var bestH uint64
+    for _, b := range list {
+        if exclude["direct:"+b.ID] || !b.IsHealthy() || b.InCooldown() { continue }
+        maxc := b.MaxConns
+        if maxc <= 0 { maxc = 1 }
+        if int(b.GetActive()) >= maxc { continue }
+        ippm, oppm, _, ok := b.PriceFor(model)
+        if !ok || ippm > maxIPPM || oppm > maxOPPM { continue }
+        f := fnv.New64a()
+        f.Write([]byte(userID)); f.Write([]byte(model)); f.Write([]byte(b.ID))
+        h := f.Sum64()
+        if best == nil || h > bestH { best, bestH = b, h }
+    }
+    return best
+}
+```
+
+> **与 `PickDirect` 的关系**：`pickDirectSticky` 的哈希兜底**不按 Priority/负载率**，而是按一致性哈希——这是刻意的：Direct 后端通常同质（同模型同规格），Priority 分层在 M1 用于"主备"，但 prefix-cache 场景下**稳定 > 负载均衡**。若需保留 Priority 分层（如主备容灾），可退化为"先按 Priority 分层，层内一致性哈希"（见 4B.5 变体）。`PickDirect` 保留给 `cost`/`balanced` 溢出路径（那些路径不追求粘性）。
+
+### 4B.3 配置（config/config.go）
+
+复用现有 `AFFINITY_ENABLED` 总开关（默认 false），新增一个独立开关控制 Direct 粘性，避免与众包亲和耦合：
+
+```go
+// config.go Config 新增
+DirectAffinityEnabled bool // DIRECT_AFFINITY_ENABLED，默认 false：Direct 后端会话粘性（prefix-cache）
+```
+
+```go
+// config.go 解析
+directAffinityEnabled, _ := strconv.ParseBool(getEnv("DIRECT_AFFINITY_ENABLED", "false"))
+```
+
+> **开关语义**：`DIRECT_AFFINITY_ENABLED=true` 时，Direct 路径（stability/balanced 的 Direct 优先块 + cost 的 PickCheapest Direct 分支）改用 `pickDirectSticky` 并做亲和写回/校验；`false` 时完全走现状 `PickDirect`/`PickCheapest`（行为不变，回滚路径）。**依赖 `AFFINITY_ENABLED=true`**（亲和表需存在）；若 `AFFINITY_ENABLED=false` 则 `DirectAffinityEnabled` 自动失效（`server.Affinity == nil` 分支天然短路）。
+
+### 4B.4 集成点（chat.go / format_adapter.go）
+
+两处调用点同构改造。以 `handleChatWithRetry` 为例：
+
+**L0 亲和解析**（现有块之后追加 Direct 分支）：
+
+```go
+var affinityKey string
+var affinityClient *models.Client
+var affinityDirect *models.DirectBackend
+var affinityHit bool
+if server.Affinity != nil {
+    affinityKey = affinityKeyFromChat(request)
+    if affinityKey == "" { affinityKey = userIDStr + ":" + request.Model }
+    if entry, ok := server.Affinity.Get(affinityKey); ok {
+        if entry.IsDirect {
+            if configs.Config.DirectAffinityEnabled {
+                if b := server.ResolveDirectAffinity(entry, request.Model, userIDStr); b != nil {
+                    affinityDirect = b
+                } else {
+                    server.Affinity.MarkLease(affinityKey)
+                }
+            }
+        } else if ac := server.ResolveAffinity(entry, request.Model, userIDStr); ac != nil {
+            affinityClient = ac
+        } else {
+            server.Affinity.MarkLease(affinityKey)
+        }
+    }
+}
+```
+
+**Direct 优先块**（attempt 循环内第 0 步）改为：attempt 0 且 `affinityDirect != nil` 时直接用粘住后端，否则走 `pickDirectSticky`（一致性哈希兜底）：
+
+```go
+if configs.Config.DirectBackendsEnabled && routing != RoutingCost {
+    var b *models.DirectBackend
+    if attempt == 0 && affinityDirect != nil {
+        b = affinityDirect
+        affinityHit = true
+    } else if configs.Config.DirectAffinityEnabled {
+        b = server.PickDirectSticky(request.Model, userIDStr, failedClients, nil)
+    } else {
+        b = server.PickDirect(request.Model, userIDStr, failedClients)
+    }
+    if b != nil {
+        failedClients["direct:"+b.ID] = true
+        if handleDirectChat(c, server, b, extendedRequest, userIDStr) {
+            return
+        }
+        time.Sleep(backoff(attempt))
+        continue
+    }
+}
+```
+
+> **注意**：`pickDirectSticky` 的一致性哈希兜底**不把 affinity 条目写回**（新会话首次无条目，哈希选择后由成功写回建立亲和）。`affinityHit` 仅在 attempt 0 命中既有亲和条目时为 true（供实测校验用）。
+
+**成功写回**（`handleDirectChat` 返回 true 后，即 Direct 成功路径）：在 `handleDirectChat` 内部成功分支（`recordDirectUsage` 之后）追加：
+
+```go
+// direct_chat.go handleDirectNonStream / handleDirectStream 成功尾部
+if server.Affinity != nil && configs.Config.DirectAffinityEnabled {
+    if key, ok := c.Get("affinity_key"); ok {
+        if hit, _ := c.Get("affinity_hit"); hit == true || server.Affinity.LeaseExpired(key.(string)) {
+            server.Affinity.Touch(key.(string), b.ID, true) // 裸 ID + IsDirect=true
+        }
+    }
+}
+```
+
+> **写回位置**：Direct 成功写回放在 `handleDirectChat` 内部（而非 chat.go 的 `case MESSAGE` 分支），因为 Direct 路径不经过 WS `respConn` 的 `case public.MESSAGE` 分支。`affinity_key`/`affinity_hit` 需在调用 `handleDirectChat` 前 `c.Set`（见下）。
+
+**传给计费层**：在调用 `handleDirectChat` 前设置（与 WS 路径同款）：
+
+```go
+if server.Affinity != nil {
+    c.Set("affinity_key", affinityKey)
+    if affinityHit { c.Set("affinity_hit", true) }
+}
+```
+
+**cost 路由的 Direct 分支**（`PickCheapest` 返回 `cb` 时）：同样在 `handleDirectChat` 前 `c.Set`，成功后由 `handleDirectChat` 内部写回。`PickCheapest` 本身不粘（按单价分层），但成功写回后**下一次同会话请求**会经 L0 亲和命中直接粘住该后端——即"首次按价选，之后粘住"，兼顾价格与 cache。
+
+**format_adapter.go**：完全同构（key 来源 §3.2），Direct 优先块与 cost 分支同样替换为 `pickDirectSticky` + 写回。
+
+### 4B.5 变体与取舍
+
+| 变体 | 说明 | 取舍 |
+|---|---|---|
+| **A. 纯一致性哈希**（默认） | 哈希兜底不按 Priority/负载率 | 同质后端下稳定最优；主备容灾场景需人工保证同规格 |
+| **B. Priority 分层 + 层内哈希** | 先按 Priority 分层，层内一致性哈希 | 保留主备语义；实现多一层循环，代码略复杂 |
+| **C. 仅亲和、无哈希兜底** | 新会话仍走 `PickDirect` 负载率 | 改动最小，但新会话漂移问题未解，多后端收益打折 |
+
+首期建议 **A**（实现最简、收益最大）；若现网 Direct 有明确主备分层需求再升级 B。
 
 ## 5. 改动五：L0 短路 + 成功写回（chat.go / format_adapter.go）
 
@@ -275,7 +477,9 @@ client 注册/心跳上报 `keep_alive`（`pkg/public/protocol.go` `PPMessage` �
 
 ## 9. 编码顺序
 
-① config + AffinityStore + 单测（-race） → ② 亲和键 helper + 单测 → ③ ResolveAffinity + 单测 → ④ chat.go L0 短路 + 成功写回 → ⑤ CacheHitEMA + 实测校验 → ⑥ format_adapter.go 同构接入 → ⑦ HRW + tiebreak + 单测 → ⑧ 仿真 + 集成。
+① config + AffinityStore + 单测（-race） → ② 亲和键 helper + 单测 → ③ ResolveAffinity + 单测 → ④ chat.go L0 短路 + 成功写回 → ⑤ CacheHitEMA + 实测校验 → ⑥ format_adapter.go 同构接入 → ⑦ HRW + tiebreak + 单测 → ⑧ **Direct 粘性（改动四B）**：`ResolveDirectAffinity` + `pickDirectSticky` + config + 两处调用点 + 写回 + 单测 → ⑨ 仿真 + 集成。
+
+> **Direct 粘性可独立交付**：⑧ 不依赖 ⑦（HRW 只影响众包新会话），可与 ⑦ 并行；`DIRECT_AFFINITY_ENABLED=false` 时完全走现状，可随时回滚。
 
 ## 10. 单元测试清单
 
@@ -297,6 +501,9 @@ client 注册/心跳上报 `keep_alive`（`pkg/public/protocol.go` `PPMessage` �
 | `TestHRWSubsetStable` | 同 userID 调 10 次子集一致；不同 userID 子集不同；删除子集外 client 子集不变，删除子集内 client 只替换 1 个 |
 | `TestPickSmartCacheHitTiebreak` | 两 client perfScore 相同（同参数、jitter=0）、CacheHitEMA 0.8 vs 0：候选排序前者在前 |
 | `TestResolveAffinity` | 5 分支：正常返回；冷却 nil；不健康 nil；超价格帽 nil；Active≥0.9×max nil |
+| `TestResolveDirectAffinity` | 5 分支（同 ResolveAffinity 语义）：正常返回；不健康 nil；冷却 nil；Active≥MaxConns nil；超价格帽 nil；软限流 Active≥0.9×max nil；`entry.IsDirect=false` 直接 nil |
+| `TestPickDirectStickyHashStable` | 同 userID+model 调 10 次选同一后端；不同 userID 可能不同；删除选中后端只替换 1 个（邻域防抖） |
+| `TestPickDirectStickyAffinityFirst` | 有可用亲和条目时优先返回该后端（即使哈希指向别的）；亲和条目不可用（冷却/不健康）时回退哈希 |
 
 **internal/service（追加）**：
 
@@ -304,12 +511,14 @@ client 注册/心跳上报 `keep_alive`（`pkg/public/protocol.go` `PPMessage` �
 |---|---|
 | `TestAffinityKeyFromChat` | 同会话多轮（messages 追加）key 不变；不同 system/user 前缀 key 不同；content>256B 只取前缀 |
 | `TestUpdateCacheHitEMA` | 初值直赋；序列 [1,0] → 0.2 alpha 精确值 |
+| `TestDirectAffinityWriteBack` | mock Direct 后端成功响应 → `Affinity.Touch(key, b.ID, true)` 被调用；`affinity_hit` 时写回，非 hit 且租约未过期不覆盖 |
+| `TestDirectAffinityMissDelete` | Direct 粘性命中但 cached_tokens=0 连续 K 次 → 亲和删除（复用 §6.2 逻辑，验证 Direct 分支同样生效） |
 
 全部 `go test -race ./internal/...`。
 
 ## 11. 集成测试
 
-1. **回归**：默认 env（亲和关、HRW 关）全量测试 + build，行为不变。
+1. **回归**：默认 env（亲和关、HRW 关、Direct 粘性关）全量测试 + build，行为不变。
 2. **亲和命中链路**：`AFFINITY_ENABLED=true` + 2 个 client 挂同一模型：
    - 同一会话（相同 system+首条 user，追加多轮）连发 10 请求 → 日志确认 10 次同一 clientID；
    - 杀掉粘住的 client → 下一请求落另一 client（租约内不覆盖），原 client 恢复后（租约 60s 内）请求回迁；租约过期后粘新 client；
@@ -317,11 +526,19 @@ client 注册/心跳上报 `keep_alive`（`pkg/public/protocol.go` `PPMessage` �
 3. **实测校验**：重启粘住 client 的推理引擎（cache 清空）→ 若后端 usage 返回 cached_tokens=0，连续 3 请求后日志确认亲和删除、重新选择。（后端不回 cached_tokens 时此路径静默不触发——验证不误删。）
 4. **KV 收益度量**（上线前后各跑 1 天）：`SELECT model, SUM(cached_tokens)*1.0/SUM(input_tokens) FROM token_usages WHERE timestamp > ? GROUP BY model;` 记录对比表。
 5. **HRW**：`LB_HRW_SUBSET_SIZE=8` + 仿真 `docs/lb_saturation_test.py` 加会话模型（每用户连续 10 请求），统计"会话内 client 切换次数"与 client 上下线时的全局重分配比例，对比开关前后。
+6. **Direct 粘性**：`AFFINITY_ENABLED=true` + `DIRECT_AFFINITY_ENABLED=true` + 2 个 Direct 后端（httptest.Server mock，各自独立计数）挂同一模型：
+   - 同一会话连发 10 请求 → 日志确认 10 次同一 backendID（一致性哈希 + 亲和写回）；
+   - 新会话（不同 userID）→ 一致性哈希稳定落在同一后端（同 user 多次新会话同后端）；
+   - 杀掉粘住的后端（mock 返回 5xx）→ 下一请求经 `pickDirectSticky` 哈希兜底落另一后端，原后端恢复后（租约内）回迁；
+   - 打满粘住后端至 ≥0.9×MaxConns → 溢出走哈希兜底另一后端；
+   - 关闭 `DIRECT_AFFINITY_ENABLED` → 行为回到 `PickDirect` 负载率轮转（回归对照）。
 
 ## 12. 验收标准
 
 - [ ] `-race` 全量通过；默认 env 行为不变。
 - [ ] 集成 2/3 的三条链路（命中/回迁/软限流溢出）人工验证通过。
+- [ ] 集成 6 的 Direct 粘性链路（命中/哈希稳定/回迁/软限流溢出/开关回滚）人工验证通过。
 - [ ] 亲和命中/回迁/逐出/实测失效计数有每分钟聚合日志（单行，不刷屏）。
 - [ ] cached_tokens 比率上线前后对比数据已记录（§11.4）。
 - [ ] CacheHitEMA 未出现在 perfScore 主权重路径（code review 检查项）。
+- [ ] `DIRECT_AFFINITY_ENABLED=false` 时 Direct 路径与现状逐字节一致（code review 检查项）。

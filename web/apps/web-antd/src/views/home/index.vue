@@ -132,6 +132,7 @@ async function loadHomepage() {
       response.models = [];
     }
     homepage.value = response;
+    buildBannerModels();
     failed.value = false;
     await nextTick();
     drawTrend();
@@ -227,6 +228,82 @@ function downloadClient(os?: string) {
   }
 }
 
+// ---- hero banner 模型（来自真实历史数据） ----
+interface BannerModel {
+  calls: number;
+  color: string;
+  id: string;
+  logo?: string;
+}
+
+const bannerModels = ref<BannerModel[]>([]);
+
+// 已知厂商的 logo 与品牌色；未匹配的模型回退到调色板 + 首字母
+const vendorStyles: { color: string; logo: string; match: RegExp }[] = [
+  { match: /deepseek/i, logo: '/model-logos/deepseek.png', color: '#8b5cf6' },
+  { match: /glm|chatglm|zhipu/i, logo: '/model-logos/glm.png', color: '#3b82f6' },
+  { match: /kimi|moonshot/i, logo: '/model-logos/kimi.png', color: '#22d3ee' },
+  { match: /qwen|qwq/i, logo: '/model-logos/qwen.png', color: '#ec4899' },
+  { match: /minimax/i, logo: '/model-logos/minimax.png', color: '#34d399' },
+  { match: /claude/i, logo: '/model-logos/claude.png', color: '#f59e0b' },
+  { match: /\bgpt\b|openai|o[134](-|mini|$)/i, logo: '/model-logos/gpt.svg', color: '#f472b6' },
+];
+const fallbackColors = [
+  '#8b5cf6',
+  '#3b82f6',
+  '#22d3ee',
+  '#ec4899',
+  '#34d399',
+  '#f59e0b',
+  '#f472b6',
+];
+
+const logoImageCache: Record<string, HTMLImageElement> = {};
+function getLogoImage(logo?: string) {
+  if (!logo) return undefined;
+  let img = logoImageCache[logo];
+  if (!img) {
+    img = new Image();
+    img.src = logo;
+    logoImageCache[logo] = img;
+  }
+  return img;
+}
+
+// 用真实数据构建 banner 模型：历史调用记录（含已下线模型）∪ 当前在线模型，
+// 按调用次数降序取前 10；调用次数决定模型在 server 内的大小与位置。
+function buildBannerModels() {
+  const stats = homepage.value?.stats;
+  const callsByModel = new Map<string, number>();
+  // 历史调用排名（跨所有用户，含已下线模型）
+  for (const m of stats?.model_rank ?? []) {
+    callsByModel.set(m.model, m.calls);
+  }
+  for (const m of stats?.model_stats ?? []) {
+    callsByModel.set(
+      m.model,
+      Math.max(callsByModel.get(m.model) ?? 0, m.calls),
+    );
+  }
+  // 当前在线模型（无调用记录的也展示，calls=0）
+  for (const m of homepage.value?.models ?? []) {
+    if (!callsByModel.has(m.name)) callsByModel.set(m.name, 0);
+  }
+  const entries = [...callsByModel.entries()]
+    .map(([model, calls]) => ({ calls, model }))
+    .sort((a, b) => b.calls - a.calls);
+
+  bannerModels.value = entries.slice(0, 10).map((e, i) => {
+    const vendor = vendorStyles.find((v) => v.match.test(e.model));
+    return {
+      calls: e.calls,
+      color: vendor?.color ?? fallbackColors[i % fallbackColors.length]!,
+      id: e.model,
+      logo: vendor?.logo,
+    };
+  });
+}
+
 // ---- hero canvas animation (faithful port from HTML) ----
 function initHeroCanvas() {
   const canvas = heroCanvas.value;
@@ -250,77 +327,51 @@ function initHeroCanvas() {
     ctx.scale(dpr, dpr);
   }
 
-  const bannerModels = [
-    { id: 'DeepSeek-V4', calls: 284, color: '#8b5cf6', logo: '/model-logos/deepseek.png' },
-    { id: 'GLM-5.2', calls: 212, color: '#3b82f6', logo: '/model-logos/glm.png' },
-    { id: 'Kimi-K3', calls: 187, color: '#22d3ee', logo: '/model-logos/kimi.png' },
-    { id: 'Qwen-3.6', calls: 156, color: '#ec4899', logo: '/model-logos/qwen.png' },
-    { id: 'MiniMax-2.7', calls: 123, color: '#34d399', logo: '/model-logos/minimax.png' },
-    { id: 'Claude Opus 5', calls: 98, color: '#f59e0b', logo: '/model-logos/claude.png' },
-    { id: 'GPT-5.6', calls: 72, color: '#f472b6', logo: '/model-logos/gpt.svg' },
-  ];
-  const maxCalls = Math.max(...bannerModels.map((d) => d.calls));
-
-  // Preload model logo images
-  const modelLogoImages: Record<string, HTMLImageElement> = {};
-  for (const m of bannerModels) {
-    const img = new Image();
-    img.src = m.logo;
-    modelLogoImages[m.id] = img;
-  }
-
   const centerX = 0.7;
   const centerY = 0.5;
-  const spreadX = 0.24;
-  const spreadY = 0.22;
-  let modelPositions: { x: number; y: number; idx: number }[] = [];
 
-  function initModelPositions() {
-    const count = bannerModels.length;
-    const positions: { x: number; y: number; idx: number }[] = [];
-    const baseSize = 0.028;
-    for (let i = 0; i < count; i++) {
-      let attempts = 0;
-      let placed = false;
-      let pos = { x: 0, y: 0 };
-      while (!placed && attempts < 500) {
-        const angle = Math.random() * Math.PI * 2;
-        const r = Math.random() * 0.85;
-        const x = centerX + Math.cos(angle) * spreadX * r;
-        const y = centerY + Math.sin(angle) * spreadY * r;
-        pos = { x, y };
-        let overlap = false;
-        for (let j = 0; j < positions.length; j++) {
-          const dx = pos.x - positions[j]!.x;
-          const dy = pos.y - positions[j]!.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const sizeRatioI = bannerModels[i]!.calls / maxCalls;
-          const sizeRatioJ = bannerModels[positions[j]!.idx]!.calls / maxCalls;
-          const fontSizeI = baseSize * (0.45 + 0.75 * sizeRatioI);
-          const fontSizeJ = baseSize * (0.45 + 0.75 * sizeRatioJ);
-          // Account for logo diameter + text height below logo
-          const threshold = (fontSizeI + fontSizeJ) * 1.0;
-          if (dist < threshold * 1.15) {
-            overlap = true;
-            break;
-          }
-        }
-        if (!overlap) placed = true;
-        attempts++;
-      }
-      if (placed) {
-        positions.push({ x: pos.x, y: pos.y, idx: i });
-      } else {
-        const angle = Math.random() * Math.PI * 2;
-        const r = Math.random() * 0.8;
-        positions.push({
-          x: centerX + Math.cos(angle) * spreadX * r,
-          y: centerY + Math.sin(angle) * spreadY * r,
-          idx: i,
-        });
-      }
-    }
-    modelPositions = positions;
+  // 汇聚闪光：贡献者粒子到达 server 球体时点亮边缘
+  let hubFlash = 0;
+
+  // server 球体半径（px）
+  function hubRadius(w: number, h: number) {
+    return Math.min(w, h) * 0.26;
+  }
+
+  function modelSizeRatio(calls: number) {
+    const models = bannerModels.value;
+    const maxCalls = Math.max(1, ...models.map((m) => m.calls));
+    // 最低 0.12，保证零调用的新模型也有可视存在感
+    return Math.max(0.12, calls / maxCalls);
+  }
+
+  // 黄金角螺旋（向日葵序列）静态排布：第 1 名居中，其余按排名由内向外。
+  // 位置只由排名决定 —— 模型是 server 的一部分，不移动。
+  // 返回归一化坐标（0~1），与 contributor/consumer 节点一致。
+  function modelHubPos(idx: number, w: number, h: number) {
+    if (idx <= 0) return { x: centerX, y: centerY };
+    const n = Math.max(bannerModels.value.length, 1);
+    const R = hubRadius(w, h);
+    const golden = Math.PI * (3 - Math.sqrt(5));
+    const angle = idx * golden;
+    // 从 0.45R 起步，避免第 2 名与居中的第 1 名重叠
+    const dist = R * (0.45 + 0.5 * Math.sqrt(idx / n));
+    return {
+      x: centerX + (Math.cos(angle) * dist) / w,
+      y: centerY + (Math.sin(angle) * dist) / h,
+    };
+  }
+
+  // bannerModels 变化（首次加载 / 60s 刷新）时同步粒子路径。
+  // 每帧调用，但仅在模型集合签名变化时才真正重建。
+  const layoutSignature = { sig: '' };
+  function syncLayout() {
+    const models = bannerModels.value;
+    const sig = models.map((m) => m.id).join('|');
+    if (sig === layoutSignature.sig) return;
+    layoutSignature.sig = sig;
+    rebuildPaths();
+    initParticles();
   }
 
   const contributorCount = 5;
@@ -329,7 +380,7 @@ function initHeroCanvas() {
   }[] = [];
   for (let i = 0; i < contributorCount; i++) {
     contributors.push({
-      x: 0.88 + Math.random() * 0.08,
+      x: 0.9 + Math.random() * 0.07,
       y: 0.12 + Math.random() * 0.76,
       vx: (Math.random() - 0.5) * 0.0005,
       vy: (Math.random() - 0.5) * 0.0005,
@@ -361,19 +412,24 @@ function initHeroCanvas() {
   }
 
   let particles: Particle[] = [];
-  const paths: Particle['path'][] = [];
-  for (let ci = 0; ci < contributorCount; ci++) {
-    paths.push({ from: 'contributor', fromIdx: ci, to: 'center', toIdx: 0 });
-  }
-  for (let ci = 0; ci < consumerCount; ci++) {
-    paths.push({ from: 'center', fromIdx: 0, to: 'consumer', toIdx: ci });
+  let paths: Particle['path'][] = [];
+  // 贡献者 → server：算力与模型不断汇入 StarFire；server → 消费者：能力流出
+  function rebuildPaths() {
+    paths = [];
+    for (let ci = 0; ci < contributorCount; ci++) {
+      paths.push({ from: 'contributor', fromIdx: ci, to: 'center', toIdx: 0 });
+    }
+    for (let ci = 0; ci < consumerCount; ci++) {
+      paths.push({ from: 'center', fromIdx: 0, to: 'consumer', toIdx: ci });
+    }
   }
 
-  function getNode(type: string, idx: number) {
+  function getNode(type: string, idx: number, w = 0, h = 0) {
     if (type === 'contributor')
       return contributors[idx % contributors.length] ?? contributors[0]!;
     if (type === 'consumer')
       return consumers[idx % consumers.length] ?? consumers[0]!;
+    if (type === 'model') return modelHubPos(idx, w, h);
     return { x: centerX, y: centerY };
   }
 
@@ -398,9 +454,9 @@ function initHeroCanvas() {
     particles.sort(() => Math.random() - 0.5);
   }
 
-  function getPointOnPath(path: Particle['path'], t: number) {
-    const from = getNode(path.from, path.fromIdx);
-    const to = getNode(path.to, path.toIdx);
+  function getPointOnPath(path: Particle['path'], t: number, w: number, h: number) {
+    const from = getNode(path.from, path.fromIdx, w, h);
+    const to = getNode(path.to, path.toIdx, w, h);
     const mx = (from.x + to.x) / 2;
     const my = (from.y + to.y) / 2 - 0.03;
     const t1 = 1 - t;
@@ -442,30 +498,76 @@ function initHeroCanvas() {
     }
     ctx.globalAlpha = 1;
 
-    const glow = ctx.createRadialGradient(
-      centerX * w, centerY * h, 0,
-      centerX * w, centerY * h, Math.min(w, h) * 0.22,
+    // ---- StarFire server 球体：模型汇聚的容器 ----
+    const models = bannerModels.value;
+    const R = hubRadius(w, h);
+    const pulse = 0.5 + 0.5 * Math.sin(Date.now() * 0.0016);
+
+    // 球体外部辉光（呼吸 + 汇聚闪光增强）
+    const hubGlow = ctx.createRadialGradient(
+      centerX * w, centerY * h, R * 0.5,
+      centerX * w, centerY * h, R * (1.9 + 0.15 * hubFlash),
     );
-    glow.addColorStop(0, 'rgba(139,92,246,0.06)');
-    glow.addColorStop(1, 'rgba(0,0,0,0)');
-    ctx.fillStyle = glow;
+    hubGlow.addColorStop(0, 'rgba(139,92,246,0.22)');
+    hubGlow.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = hubGlow;
     ctx.beginPath();
-    ctx.arc(centerX * w, centerY * h, Math.min(w, h) * 0.22, 0, Math.PI * 2);
+    ctx.arc(
+      centerX * w,
+      centerY * h,
+      R * (1.9 + 0.15 * hubFlash),
+      0,
+      Math.PI * 2,
+    );
     ctx.fill();
 
+    // 脉冲扩散环（从球体边缘向外扩散，表示持续汇聚）
+    const ringT = (Date.now() * 0.000_35) % 1;
+    const ringR = R + ringT * R * 0.55;
+    ctx.globalAlpha = (1 - ringT) * 0.25;
+    ctx.beginPath();
+    ctx.arc(centerX * w, centerY * h, ringR, 0, Math.PI * 2);
+    ctx.strokeStyle = '#a78bfa';
+    ctx.lineWidth = 1.2;
+    ctx.stroke();
+    ctx.globalAlpha = 1;
+
+    // 球体盘面（深空玻璃感：径向渐变 + 内描边）
+    const diskGrad = ctx.createRadialGradient(
+      centerX * w - R * 0.3, centerY * h - R * 0.3, R * 0.05,
+      centerX * w, centerY * h, R,
+    );
+    diskGrad.addColorStop(0, 'rgba(49,46,129,0.55)');
+    diskGrad.addColorStop(0.7, 'rgba(30,27,75,0.35)');
+    diskGrad.addColorStop(1, 'rgba(15,12,40,0.15)');
+    ctx.beginPath();
+    ctx.arc(centerX * w, centerY * h, R, 0, Math.PI * 2);
+    ctx.fillStyle = diskGrad;
+    ctx.fill();
+    ctx.strokeStyle = `rgba(167,139,250,${0.35 + 0.2 * pulse + 0.25 * hubFlash})`;
+    ctx.lineWidth = 1.5;
+    ctx.stroke();
+    // 内侧细描边（立体感）
+    ctx.beginPath();
+    ctx.arc(centerX * w, centerY * h, R * 0.94, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(167,139,250,0.12)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // ---- 模型：静态嵌在 server 球体内（黄金角螺旋，排名靠前更靠核心更大） ----
     const baseSize = Math.min(w, h) * 0.024;
-    for (let i = 0; i < modelPositions.length; i++) {
-      const mp = modelPositions[i]!;
-      const data = bannerModels[i]!;
-      const sizeRatio = data.calls / maxCalls;
-      const fontSize = baseSize * (0.45 + 0.75 * sizeRatio);
-      const px = mp.x * w;
-      const py = mp.y * h;
-      const r = fontSize * 0.7;
+    for (let i = 0; i < models.length; i++) {
+      const data = models[i]!;
+      const pos = modelHubPos(i, w, h);
+      const sizeRatio = modelSizeRatio(data.calls);
+      const fontSize = baseSize * (0.4 + 0.7 * sizeRatio);
+      const px = pos.x * w;
+      const py = pos.y * h;
+      const r = R * (0.09 + 0.09 * sizeRatio);
 
       // Glow halo behind logo
       ctx.shadowColor = data.color;
-      ctx.shadowBlur = 18;
+      ctx.shadowBlur = 18 + 14 * sizeRatio;
       const haloGrad = ctx.createRadialGradient(
         px, py, 0, px, py, r * 1.5,
       );
@@ -478,7 +580,7 @@ function initHeroCanvas() {
       ctx.shadowBlur = 0;
 
       // Draw logo image clipped to circle, or fallback gradient
-      const logoImg = modelLogoImages[data.id];
+      const logoImg = getLogoImage(data.logo);
       if (logoImg && logoImg.complete && logoImg.naturalWidth > 0) {
         ctx.save();
         ctx.beginPath();
@@ -497,6 +599,12 @@ function initHeroCanvas() {
         ctx.arc(px, py, r, 0, Math.PI * 2);
         ctx.fillStyle = dotGrad;
         ctx.fill();
+        // 无 logo 时在圆内画模型名首字符
+        ctx.fillStyle = data.color;
+        ctx.font = `700 ${r * 0.9}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(data.id.slice(0, 2).toUpperCase(), px, py);
       }
 
       // Colored ring around logo
@@ -506,22 +614,31 @@ function initHeroCanvas() {
       ctx.lineWidth = 1.5;
       ctx.stroke();
 
-      // Model text below the logo
-      ctx.fillStyle = '#fff';
-      ctx.font = `600 ${fontSize}px Inter, sans-serif`;
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'top';
-      ctx.shadowColor = 'rgba(0,0,0,0.6)';
-      ctx.shadowBlur = 4;
-      ctx.fillText(data.id, px, py + r + 4);
-      ctx.shadowBlur = 0;
+      // Model text below the logo（球内空间有限，只画前 3 名的名字 + 调用量）
+      if (i < 3) {
+        ctx.fillStyle = '#fff';
+        ctx.font = `600 ${fontSize}px Inter, sans-serif`;
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'top';
+        ctx.shadowColor = 'rgba(0,0,0,0.6)';
+        ctx.shadowBlur = 4;
+        ctx.fillText(data.id, px, py + r + 4);
+        // 调用量徽标（仅 >0 时），强化"按调用次数显示大小"的可读性
+        if (data.calls > 0) {
+          const badge = `${formatNumber(data.calls)} calls`;
+          ctx.font = `500 ${fontSize * 0.62}px Inter, sans-serif`;
+          ctx.fillStyle = `${data.color}cc`;
+          ctx.fillText(badge, px, py + r + 4 + fontSize * 1.15);
+        }
+        ctx.shadowBlur = 0;
+      }
     }
 
     ctx.fillStyle = 'rgba(255,255,255,0.06)';
     ctx.font = `500 ${Math.min(w, h) * 0.011}px Inter, sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'bottom';
-    ctx.fillText(`✦ ${$t('page.home.brand')} ${$t('page.home.brandSuffix')}`, centerX * w, (centerY - 0.22) * h);
+    ctx.fillText(`✦ ${$t('page.home.brand')} ${$t('page.home.brandSuffix')}`, centerX * w, (centerY - 0.34) * h);
 
     for (const c of contributors) {
       const r = Math.min(w, h) * 0.016;
@@ -566,7 +683,7 @@ function initHeroCanvas() {
     }
 
     for (const p of particles) {
-      const pos = getPointOnPath(p.path, p.progress);
+      const pos = getPointOnPath(p.path, p.progress, w, h);
       const px = pos.x * w;
       const py = pos.y * h;
       const alpha = 0.5 + 0.5 * (1 - Math.abs(p.progress - 0.5) * 2);
@@ -596,16 +713,19 @@ function initHeroCanvas() {
     ctx.textBaseline = 'middle';
     const label =
       currentLang.value === 'zh-CN'
-        ? '← Token 流入 · 价值流出 →  |  贡献者 → 平台 → 消费者'
-        : '← Tokens in · Value out →  |  Contributors → Platform → Consumers';
+        ? '模型 · 贡献者 → ✦ StarFire 汇聚枢纽 → 消费者'
+        : 'Models · Contributors → ✦ StarFire Hub → Consumers';
     ctx.fillText(label, w / 2, h - 14);
   }
 
   function updateNodes() {
+    // 汇聚闪光自然衰减
+    hubFlash = Math.max(0, hubFlash - 0.02);
+
     for (const c of contributors) {
       c.x += c.vx * 0.4;
       c.y += c.vy * 0.4;
-      if (c.x < 0.82 || c.x > 0.96) c.vx *= -1;
+      if (c.x < 0.9 || c.x > 0.97) c.vx *= -1;
       if (c.y < 0.1 || c.y > 0.9) c.vy *= -1;
       c.vx += (Math.random() - 0.5) * 0.00015;
       c.vy += (Math.random() - 0.5) * 0.00015;
@@ -628,6 +748,10 @@ function initHeroCanvas() {
     for (const p of particles) {
       p.progress += p.speed * (0.7 + 0.3 * Math.sin(p.phase + Date.now() * 0.0003));
       if (p.progress > 1) {
+        // 汇入流到达 server 时点亮球体边缘（汇聚的视觉反馈）
+        if (p.path.to === 'center') {
+          hubFlash = Math.min(1, hubFlash + 0.04);
+        }
         p.progress = 0;
         const pathIdx = Math.floor(Math.random() * paths.length);
         p.path = paths[pathIdx]!;
@@ -638,6 +762,7 @@ function initHeroCanvas() {
   }
 
   function animate() {
+    syncLayout();
     updateNodes();
     updateParticles();
     draw();
@@ -647,8 +772,7 @@ function initHeroCanvas() {
   const resizeHandler = () => resize();
   window.addEventListener('resize', resizeHandler);
 
-  initModelPositions();
-  initParticles();
+  syncLayout();
   resize();
   animate();
 
