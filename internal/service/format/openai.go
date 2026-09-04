@@ -137,12 +137,11 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 	}
 
 	for _, t := range cr.Tools {
-		// 剥离 web_search 托管工具：实测 GLM-5.3-Flash (tianhe-tech vLLM) 后端
+		// 剥离 web_search 托管工具
 		// 完全不支持联网搜索——tools 里带 web_search 类型会 400，顶层
 		// web_search_options 被静默忽略且不执行搜索。若把 web_search 保留给模型，
 		// 模型会选它并返回空结果，导致 Codex 拿到空 web_search_call 无法继续
-		// （last_agent_message: null 提前终止）。剥离后模型只看到 function 工具
-		// （exec_command 等），从而像 tianhe-tech 直连那样选 exec_command 完成任务。
+		// （last_agent_message: null 提前终止）。剥离后模型只看到 function 工具exec_command 等。
 		if isWebSearchTool(t.Name, t.Type) {
 			continue
 		}
