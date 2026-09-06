@@ -306,12 +306,15 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		// 	log.Printf("[TRACE] attempt %d marshal body error: %v", attempt, err)
 		// }
 
-		// 4. 发送请求到 client
-		if err := client.ControlConn.WriteJSON(public.WSMessage{
+		// 4. 发送请求到 client（持锁写，避免与 keepalive/INCOME 等并发写同一 ControlConn 触发 panic）
+		client.ControlConnMutex.Lock()
+		err := client.ControlConn.WriteJSON(public.WSMessage{
 			Type:        public.MESSAGE,
 			Content:     extendedRequest,
 			FingerPrint: fingerPrint,
-		}); err != nil {
+		})
+		client.ControlConnMutex.Unlock()
+		if err != nil {
 			log.Printf("attempt %d: send to client %s failed: %v", attempt, client.ID, err)
 			client.IncrFailures() // smart 负载均衡：记录失败
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
@@ -862,6 +865,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 	}
 
 	// 异步通知 client 收益更新，避免全表扫描阻塞聊天响应
+	// 注意：WriteJSON 必须在 ControlConnMutex 内执行，否则与 keepalive/chat 下发并发写同一连接会 panic。
 	go func(clientID, model string, income float64, inputTokens, outputTokens, totalTokens, cachedTokens int) {
 		totalIncomeResult, totalErr := server.TokenUsageDB.GetTotalIncomeByUserID(chatClient.User.ID, server.ClientDB)
 		if totalErr != nil {
@@ -869,6 +873,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 			return
 		}
 		totalIncome, _ := totalIncomeResult.(float64)
+		chatClient.ControlConnMutex.Lock()
 		_ = conn.WriteJSON(public.WSMessage{
 			Type: public.INCOME,
 			Content: map[string]interface{}{
@@ -884,6 +889,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 				"timestamp":    strconv.Itoa(int(time.Now().Unix())),
 			},
 		})
+		chatClient.ControlConnMutex.Unlock()
 	}(clientID, model,
 		(ippm*float64(inputTokens-cachedTokens)+cippm*float64(cachedTokens)+oppm*float64(outputTokens))/1000000,
 		inputTokens, outputTokens, totalTokens, cachedTokens)
