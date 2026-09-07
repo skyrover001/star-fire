@@ -697,6 +697,45 @@ func TestOpenAIConverter_MalformedToolArgumentsNormalization(t *testing.T) {
 	}
 }
 
+// TestOpenAIConverter_EmptyToolCallNameFallback 回归：即使 canonical 工具调用
+// 的 name 为空（前两层兜底都漏掉的情况），BuildUpstreamRequest 也必须保证
+// 序列化后 function.name 非空，避免上游 Pydantic 400 "field required: function.name"。
+func TestOpenAIConverter_EmptyToolCallNameFallback(t *testing.T) {
+	c := &OpenAIConverter{}
+	cr := &public.CanonicalRequest{
+		Model: "gpt-4o",
+		Messages: []public.CanonicalMessage{
+			{Role: "user", Content: []public.CanonicalContent{{Type: "text", Text: "run ls"}}},
+			{
+				Role:      "assistant",
+				ToolCalls: []public.CanonicalToolCall{{ID: "fc_1", Name: "", Arguments: marshalString(`{"cmd":"ls"}`)}},
+			},
+		},
+	}
+	built, err := c.BuildUpstreamRequest(cr)
+	if err != nil {
+		t.Fatalf("BuildUpstreamRequest error: %v", err)
+	}
+	var obj struct {
+		Messages []struct {
+			Role      string `json:"role"`
+			ToolCalls []struct {
+				Function struct {
+					Name      string `json:"name"`
+					Arguments string `json:"arguments"`
+				} `json:"function"`
+			} `json:"tool_calls"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(built, &obj); err != nil {
+		t.Fatal(err)
+	}
+	name := obj.Messages[1].ToolCalls[0].Function.Name
+	if strings.TrimSpace(name) == "" {
+		t.Errorf("function.name is empty in upstream JSON, want non-empty fallback")
+	}
+}
+
 // TestOpenAIConverter_FreeformResponseExtraction 验证非流式响应中，
 // 模型返回的 {"input":"<patch>"} 被提取为原始 patch 内容字符串。
 func TestOpenAIConverter_FreeformResponseExtraction(t *testing.T) {

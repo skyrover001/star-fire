@@ -114,6 +114,71 @@ func TestResponsesConverter_ParseRequest_MissingModel(t *testing.T) {
 	}
 }
 
+// TestResponsesConverter_FunctionCallEmptyNameCustomTool 回归：function_call item
+// 缺 name 且工具全是 custom 类型（如 Codex 的 exec_command）时，必须从工具定义
+// 找回非空 name，避免下游 Chat 请求因 function.name 为空被 omitempty 丢弃导致
+// 上游 400、Codex 中断。
+func TestResponsesConverter_FunctionCallEmptyNameCustomTool(t *testing.T) {
+	c := &ResponsesConverter{}
+	req := `{
+	  "model": "gpt-4o",
+	  "input": [
+	    { "type": "function_call", "call_id": "fc_a1a1555b3112c039", "arguments": "{\"cmd\":\"ls\",\"yield_time_ms\":10000,\"max_output_tokens\":5000}" }
+	  ],
+	  "tools": [
+	    { "type": "custom", "name": "exec_command", "description": "Run a command." }
+	  ]
+	}`
+	got, err := c.ParseRequest([]byte(req))
+	if err != nil {
+		t.Fatalf("ParseRequest error: %v", err)
+	}
+	if len(got.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(got.Messages))
+	}
+	assistant := got.Messages[0]
+	if len(assistant.ToolCalls) != 1 {
+		t.Fatalf("len(ToolCalls) = %d, want 1", len(assistant.ToolCalls))
+	}
+	if assistant.ToolCalls[0].Name != "exec_command" {
+		t.Errorf("ToolCalls[0].Name = %q, want exec_command (recovered from custom tool)", assistant.ToolCalls[0].Name)
+	}
+	if assistant.ToolCalls[0].ID != "fc_a1a1555b3112c039" {
+		t.Errorf("ToolCalls[0].ID = %q", assistant.ToolCalls[0].ID)
+	}
+}
+
+// TestResponsesConverter_EmbeddedToolCallsEmptyName 回归：Chat 风格 assistant 消息
+// 内嵌 tool_calls 缺 name 时，同样要从工具定义找回非空 name。
+func TestResponsesConverter_EmbeddedToolCallsEmptyName(t *testing.T) {
+	c := &ResponsesConverter{}
+	req := `{
+	  "model": "gpt-4o",
+	  "input": [
+	    { "role": "assistant", "tool_calls": [
+	      { "id": "call_9", "type": "function", "function": { "arguments": "{\"cmd\":\"ls\"}" } }
+	    ] }
+	  ],
+	  "tools": [
+	    { "type": "custom", "name": "exec_command", "description": "Run a command." }
+	  ]
+	}`
+	got, err := c.ParseRequest([]byte(req))
+	if err != nil {
+		t.Fatalf("ParseRequest error: %v", err)
+	}
+	if len(got.Messages) != 1 {
+		t.Fatalf("len(Messages) = %d, want 1", len(got.Messages))
+	}
+	assistant := got.Messages[0]
+	if len(assistant.ToolCalls) != 1 {
+		t.Fatalf("len(ToolCalls) = %d, want 1", len(assistant.ToolCalls))
+	}
+	if assistant.ToolCalls[0].Name != "exec_command" {
+		t.Errorf("ToolCalls[0].Name = %q, want exec_command (recovered from custom tool)", assistant.ToolCalls[0].Name)
+	}
+}
+
 func TestResponsesConverter_RequestRoundTrip(t *testing.T) {
 	c := &ResponsesConverter{}
 	got1, err := c.ParseRequest([]byte(goldenRequestResponses))
@@ -524,6 +589,81 @@ func TestResponsesUserWriter_TextThenToolCall(t *testing.T) {
 	}
 	if fc["name"] != "tool_search" {
 		t.Errorf("output[1].name = %v, want tool_search", fc["name"])
+	}
+}
+
+// TestResponsesUserWriter_EmptyToolNameFallback 验证防御纵深：即使 Canonical 工具调用
+// 的 name 为空（上游解析层被绕过/改坏时可能出现），writer 也必须兜底为 "function"，
+// 绝不能向 Codex 输出空 name 的 function_call item（否则 Codex 无法匹配工具，静默故障）。
+func TestResponsesUserWriter_EmptyToolNameFallback(t *testing.T) {
+	w := (&ResponsesConverter{}).NewUserStreamWriter()
+	if setter, ok := w.(interface{ SetModel(string) }); ok {
+		setter.SetModel("deepseek-v4-pro")
+	}
+
+	var all []map[string]any
+	write := func(ev *public.CanonicalStreamEvent) {
+		t.Helper()
+		evs, err := w.Write(ev)
+		if err != nil {
+			t.Fatalf("Write error: %v", err)
+		}
+		for _, e := range evs {
+			var m map[string]any
+			if err := json.Unmarshal(e, &m); err != nil {
+				t.Fatalf("unmarshal event %s: %v", string(e), err)
+			}
+			all = append(all, m)
+		}
+	}
+
+	// 工具调用 name 为空（模拟解析层被绕过）。
+	write(&public.CanonicalStreamEvent{Type: public.StreamEventToolCallDelta, ToolCall: &public.CanonicalToolCall{
+		ID: "call_1", Name: "", Arguments: marshalString(`{"cmd":"ls"}`),
+	}})
+	write(&public.CanonicalStreamEvent{Type: public.StreamEventDone, FinishReason: "tool_calls"})
+
+	// 校验 output_item.added 的 name 兜底为 "function"。
+	sawAdded := false
+	for _, m := range all {
+		if m["type"] != "response.output_item.added" {
+			continue
+		}
+		item := m["item"].(map[string]any)
+		if item["type"] != "function_call" {
+			continue
+		}
+		sawAdded = true
+		if name, _ := item["name"].(string); name != "function" {
+			t.Errorf("output_item.added name = %q, want \"function\"", name)
+		}
+	}
+	if !sawAdded {
+		t.Fatalf("no function_call output_item.added emitted")
+	}
+
+	// 校验 response.completed 的 output 里 name 也兜底为 "function"。
+	var completed map[string]any
+	for _, m := range all {
+		if m["type"] == "response.completed" {
+			completed = m
+			break
+		}
+	}
+	if completed == nil {
+		t.Fatalf("no response.completed emitted")
+	}
+	resp := completed["response"].(map[string]any)
+	out, _ := resp["output"].([]any)
+	if len(out) != 1 {
+		t.Fatalf("completed output length = %d, want 1", len(out))
+	}
+	fc := out[0].(map[string]any)
+	if fc["type"] != "function_call" {
+		t.Errorf("output[0].type = %v, want function_call", fc["type"])
+	}
+	if name, _ := fc["name"].(string); name != "function" {
+		t.Errorf("output[0].name = %q, want \"function\"", name)
 	}
 }
 

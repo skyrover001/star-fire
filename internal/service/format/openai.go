@@ -260,10 +260,18 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 				// 任何工具调用的 arguments 都必须是 JSON。上游模型可能生成畸形调用，
 				// 把自由文本（patch 内容等）塞进 arguments（甚至塞错工具名）。这里
 				// 对非 JSON 的 arguments 归一化为 {"input":"<原文>"}，避免上游 400。
+				// function.name 兜底：go-openai 的 FunctionCall.Name 带 omitempty，
+				// 空值会被序列化时丢弃，导致后端（如 vLLM Pydantic 校验）报 400
+				// "field required: function.name"。这里作为最后一道防线保证非空，
+				// 避免 Codex 因工具调用非法而中断。正常路径下 responses.go 已保证非空。
+				name := tc.Name
+				if strings.TrimSpace(name) == "" {
+					name = "function"
+				}
 				m.ToolCalls = append(m.ToolCalls, openai.ToolCall{
 					ID:       callID,
 					Type:     openai.ToolTypeFunction,
-					Function: openai.FunctionCall{Name: tc.Name, Arguments: arguments},
+					Function: openai.FunctionCall{Name: name, Arguments: arguments},
 				})
 			}
 		}

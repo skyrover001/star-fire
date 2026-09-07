@@ -351,7 +351,7 @@ func (c *ResponsesConverter) ParseRequest(body []byte) (*public.CanonicalRequest
 				continue
 			}
 			// type 缺省（如 {"role":"user","content":[...]}）视作 message。
-			msg := responsesMessageToCanonical(item)
+			msg := responsesMessageToCanonical(item, cr.Tools)
 			if pendingThinking != "" && msg.Role == "assistant" && !hasThinkingBlock(msg.Content) {
 				msg.Content = append([]public.CanonicalContent{{Type: "thinking", Text: pendingThinking}}, msg.Content...)
 				pendingThinking = ""
@@ -852,6 +852,13 @@ func (w *responsesUserWriter) openFunctionItem(tc *public.CanonicalToolCall) [][
 	name, id, toolType := "", "", "function"
 	if tc != nil {
 		name, id = tc.Name, tc.ID
+		// 防御纵深：name 为空时兜底为 "function"，避免向 Codex 输出空 name 的
+		// function_call item（与 openai.go BuildUpstreamRequest 的兜底保持一致）。
+		// 正常情况下上游解析层（ParseRequest / responsesMessageToCanonical）已保证
+		// name 非空，此处仅作为最后一道闸，防止未来解析层被绕过时静默产出空 name。
+		if strings.TrimSpace(name) == "" {
+			name = "function"
+		}
 		toolType = inferToolType(name)
 	}
 	w.current = &responsesStreamItem{
@@ -1390,7 +1397,7 @@ func parseResponsesTextContent(raw json.RawMessage) []public.CanonicalContent {
 	return out
 }
 
-func responsesMessageToCanonical(item responsesItem) public.CanonicalMessage {
+func responsesMessageToCanonical(item responsesItem, tools []public.CanonicalTool) public.CanonicalMessage {
 	cm := public.CanonicalMessage{Role: item.Role}
 	if cm.Role == "" {
 		cm.Role = "user"
@@ -1434,15 +1441,21 @@ func responsesMessageToCanonical(item responsesItem) public.CanonicalMessage {
 	// Chat 风格 assistant 消息内嵌 tool_calls：{"role":"assistant","tool_calls":[...]}。
 	if item.Role == "assistant" {
 		for _, tc := range item.ToolCalls {
+			// name 兜底：与 function_call 分支一致，避免空 name 被下游 omitempty
+			// 丢弃导致上游 400、Codex 中断。
+			name := tc.Function.Name
+			if name == "" {
+				name = lookupToolName(tools, tc.ID, "function_call")
+			}
 			cm.ToolCalls = append(cm.ToolCalls, public.CanonicalToolCall{
 				ID:        tc.ID,
-				Name:      tc.Function.Name,
+				Name:      name,
 				Arguments: marshalString(tc.Function.Arguments),
 			})
 			cm.Content = append(cm.Content, public.CanonicalContent{
 				Type:  "tool_use",
 				ID:    tc.ID,
-				Name:  tc.Function.Name,
+				Name:  name,
 				Input: parseArgsToInput(tc.Function.Arguments),
 			})
 		}
@@ -1606,8 +1619,11 @@ func hasToolCallID(tcs []public.CanonicalToolCall, id string) bool {
 
 // lookupToolName 在工具定义里按名称查找工具名（用于 function_call 缺 name 时的兜底）。
 // Responses 的 function_call item 理论上应自带 name，但某些客户端可能漏传；
-// 此时从请求携带的 tools 定义里找第一个 function 类型工具作为兜底，避免下游
+// 此时从请求携带的 tools 定义里找第一个非空工具名作为兜底，避免下游
 // Chat 请求因 function.name 为空被 go-openai omitempty 掉导致后端 400。
+// 注意：不能只扫 function 类型工具——function_call 完全可能引用 custom 工具
+// （如 Codex 的 exec_command），若只认 function 类型会返回空串，导致 name 丢失、
+// 上游 400、Codex 中断。因此回退到任意非空工具名。
 // 注意：这是兜底逻辑，正常路径应优先用 item.Name。
 func lookupToolName(tools []public.CanonicalTool, callID, itemType string) string {
 	// 优先按工具类型推断默认名（与 web_search_call / custom_tool_call 分支保持一致）。
@@ -1617,12 +1633,10 @@ func lookupToolName(tools []public.CanonicalTool, callID, itemType string) strin
 	case "custom_tool_call":
 		return "custom"
 	}
-	// 从工具定义里取第一个 function 工具名作为兜底。
+	// 从工具定义里取第一个非空工具名作为兜底（function_call 可能引用 custom 工具）。
 	for _, t := range tools {
-		if t.Type == "function" || t.Type == "" {
-			if t.Name != "" {
-				return t.Name
-			}
+		if t.Name != "" {
+			return t.Name
 		}
 	}
 	return ""
