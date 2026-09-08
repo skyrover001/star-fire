@@ -131,6 +131,10 @@ func TestDirectChatNonStream(t *testing.T) {
 	if usages[0].CachedTokens != 4 {
 		t.Fatalf("cached = %d, want 4", usages[0].CachedTokens)
 	}
+	// 成功应采样可靠性 1，EMA 从 0.5 上升
+	if ema := b.GetReliabilityEMA(); ema <= 0.5 {
+		t.Fatalf("reliability EMA = %v, want > 0.5 after success", ema)
+	}
 }
 
 func TestDirectChatStream(t *testing.T) {
@@ -172,6 +176,10 @@ func TestDirectChatStream(t *testing.T) {
 	}
 	if usages[0].TotalTokens != 8 {
 		t.Fatalf("total = %d, want 8", usages[0].TotalTokens)
+	}
+	// 流式成功应采样可靠性 1，EMA 从 0.5 上升
+	if ema := b.GetReliabilityEMA(); ema <= 0.5 {
+		t.Fatalf("reliability EMA = %v, want > 0.5 after stream success", ema)
 	}
 }
 
@@ -247,6 +255,10 @@ func TestDirectChat4xx(t *testing.T) {
 	if got := b.GetFailures(); got != 0 {
 		t.Fatalf("failures = %d, want 0", got)
 	}
+	// 4xx 属于请求问题，不采样可靠性，EMA 保持中性 0.5
+	if ema := b.GetReliabilityEMA(); ema != 0.5 {
+		t.Fatalf("reliability EMA = %v, want 0.5 (no sampling on 4xx)", ema)
+	}
 }
 
 func TestDirectChat5xx(t *testing.T) {
@@ -276,6 +288,10 @@ func TestDirectChat5xx(t *testing.T) {
 	if !b.InCooldown() {
 		t.Fatalf("5xx should trip cooldown")
 	}
+	// 5xx 属于后端过错，应采样可靠性 0，EMA 从 0.5 下降
+	if ema := b.GetReliabilityEMA(); ema >= 0.5 {
+		t.Fatalf("reliability EMA = %v, want < 0.5 after 5xx", ema)
+	}
 	_ = w
 }
 
@@ -303,6 +319,10 @@ func TestDirectChatNetworkError(t *testing.T) {
 	}
 	if got := b.GetFailures(); got != 1 {
 		t.Fatalf("failures = %d, want 1", got)
+	}
+	// 网络错误属于后端过错，应采样可靠性 0，EMA 从 0.5 下降
+	if ema := b.GetReliabilityEMA(); ema >= 0.5 {
+		t.Fatalf("reliability EMA = %v, want < 0.5 after network error", ema)
 	}
 }
 
@@ -339,5 +359,9 @@ func TestDirectChatMidStreamCut(t *testing.T) {
 	// 断流记失败
 	if got := b.GetFailures(); got != 1 {
 		t.Fatalf("failures = %d, want 1", got)
+	}
+	// 断流属于后端过错，应采样可靠性 0，EMA 从 0.5 下降
+	if ema := b.GetReliabilityEMA(); ema >= 0.5 {
+		t.Fatalf("reliability EMA = %v, want < 0.5 after mid-stream cut", ema)
 	}
 }

@@ -47,6 +47,7 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 		if err != nil {
 			log.Printf("direct %s: marshal request error: %v", b.ID, err)
 			b.IncrFailures()
+			// 本地序列化错误，非后端过错，不采样可靠性
 			return false
 		}
 	}
@@ -64,6 +65,7 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 	if err != nil {
 		log.Printf("direct %s: create request error: %v", b.ID, err)
 		b.IncrFailures()
+		// 本地构造请求错误，非后端过错，不采样可靠性
 		return false
 	}
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -79,6 +81,7 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 	if err != nil {
 		log.Printf("direct %s: request error: %v", b.ID, err)
 		b.IncrFailures()
+		b.UpdateReliability(0)
 		return false
 	}
 	defer resp.Body.Close()
@@ -96,6 +99,7 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 		body, _ := io.ReadAll(resp.Body)
 		log.Printf("direct %s: 5xx status=%d body=%s", b.ID, resp.StatusCode, string(body))
 		b.IncrFailures()
+		b.UpdateReliability(0)
 		return false
 	}
 
@@ -103,6 +107,7 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Printf("direct %s: unexpected status=%d", b.ID, resp.StatusCode)
 		b.IncrFailures()
+		b.UpdateReliability(0)
 		return false
 	}
 
@@ -121,6 +126,7 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 	if err != nil {
 		log.Printf("direct %s: read body error: %v", b.ID, err)
 		b.IncrFailures()
+		b.UpdateReliability(0)
 		return false
 	}
 
@@ -135,18 +141,21 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 		if convErr != nil {
 			log.Printf("direct %s: get OpenAI converter error: %v", b.ID, convErr)
 			b.IncrFailures()
+			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
 		canonicalResp, convErr := upstreamConv.ParseUpstreamResponse(body)
 		if convErr != nil {
 			log.Printf("direct %s: parse OpenAI response error: %v", b.ID, convErr)
 			b.IncrFailures()
+			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
 		userBody, convErr := userConv.BuildResponse(canonicalResp)
 		if convErr != nil {
 			log.Printf("direct %s: build user response error: %v", b.ID, convErr)
 			b.IncrFailures()
+			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
 		c.Data(http.StatusOK, "application/json", userBody)
@@ -156,6 +165,7 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 	recordDirectUsage(c, server, b, model, userIDStr, &chatResp.Usage)
 
 	b.ResetFailures()
+	b.UpdateReliability(1)
 	return true
 }
 
@@ -176,6 +186,7 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 		if err != nil {
 			log.Printf("direct %s: get OpenAI converter error: %v", b.ID, err)
 			b.IncrFailures()
+			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
@@ -197,9 +208,11 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 				c.Writer.Flush()
 				b.IncrFailures()
+				b.UpdateReliability(0)
 				return true
 			}
 			b.IncrFailures()
+			b.UpdateReliability(0)
 			return false
 		}
 
@@ -220,6 +233,7 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 			if _, werr := c.Writer.Write(append(append([]byte("data: "), data...), '\n', '\n')); werr != nil {
 				log.Printf("direct %s: write to user error: %v", b.ID, werr)
 				b.IncrFailures()
+				// 用户侧断连，非后端过错，不采样可靠性
 				return true
 			}
 			c.Writer.Flush()
@@ -228,6 +242,7 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 			if convErr != nil {
 				log.Printf("direct %s: parse OpenAI stream event error: %v", b.ID, convErr)
 				b.IncrFailures()
+				// 我方适配器错误，非后端过错，不采样可靠性
 				return true
 			}
 			if ev != nil && ev.Type == public.StreamEventDone {
@@ -241,6 +256,8 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 				}
 				continue
 			}
+			// writeUserStreamEvent 返回 true 表示适配层/用户侧错误（非后端过错），
+			// 有意不采样可靠性、不 ResetFailures；后端过错由上游读取错误路径处理。
 			if writeUserStreamEvent(c, server, "", "", 0, 0, 0, model, ev, userConv, nil, userWriter) {
 				return true
 			}
@@ -266,6 +283,7 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 	// 计费
 	recordDirectUsage(c, server, b, model, userIDStr, usage)
 	b.ResetFailures()
+	b.UpdateReliability(1)
 	return true
 }
 

@@ -1,7 +1,7 @@
 # P3 实施规格：ControlConn 单一 Writer Goroutine（根治并发写 panic）
 
 > 上游分析：`docs/architecture-analysis.md` §5 并发风险 #2、§8 建议 #4
-> 状态：待实施 | 依赖：无（独立于 P0/P1/P2） | 回滚：`CONTROL_WRITER_ENABLED=false`（保留旧 mutex 路径）
+> 状态：已实施 | 依赖：无（独立于 P0/P1/P2） | 回滚：`CONTROL_WRITER_ENABLED=false`（保留旧 mutex 路径）
 > 核心原则：gorilla/websocket 的 `Conn` **不允许并发写**。当前 `ControlConnMutex` 靠"每个写点记得加锁"来串行化，但写点分散在 5 个文件、至少 7 处，漏一处就 panic。本方案改为**每个控制连接一个专用 writer goroutine + 有缓冲 channel**，所有写都投递到 channel，由唯一 goroutine 串行执行，从机制上杜绝并发写。
 
 ## 0. 现状代码事实（已核实）
@@ -45,9 +45,9 @@ type Client struct {
     ControlConnMutex sync.Mutex // 保留：兼容旧路径 + 保护 ControlConn 指针读写
 
     // P3: 单一 writer goroutine
-    writeCh   chan public.WSMessage // 控制通道写队列（nil = 未启用 writer）
-    writeDone chan struct{}         // writer goroutine 退出信号
-    writeOnce sync.Once             // 保证只启动一个 writer
+    controlWriterMu sync.Mutex      // 保护 writer 状态和投递/关闭竞态
+    writeCh         chan public.WSMessage // 控制通道写队列（nil = 未启用/已关闭）
+    writeDone       chan struct{}         // writer goroutine 退出信号
 }
 ```
 
@@ -125,7 +125,7 @@ func (c *Client) StopControlWriter() {
 }
 ```
 
-> **注意**：`StopControlWriter` 必须在 `ControlConn` 置 nil / `Close()` **之后**调用，且要保证没有其它 goroutine 还在向 `writeCh` 投递（否则 `close` 后投递会 panic）。建议在 `handleClientMessages` 的断线分支统一处理（见 §6）。
+> **关闭竞态保护**：`SendControl` 与 `StopControlWriter` 持有同一 `controlWriterMu`；关闭时先将 `writeCh` 置 nil，再关闭已捕获的 channel。因此断线后投递会返回不可用错误，不会触发 `send on closed channel` panic。
 
 ## 5. 改动四：迁移所有写点
 

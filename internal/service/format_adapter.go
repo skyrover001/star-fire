@@ -304,14 +304,12 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 				content = wrapped
 			}
 		}
-		client.ControlConnMutex.Lock()
-		err = client.ControlConn.WriteJSON(public.WSMessage{
+		err = client.SendControl(public.WSMessage{
 			Type:        public.MESSAGE,
 			Content:     content,
 			FingerPrint: fingerPrint,
 			Format:      upstreamFormat,
 		})
-		client.ControlConnMutex.Unlock()
 		if err != nil {
 			log.Printf("attempt %d: send to client %s failed: %v", attempt, client.ID, err)
 			client.IncrFailures()

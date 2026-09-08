@@ -116,6 +116,127 @@ func TestPickCheapestNoSupply(t *testing.T) {
 	}
 }
 
+// setOfflineScoring 开启离线评分模式（用缓存分，避免依赖 DB），并返回恢复函数。
+func setOfflineScoring(t *testing.T) func() {
+	t.Helper()
+	origOffline := configs.Config.LBScoreOffline
+	configs.Config.LBScoreOffline = true
+	return func() { configs.Config.LBScoreOffline = origOffline }
+}
+
+// TestPickCheapestSamePriceDirectWins 同价层：个人质量分低于 Direct → 选 Direct。
+func TestPickCheapestSamePriceDirectWins(t *testing.T) {
+	restore := setOfflineScoring(t)
+	defer restore()
+	s := newM2Server(t)
+
+	// 个人：低质量（中性缓存分、无带宽）
+	comm := m2Client("comm", 1, 1)
+	comm.ControlConn = &websocket.Conn{}
+	comm.SetCachedScores(0.5, 0.5)
+	s.clients.Store(map[string]map[string]*Client{
+		"m1": {"comm": comm},
+	})
+
+	// Direct：同价、健康、高可靠性
+	b := &DirectBackend{
+		ID:       "d1",
+		MaxConns: 4,
+		Models:   []*public.Model{{Name: "m1", IPPM: 1, OPPM: 1}},
+	}
+	b.SetHealthy(true)
+	b.UpdateReliability(0.9)
+	s.directBackends = map[string][]*DirectBackend{"m1": {b}}
+
+	cc, cb := s.PickCheapest("m1", "", nil)
+	if cc != nil {
+		t.Fatalf("expected no community client, got %v", cc.ID)
+	}
+	if cb == nil || cb.ID != "d1" {
+		t.Fatalf("expected direct d1 to win same-price layer, got %v", cb)
+	}
+}
+
+// TestPickCheapestSamePriceCommunityWinsOnTie 同价层：个人质量分 >= Direct → 选个人（等分个人胜出）。
+func TestPickCheapestSamePriceCommunityWinsOnTie(t *testing.T) {
+	restore := setOfflineScoring(t)
+	defer restore()
+	s := newM2Server(t)
+
+	// 个人：高质量（缓存分满分 + 高带宽）
+	comm := m2Client("comm", 1, 1)
+	comm.ControlConn = &websocket.Conn{}
+	comm.SetCachedScores(1.0, 1.0)
+	comm.BandwidthMbps = 100
+	s.clients.Store(map[string]map[string]*Client{
+		"m1": {"comm": comm},
+	})
+
+	// Direct：同价、健康、低可靠性
+	b := &DirectBackend{
+		ID:       "d1",
+		MaxConns: 4,
+		Models:   []*public.Model{{Name: "m1", IPPM: 1, OPPM: 1}},
+	}
+	b.SetHealthy(true)
+	b.UpdateReliability(0.1)
+	s.directBackends = map[string][]*DirectBackend{"m1": {b}}
+
+	cc, cb := s.PickCheapest("m1", "", nil)
+	if cb != nil {
+		t.Fatalf("expected no direct backend, got %v", cb.ID)
+	}
+	if cc == nil || cc.ID != "comm" {
+		t.Fatalf("expected community comm to win on tie, got %v", cc)
+	}
+}
+
+// TestPickCheapestCommunityAbsentDirectFallback 无合格个人候选、Direct 通过价格帽与健康检查 → 选 Direct。
+func TestPickCheapestCommunityAbsentDirectFallback(t *testing.T) {
+	s := newM2Server(t)
+	// 无个人候选
+	s.clients.Store(map[string]map[string]*Client{"m1": {}})
+
+	b := &DirectBackend{
+		ID:       "d1",
+		MaxConns: 4,
+		Models:   []*public.Model{{Name: "m1", IPPM: 1, OPPM: 1}},
+	}
+	b.SetHealthy(true)
+	s.directBackends = map[string][]*DirectBackend{"m1": {b}}
+
+	cc, cb := s.PickCheapest("m1", "", nil)
+	if cc != nil {
+		t.Fatalf("expected no community client, got %v", cc)
+	}
+	if cb == nil || cb.ID != "d1" {
+		t.Fatalf("expected direct d1 as fallback, got %v", cb)
+	}
+}
+
+// TestPickCheapestNeverBreaksPriceCap 个人无供给但所有 Direct 超价格帽 → 返回空候选（调用方 503）。
+func TestPickCheapestNeverBreaksPriceCap(t *testing.T) {
+	s := newM2Server(t)
+	s.clients.Store(map[string]map[string]*Client{"m1": {}})
+
+	b := &DirectBackend{
+		ID:       "d1",
+		MaxConns: 4,
+		Models:   []*public.Model{{Name: "m1", IPPM: 10, OPPM: 10}},
+	}
+	b.SetHealthy(true)
+	s.directBackends = map[string][]*DirectBackend{"m1": {b}}
+
+	// 价格帽 5 → Direct 超帽被过滤
+	ddb := newTestDirectBackendDB(t)
+	s.UserPriceCapDB = NewUserPriceCapDB(ddb.db)
+	s.UserPriceCapDB.setCache("u1:m1", 5.0, 5.0, 5.0)
+	cc, cb := s.PickCheapest("m1", "u1", nil)
+	if cc != nil || cb != nil {
+		t.Fatalf("expected nil,nil when direct exceeds price cap, got %v,%v", cc, cb)
+	}
+}
+
 func TestLoadBalanceWithToleranceLatency(t *testing.T) {
 	s := newM2Server(t)
 	fast := m2Client("fast", 1, 1)

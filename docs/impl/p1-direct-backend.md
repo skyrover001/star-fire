@@ -1,7 +1,7 @@
 # P1 实施规格：DirectBackend 固定后端 + 偏好双池路由
 
 > 上游设计：`docs/scale-lb-roadmap-design.md` P1 章节
-> 状态：待实施 | 依赖：无（M2 的 cost 有效单价依赖 P2 的 CacheHitEMA，先用名义价） | 回滚：`DIRECT_BACKENDS_ENABLED=false`
+> 状态：已实施 | 依赖：无（M2 的 cost 有效单价依赖 P2 的 CacheHitEMA，先用名义价） | 回滚：`DIRECT_BACKENDS_ENABLED=false`
 >
 > **里程碑拆分**：
 > - **M1（先做，独立可上线）**：DirectBackend 数据模型 + 注册表 + 健康检查 + `stability` 默认路由（Direct 优先→众包溢出）+ HTTP 直连转发 + 计费 + CLI。
@@ -204,9 +204,19 @@ CLI 直接操作 DB；运行中的 server 下次重启生效（M1 不做热载�
 
 ## 6. M2：路由偏好 + 容忍度（依赖 M1，cost 有效单价先用名义价）
 
+> 实施状态：**同价层可靠性竞争规则与 `ReliabilityEMA` 已实现**（`PickCheapest` 内强制规则 + `directQualityScore`/`communityQualityScore` + `DirectBackend.UpdateReliability`，`handleDirectChat` 成功采样 1、5xx/网络错误采样 0）。偏好解析、balanced、容忍度、tiers 仍待实施。
+>
+> **采样归属语义**：仅后端过错采样 0（网络错误、5xx、断流）；本地序列化、格式适配（converter）错误、用户侧断连不采样（仍计 `IncrFailures` 用于冷却）。`writeUserStreamEvent` 早退路径为适配层/用户侧错误，有意不采样也不 `ResetFailures`。
+
 1. **偏好解析**（新 helper `resolveRouting(c *gin.Context, req) string`）：优先级 = body `routing` 字段（`ExtendedChatRequest` 加 `Routing string \`json:"routing,omitempty"\``，`pkg/public/chat.go`）> header `X-SF-Routing` > API Key 级（`APIKey` 表加 `Routing` 列，可再后置）> `configs.Config.RoutingDefault`。合法值 `stability|cost|balanced`，非法回退默认。
 2. **stability**：即 M1 行为。
-3. **cost**：新 `Server.PickCheapest(model, userID, exclude) (client *Client, backend *DirectBackend)`——把两池合格候选合并按单价升序（单价 = IPPM×0.7+OPPM×0.3 近似权重，P2 后换 `IPPM×(1−h)+CIPPM×h`），取最低价层（价格相等容差 1e-9），层内众包走 pickSmart、Direct 按负载率。失败溢出至次价层；**溢出目标必过价格帽，过不了返回 503**（`c.JSON(503, ...)`，错误信息说明 price cap）。
+3. **cost**：新 `Server.PickCheapest(model, userID, exclude) (client *Client, backend *DirectBackend)`——两池候选先分别通过模型、健康、容量、冷却和用户价格帽过滤，再按单价升序分层（单价 = IPPM×0.7+OPPM×0.3，P2 后可换缓存感知有效单价；相等容差 1e-9）。
+
+    **最低价层内的可靠性竞争（强制规则）**：先取 `bestDirect` 与 `bestCommunity`。若只有一类候选，直接选择该类；两类都有时，默认选择 `bestDirect`，**仅当** `communityQualityScore(bestCommunity) >= directQualityScore(bestDirect)` 时选择个人算力。等分时个人胜出，表示已有实测稳定性不低于 Direct 的个人节点可以承担请求；否则 Direct 优先，保证消费者默认获得更稳定、可控的固定供给。不得在比较前对个人候选使用 `pickSmart` 的会员加权随机阶段，以免较低分个人节点偶然越过 Direct。
+
+    `communityQualityScore` 直接复用阶段 1 `perfScore`（容量、延迟、失败、在线稳定性、服务能力、带宽；不含会员权重）。新增 `directQualityScore`，使用同一组权重与归一化函数：容量=`capacityScore(MaxConns, Active)`，延迟=`latencyScore(LatencyEMA)`，失败=`failureScore(RecentFailures)`，稳定性=`ReliabilityEMA`，服务能力与带宽按 Direct 的受管基线取 1。`ReliabilityEMA` 是 DirectBackend 新增的原子 float64bits 字段：每次真实 Direct 请求成功采样 1、5xx/网络错误采样 0，健康检查仅更新可用状态，不得伪造成功样本；未初始化采用 0.5 中性值。这样 Direct 与个人的比较基于可解释、可观测的可靠性，而非仅凭 `Priority` 或“健康即满分”。
+
+    个人算力没有合格候选时，合格 DirectBackend 必须作为兜底；反过来，Direct 都不合格而个人合格时选择个人；两池都无合格候选才返回 `503`。任何兜底目标仍必须通过用户价格帽，绝不能用超价格帽的 Direct 强行服务。失败时在同一价格层内排除已失败目标后重选；该层耗尽才溢出下一价格层，下一层同样执行上述竞争规则。
 4. **balanced**：先 `LoadBalanceExcluding`，但 Predicate 后过滤 `perfScore >= LB_BALANCED_MIN_SCORE`（需要 Server 暴露该过滤，实现为 `LoadBalanceExcluding` 的变体参数）；无候选/失败溢出 Direct。
 5. **容忍度**：`ExtendedChatRequest` 加 `MaxLatencyMs int`、`MinStability float64`（json omitempty）；透传到 LoadBalance 作为额外 Predicate（`LatencyEMA`、P0 缓存 stab 分）。
 6. **tiers 暴露**：`/v1/models` 响应（或 market API）每个模型加 `tiers: ["direct","community"]`。
@@ -229,6 +239,11 @@ M2：⑦ 偏好解析+stability/cost/balanced 分支+单测 → ⑧ 容忍度 Pr
 | `TestPickDirectExclude` | exclude["direct:"+id] 生效；全排除返回 nil |
 | `TestPickDirectNoSupply` | 注册表无该模型 → nil（退化路径） |
 | `TestDirectCooldownAlwaysOn` | `LB_COOLDOWN_ENABLED=false` 时 DirectBackend 冷却仍生效 |
+| `TestPickCheapestSamePriceDirectWins` | Direct 与个人名义单价相同，且个人 quality 低于 Direct → 选 Direct |
+| `TestPickCheapestSamePriceCommunityWinsOnTie` | Direct 与个人同价且 quality 相等或个人更高 → 选个人 |
+| `TestPickCheapestCommunityAbsentDirectFallback` | 无合格个人候选、Direct 通过价格帽与健康检查 → 选 Direct |
+| `TestPickCheapestNeverBreaksPriceCap` | 个人无供给但所有 Direct 超价格帽 → 返回空候选，由调用方返回 503 |
+| `TestDirectReliabilityEMA` | 成功采样提高、5xx/网络失败采样降低、健康检查不改变 EMA、未初始化为中性值 |
 
 **internal/service/direct_chat_test.go（新）**，`httptest.Server` 模拟后端 + `gin.CreateTestContext` + :memory: sqlite 构造的 `models.Server`（只需 TokenUsageDB/UserDB/UserPriceCapDB 字段）：
 

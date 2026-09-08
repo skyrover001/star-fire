@@ -317,11 +317,6 @@ func clientHealthy(c *Client, model string) bool {
 // notifyLatencyExceeded 通知 client app：由于网络延迟过高，暂不采纳该用户的模型算力。
 // 通过控制连接发送 LATENCY_EXCEEDED 消息，client 端（Go 客户端 → Python 桌面应用）据此提示用户。
 func (s *Server) notifyLatencyExceeded(c *Client, model string) {
-	c.ControlConnMutex.Lock()
-	defer c.ControlConnMutex.Unlock()
-	if c.ControlConn == nil {
-		return
-	}
 	message := public.WSMessage{
 		Type: public.LATENCY_EXCEEDED,
 		Content: map[string]interface{}{
@@ -330,7 +325,7 @@ func (s *Server) notifyLatencyExceeded(c *Client, model string) {
 			"limit":   configs.Config.MaxLatency * 1000,
 		},
 	}
-	if err := c.ControlConn.WriteJSON(message); err != nil {
+	if err := c.SendControl(message); err != nil {
 		log.Printf("notify latency exceeded to client %s failed: %v", c.ID, err)
 	}
 }
@@ -811,6 +806,33 @@ func (s *Server) perfScore(c *Client) float64 {
 		wStab*stabS +
 		wServ*servS +
 		wBw*bandwidthScore(bw)
+}
+
+// communityQualityScore 计算众包 client 的质量分（cost 路由同价层竞争用）。
+// 直接复用 perfScore（容量/延迟/失败/在线稳定性/服务能力/带宽，不含会员权重）。
+func (s *Server) communityQualityScore(c *Client) float64 {
+	return s.perfScore(c)
+}
+
+// directQualityScore 计算 Direct 后端的质量分（cost 路由同价层竞争用）。
+// 使用与 perfScore 相同的权重与归一化函数：
+//   - 容量 = capacityScore(MaxConns, Active)
+//   - 延迟 = latencyScore(LatencyEMA)
+//   - 失败 = failureScore(RecentFailures)
+//   - 稳定性 = ReliabilityEMA（真实请求可靠性，未初始化=0.5 中性值）
+//   - 服务能力与带宽按 Direct 的受管基线取 1
+func (s *Server) directQualityScore(b *DirectBackend) float64 {
+	wCap, wLat, wFail, wStab, wServ, wBw := s.smartWeights()
+	maxc := b.MaxConns
+	if maxc <= 0 {
+		maxc = 1
+	}
+	return wCap*capacityScore(maxc, b.GetActive()) +
+		wLat*latencyScore(int(b.GetLatencyEMA())) +
+		wFail*failureScore(b.GetFailures()) +
+		wStab*b.GetReliabilityEMA() +
+		wServ*1.0 +
+		wBw*1.0
 }
 
 // pickSmart 两阶段选择：
@@ -1311,7 +1333,7 @@ func (s *Server) PickDirect(model, userID string, exclude map[string]bool) *Dire
 
 	var best *DirectBackend
 	bestPrio := int(^uint(0) >> 1) // maxint
-	bestLoad := 2.0
+	bestLoad := math.Inf(1)
 	for _, b := range list {
 		if exclude["direct:"+b.ID] || !b.IsHealthy() || b.InCooldown() {
 			continue
@@ -1342,8 +1364,10 @@ func costPrice(ippm, oppm float64) float64 {
 }
 
 // PickCheapest 按单价升序选择最便宜的供给（cost 路由）。
-// 把众包 client 与 Direct 后端合并，按近似单价分层（容差 1e-9），
-// 层内众包走 pickSmart、Direct 按负载率。返回 (client, backend)，二者至多一个非 nil。
+// 把众包 client 与 Direct 后端合并，按近似单价分层（容差 1e-9）。
+// 层内可靠性竞争（强制规则）：只有一类候选直接选择该类；两类都有时默认选 Direct，
+// 仅当 communityQualityScore(bestCommunity) >= directQualityScore(bestDirect) 时选个人算力。
+// 返回 (client, backend)，二者至多一个非 nil。
 // 溢出到次价层由调用方通过 exclude 控制（failedClients 记录已失败的 key）。
 // 注意：本方法只返回"当前最低价层"的候选；若该层无可用候选返回 nil,nil。
 func (s *Server) PickCheapest(model, userID string, exclude map[string]bool) (*Client, *DirectBackend) {
@@ -1408,7 +1432,9 @@ func (s *Server) PickCheapest(model, userID string, exclude map[string]bool) (*C
 		}
 	}
 
-	// 层内：众包走 pickSmart，Direct 按负载率。
+	// 层内：同价层内的可靠性竞争（强制规则）。
+	// 先取 bestDirect 与 bestCommunity；若只有一类候选直接选择该类；
+	// 两类都有时默认选 Direct，仅当 communityQualityScore >= directQualityScore 时选个人算力。
 	var layerClients []*Client
 	var layerBackends []*DirectBackend
 	for _, cd := range layer {
@@ -1418,12 +1444,41 @@ func (s *Server) PickCheapest(model, userID string, exclude map[string]bool) (*C
 			layerBackends = append(layerBackends, cd.b)
 		}
 	}
-	if len(layerClients) > 0 {
+
+	// 只有 Direct：按负载率最低
+	if len(layerClients) == 0 {
+		var best *DirectBackend
+		bestLoad := math.Inf(1)
+		for _, b := range layerBackends {
+			maxc := b.MaxConns
+			if maxc <= 0 {
+				maxc = 1
+			}
+			load := float64(b.GetActive()) / float64(maxc)
+			if load < bestLoad {
+				best, bestLoad = b, load
+			}
+		}
+		return nil, best
+	}
+
+	// 只有众包：走 pickSmart
+	if len(layerBackends) == 0 {
 		return s.pickSmart(model, layerClients), nil
 	}
-	// 只有 Direct：按负载率最低
-	var best *DirectBackend
-	bestLoad := 2.0
+
+	// 两类都有：同价层可靠性竞争。
+	// bestCommunity 取众包中质量分最高者（不经过会员加权随机，避免低分节点偶然越过 Direct）。
+	var bestCommunity *Client
+	bestCommunityScore := -1.0
+	for _, c := range layerClients {
+		if sc := s.communityQualityScore(c); sc > bestCommunityScore {
+			bestCommunity, bestCommunityScore = c, sc
+		}
+	}
+	// bestDirect 取负载率最低者
+	var bestDirect *DirectBackend
+	bestLoad := math.Inf(1)
 	for _, b := range layerBackends {
 		maxc := b.MaxConns
 		if maxc <= 0 {
@@ -1431,10 +1486,14 @@ func (s *Server) PickCheapest(model, userID string, exclude map[string]bool) (*C
 		}
 		load := float64(b.GetActive()) / float64(maxc)
 		if load < bestLoad {
-			best, bestLoad = b, load
+			bestDirect, bestLoad = b, load
 		}
 	}
-	return nil, best
+	// 默认 Direct 优先；仅当个人质量分 >= Direct 质量分时选个人（等分个人胜出）。
+	if bestCommunityScore >= s.directQualityScore(bestDirect) {
+		return bestCommunity, nil
+	}
+	return nil, bestDirect
 }
 
 // runDirectHealthCheck 每 30s GET {BaseURL}/models（Bearer APIKey），5s 超时。
@@ -1662,22 +1721,18 @@ func (s *Server) UpdateModelPrice(userID, modelName string, ippm, oppm, cippm fl
 			log.Printf("save client %s price to db failed: %v", client.ID, err)
 		}
 
-		client.ControlConnMutex.Lock()
-		if client.ControlConn != nil {
-			message := public.WSMessage{
-				Type: public.MODEL_PRICE_UPDATE,
-				Content: public.ModelPriceUpdate{
-					Model: modelName,
-					IPPM:  ippm,
-					OPPM:  oppm,
-					CIPPM: cippm,
-				},
-			}
-			if err := client.ControlConn.WriteJSON(message); err != nil {
-				log.Printf("push model price update to client %s failed: %v", client.ID, err)
-			}
+		message := public.WSMessage{
+			Type: public.MODEL_PRICE_UPDATE,
+			Content: public.ModelPriceUpdate{
+				Model: modelName,
+				IPPM:  ippm,
+				OPPM:  oppm,
+				CIPPM: cippm,
+			},
 		}
-		client.ControlConnMutex.Unlock()
+		if err := client.SendControl(message); err != nil {
+			log.Printf("push model price update to client %s failed: %v", client.ID, err)
+		}
 	}
 
 	return len(updated), nil

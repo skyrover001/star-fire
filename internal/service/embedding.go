@@ -71,14 +71,12 @@ func HandleEmbeddingRequest(c *gin.Context, server *models.Server) {
 		log.Printf("save fingerprint and client relation failed: %v", err)
 	}
 
-	// 发送embedding请求到客户端（持锁写，避免与 keepalive 等并发写同一 ControlConn 触发 panic）
-	client.ControlConnMutex.Lock()
-	err = client.ControlConn.WriteJSON(public.WSMessage{
+	// 发送 embedding 请求到客户端（ControlConn 单 writer 串行写入）。
+	err = client.SendControl(public.WSMessage{
 		Type:        public.EMBEDDING_REQUEST,
 		Content:     request,
 		FingerPrint: fingerPrint,
 	})
-	client.ControlConnMutex.Unlock()
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Error while writing json to client:" + err.Error()})
 		return

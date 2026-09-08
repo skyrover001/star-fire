@@ -25,6 +25,10 @@ func HandleClientConnection(client *models.Client, server *models.Server) {
 		keepAliveClient(client, server)
 	}()
 	handleClientMessages(client, server)
+	client.ControlConnMutex.Lock()
+	client.ControlConn = nil
+	client.ControlConnMutex.Unlock()
+	client.StopControlWriter()
 
 	// 连接断开，主动清理该 client 注册的所有模型
 	for _, m := range client.Models {
@@ -48,24 +52,15 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 	for {
 		select {
 		case <-ticker.C:
-			// 如果客户端连接断开，则关闭连接
-			client.ControlConnMutex.Lock()
-			if client.ControlConn == nil {
-				client.ControlConnMutex.Unlock()
-				log.Println("Client control connection is nil, closing connection")
-				client.Status = "offline"
-				return
-			}
 			pingTime := time.Now().UnixMilli()
 			client.LastPingTime = pingTime
-			err := client.ControlConn.WriteJSON(public.WSMessage{
+			err := client.SendControl(public.WSMessage{
 				Type: public.KEEPALIVE,
 				Content: public.PPMessage{
 					Type:      public.PING,
 					Timestamp: strconv.Itoa(int(pingTime)),
 				},
 			})
-			client.ControlConnMutex.Unlock()
 			if err != nil {
 				log.Println("Error while writing ping message:", err)
 				client.Status = "offline"
@@ -166,6 +161,7 @@ func handleClientMessages(client *models.Client, server *models.Server) {
 			client.ControlConnMutex.Lock()
 			client.ControlConn = nil
 			client.ControlConnMutex.Unlock()
+			client.StopControlWriter()
 			client.Status = "offline"
 			return
 		}

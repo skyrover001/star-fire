@@ -36,6 +36,7 @@ type DirectBackend struct {
 	LatencyEMA     uint64          `json:"-" gorm:"-"` // atomic float64bits（健康检查 RTT ms）
 	Healthy        int32           `json:"-" gorm:"-"` // atomic bool（健康检查结果）
 	CacheHitEMA    uint64          `json:"-" gorm:"-"` // atomic float64bits（实测 cache 命中率 EMA，仅 tiebreak）
+	ReliabilityEMA uint64          `json:"-" gorm:"-"` // atomic float64bits（真实请求可靠性 EMA，未初始化=0.5 中性值）
 }
 
 // UpdateCacheHit 以 EMA(alpha=0.2) 更新实测命中率，h ∈ [0,1]。
@@ -66,6 +67,41 @@ func (b *DirectBackend) UpdateCacheHit(h float64) {
 // GetCacheHitEMA 返回当前 EMA（未初始化返回 0）。
 func (b *DirectBackend) GetCacheHitEMA() float64 {
 	return math.Float64frombits(atomic.LoadUint64(&b.CacheHitEMA))
+}
+
+// UpdateReliability 以 EMA(alpha=0.2) 更新真实请求可靠性。
+// 每次真实 Direct 请求成功采样 1、5xx/网络错误采样 0；健康检查不得调用本方法（不伪造成功样本）。
+// 未初始化时以 0.5 中性值起步，避免新后端被误判。
+func (b *DirectBackend) UpdateReliability(sample float64) {
+	if sample < 0 {
+		sample = 0
+	}
+	if sample > 1 {
+		sample = 1
+	}
+	const alpha = 0.2
+	for {
+		old := atomic.LoadUint64(&b.ReliabilityEMA)
+		var prev float64
+		if old == 0 {
+			prev = 0.5 // 中性值
+		} else {
+			prev = math.Float64frombits(old)
+		}
+		next := alpha*sample + (1-alpha)*prev
+		if atomic.CompareAndSwapUint64(&b.ReliabilityEMA, old, math.Float64bits(next)) {
+			return
+		}
+	}
+}
+
+// GetReliabilityEMA 返回当前可靠性 EMA；未初始化返回 0.5 中性值。
+func (b *DirectBackend) GetReliabilityEMA() float64 {
+	old := atomic.LoadUint64(&b.ReliabilityEMA)
+	if old == 0 {
+		return 0.5
+	}
+	return math.Float64frombits(old)
 }
 
 // BeforeSave 序列化 Models → ModelsJSON（照抄 Client 实现）。

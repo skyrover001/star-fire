@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -42,6 +43,9 @@ type Client struct {
 	EmbeddingModels  []*openai.EmbeddingModel `json:"embedding_models" gorm:"-"`
 	ControlConn      *websocket.Conn          `json:"-" gorm:"-"`
 	ControlConnMutex sync.Mutex               `json:"-" gorm:"-"`
+	controlWriterMu  sync.Mutex               `json:"-" gorm:"-"`
+	writeCh          chan public.WSMessage    `json:"-" gorm:"-"`
+	writeDone        chan struct{}            `json:"-" gorm:"-"`
 	LatencyMutex     sync.RWMutex             `json:"-" gorm:"-"`
 	LastPingTime     int64                    `json:"-" gorm:"-"`
 	MessageChan      chan *api.ChatResponse   `json:"-" gorm:"-"`
@@ -297,7 +301,7 @@ func (cdb *ClientDB) GetClientsByUserID(userID string) ([]*Client, error) {
 }
 
 func NewClient(id, ip string, conn *websocket.Conn) *Client {
-	return &Client{
+	client := &Client{
 		ID:           id,
 		IP:           ip,
 		ControlConn:  conn,
@@ -308,6 +312,97 @@ func NewClient(id, ip string, conn *websocket.Conn) *Client {
 		MessageChan:  make(chan *api.ChatResponse),
 		ErrChan:      make(chan error),
 	}
+	client.StartControlWriter()
+	return client
+}
+
+// StartControlWriter starts the only goroutine allowed to write to ControlConn.
+func (c *Client) StartControlWriter() {
+	if !configs.Config.ControlWriterEnabled {
+		return
+	}
+	bufferSize := configs.Config.ControlWriterBufSize
+	if bufferSize <= 0 {
+		bufferSize = 64
+	}
+	c.controlWriterMu.Lock()
+	if c.writeCh != nil {
+		c.controlWriterMu.Unlock()
+		return
+	}
+	c.writeCh = make(chan public.WSMessage, bufferSize)
+	c.writeDone = make(chan struct{})
+	writeCh := c.writeCh
+	writeDone := c.writeDone
+	c.controlWriterMu.Unlock()
+	go c.controlWriterLoop(writeCh, writeDone)
+}
+
+func (c *Client) controlWriterLoop(writeCh <-chan public.WSMessage, writeDone chan<- struct{}) {
+	defer close(writeDone)
+	for message := range writeCh {
+		c.ControlConnMutex.Lock()
+		conn := c.ControlConn
+		c.ControlConnMutex.Unlock()
+		if conn == nil {
+			continue
+		}
+		if err := conn.WriteJSON(message); err != nil {
+			log.Printf("control writer: write to client %s failed: %v", c.ID, err)
+			c.Status = "offline"
+		}
+	}
+}
+
+// SendControl queues a control message without blocking request handlers.
+// The state lock prevents a send-on-closed-channel race with StopControlWriter.
+func (c *Client) SendControl(message public.WSMessage) error {
+	if !configs.Config.ControlWriterEnabled {
+		return c.writeControlDirect(message)
+	}
+	c.controlWriterMu.Lock()
+	defer c.controlWriterMu.Unlock()
+	if c.writeCh == nil {
+		// Legacy/restored clients can have a valid connection without going through
+		// NewClient. Preserve the old mutex-protected behavior for that case.
+		return c.writeControlDirect(message)
+	}
+	select {
+	case c.writeCh <- message:
+		return nil
+	default:
+		log.Printf("control writer: buffer full for client %s, dropping msg type=%s", c.ID, message.Type)
+		return errors.New("client control writer buffer is full")
+	}
+}
+
+func (c *Client) writeControlDirect(message public.WSMessage) error {
+	c.ControlConnMutex.Lock()
+	defer c.ControlConnMutex.Unlock()
+	if c.ControlConn == nil {
+		return errors.New("client control connection is unavailable")
+	}
+	if err := c.ControlConn.WriteJSON(message); err != nil {
+		log.Printf("control write to client %s failed: %v", c.ID, err)
+		return err
+	}
+	return nil
+}
+
+// StopControlWriter stops the writer after callers have detached ControlConn.
+func (c *Client) StopControlWriter() {
+	c.controlWriterMu.Lock()
+	if c.writeCh == nil {
+		c.controlWriterMu.Unlock()
+		return
+	}
+	writeCh := c.writeCh
+	writeDone := c.writeDone
+	c.writeCh = nil
+	c.writeDone = nil
+	close(writeCh)
+	c.controlWriterMu.Unlock()
+	<-writeDone
 }
 
 func (c *Client) SetUser(user *User) {

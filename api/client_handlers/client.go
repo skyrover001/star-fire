@@ -63,7 +63,7 @@ func (h *ClientHandler) RegisterClient(c *gin.Context) {
 		Content:     "",
 		FingerPrint: reconnectResponse.Token,
 	}
-	err = conn.WriteJSON(reconnectMsg)
+	err = client.SendControl(reconnectMsg)
 	if err != nil {
 		log.Printf("Error sending welcome message: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send welcome message"})

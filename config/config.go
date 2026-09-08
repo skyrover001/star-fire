@@ -68,7 +68,7 @@ type Configuration struct {
 	LBWeightSVIP   float64 // svip 权重
 
 	// P0 打分离线化 + 熔断冷却
-	LBScoreOffline       bool    // LB_SCORE_OFFLINE，默认 false：perfScore 慢变维度走离线缓存
+	LBScoreOffline       bool    // LB_SCORE_OFFLINE，默认 true：perfScore 慢变维度走离线缓存
 	ScoreRefreshInterval int     // SCORE_REFRESH_INTERVAL 秒，默认 30：慢变维度刷新周期
 	LBCooldownEnabled    bool    // LB_COOLDOWN_ENABLED，默认 false：失败熔断冷却开关
 	LBCooldownBaseMs     int     // LB_COOLDOWN_BASE_MS，默认 5000：冷却指数退避基数
@@ -87,6 +87,10 @@ type Configuration struct {
 	AffinityMissK         int     // AFFINITY_MISS_K，默认 3
 	AffinityMaxEntries    int     // AFFINITY_MAX_ENTRIES，默认 100000（LRU 上限）
 	LBHRWSubsetSize       int     // LB_HRW_SUBSET_SIZE，默认 0（关闭）
+
+	// P3: Client 控制连接单 writer，避免 gorilla/websocket 并发写 panic
+	ControlWriterEnabled bool // CONTROL_WRITER_ENABLED，默认 true
+	ControlWriterBufSize int  // CONTROL_WRITER_BUF_SIZE，默认 64
 
 	// P1-M2: 路由偏好 + 容忍度
 	RoutingDefault     string  // ROUTING_DEFAULT，默认 "stability"：stability|cost|balanced
@@ -192,7 +196,7 @@ func loadConfig() Configuration {
 	lbWeightSVIP, _ := strconv.ParseFloat(getEnv("LB_WEIGHT_SVIP", "8.0"), 64)
 
 	// P0 打分离线化 + 熔断冷却
-	lbScoreOffline, _ := strconv.ParseBool(getEnv("LB_SCORE_OFFLINE", "false"))
+	lbScoreOffline, _ := strconv.ParseBool(getEnv("LB_SCORE_OFFLINE", "true"))
 	scoreRefreshInterval, _ := strconv.Atoi(getEnv("SCORE_REFRESH_INTERVAL", "30"))
 	if scoreRefreshInterval <= 0 {
 		scoreRefreshInterval = 30
@@ -243,6 +247,11 @@ func loadConfig() Configuration {
 	lbHRWSubsetSize, _ := strconv.Atoi(getEnv("LB_HRW_SUBSET_SIZE", "0"))
 	if lbHRWSubsetSize < 0 {
 		lbHRWSubsetSize = 0
+	}
+	controlWriterEnabled, _ := strconv.ParseBool(getEnv("CONTROL_WRITER_ENABLED", "true"))
+	controlWriterBufSize, _ := strconv.Atoi(getEnv("CONTROL_WRITER_BUF_SIZE", "64"))
+	if controlWriterBufSize <= 0 {
+		controlWriterBufSize = 64
 	}
 
 	// P1-M2: 路由偏好 + 容忍度
@@ -374,6 +383,9 @@ func loadConfig() Configuration {
 		AffinityMissK:         affinityMissK,
 		AffinityMaxEntries:    affinityMaxEntries,
 		LBHRWSubsetSize:       lbHRWSubsetSize,
+
+		ControlWriterEnabled: controlWriterEnabled,
+		ControlWriterBufSize: controlWriterBufSize,
 
 		RoutingDefault:     routingDefault,
 		LBBalancedMinScore: lbBalancedMinScore,

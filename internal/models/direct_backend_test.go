@@ -288,3 +288,39 @@ func TestDirectBackendDBSetEnabledDelete(t *testing.T) {
 		t.Fatalf("after delete len = %d, want 0", len(list))
 	}
 }
+
+// TestDirectReliabilityEMA 成功采样提高、失败采样降低、未初始化为中性值。
+func TestDirectReliabilityEMA(t *testing.T) {
+	b := &DirectBackend{}
+
+	// 未初始化 → 中性值 0.5
+	if got := b.GetReliabilityEMA(); got != 0.5 {
+		t.Fatalf("uninitialized reliability = %v, want 0.5", got)
+	}
+
+	// 连续成功 → 提高
+	b.UpdateReliability(1)
+	b.UpdateReliability(1)
+	b.UpdateReliability(1)
+	if got := b.GetReliabilityEMA(); got <= 0.5 {
+		t.Fatalf("after successes reliability = %v, want > 0.5", got)
+	}
+
+	// 连续失败 → 降低
+	b.UpdateReliability(0)
+	b.UpdateReliability(0)
+	b.UpdateReliability(0)
+	if got := b.GetReliabilityEMA(); got >= 0.5 {
+		t.Fatalf("after failures reliability = %v, want < 0.5", got)
+	}
+
+	// 越界采样被钳制
+	b.UpdateReliability(5)
+	if got := b.GetReliabilityEMA(); got > 1 {
+		t.Fatalf("reliability out of range = %v", got)
+	}
+	b.UpdateReliability(-1)
+	if got := b.GetReliabilityEMA(); got < 0 {
+		t.Fatalf("reliability out of range = %v", got)
+	}
+}
