@@ -458,18 +458,51 @@
         </div>
       </div>
 
-      <!-- 标签切换 -->
+      <!-- 格式切换 -->
       <div class="flex border-b border-[var(--border-color)]">
         <button
           class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
-          :class="activeExampleTab === 'curl' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
-          @click="activeExampleTab = 'curl'"
-        >cURL</button>
+          :class="activeFormatTab === 'openai' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeFormatTab = 'openai'"
+        >OpenAI Chat</button>
         <button
           class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
-          :class="activeExampleTab === 'python' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
-          @click="activeExampleTab = 'python'"
-        >Python</button>
+          :class="activeFormatTab === 'responses' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeFormatTab = 'responses'"
+        >OpenAI Responses</button>
+        <button
+          class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+          :class="activeFormatTab === 'anthropic' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeFormatTab = 'anthropic'"
+        >Anthropic</button>
+      </div>
+
+      <!-- 语言 / 请求响应切换 -->
+      <div class="flex items-center justify-between border-b border-[var(--border-color)] px-4">
+        <div class="flex">
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleTab === 'curl' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleTab = 'curl'"
+          >cURL</button>
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleTab === 'python' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleTab = 'python'"
+          >Python</button>
+        </div>
+        <div class="flex">
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleMode === 'request' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleMode = 'request'"
+          >{{ $t('business.marketplace.request') }}</button>
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleMode === 'response' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleMode = 'response'"
+          >{{ $t('business.marketplace.response') }}</button>
+        </div>
       </div>
 
       <div class="p-4">
@@ -480,7 +513,61 @@
           >
             {{ $t('business.marketplace.copy') }}
           </button>
-          <pre class="overflow-x-auto rounded-lg bg-[#1e1e1e] p-4 text-sm text-green-400 font-mono leading-relaxed"><code>{{ activeExampleTab === 'curl' ? chatExample : pythonExample }}</code></pre>
+          <pre class="overflow-x-auto rounded-lg bg-[#1e1e1e] p-4 text-sm text-green-400 font-mono leading-relaxed"><code>{{ currentExample }}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Codex 一键接入 -->
+    <div class="mb-6 rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] overflow-hidden">
+      <div class="p-6 border-b border-[var(--border-color)]">
+        <div class="flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/10">
+            <svg class="h-4 w-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold text-[var(--text-primary)]">{{ $t('business.marketplace.codexSetup') }}</h3>
+            <p class="text-xs text-[var(--text-secondary)]">
+              {{ $t('business.marketplace.codexSetupDescription') }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+          <button
+            @click="downloadCodexScript"
+            class="inline-flex items-center justify-center px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            {{ $t('business.marketplace.downloadCodexScript') }}
+          </button>
+          <code class="font-mono text-xs text-[var(--text-secondary)] break-all">{{ codexScriptUrl }}</code>
+        </div>
+
+        <div class="mt-5 rounded-lg bg-[var(--hover-bg)] p-4">
+          <h4 class="text-sm font-semibold text-[var(--text-primary)] mb-3">{{ $t('business.marketplace.codexUsageSteps') }}</h4>
+          <ol class="space-y-2 text-sm text-[var(--text-secondary)]">
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">1</span>
+              <span>{{ $t('business.marketplace.codexStep1') }}</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">2</span>
+              <span>{{ $t('business.marketplace.codexStep2') }}</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">3</span>
+              <span>{{ $t('business.marketplace.codexStep3') }}</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">4</span>
+              <span>{{ $t('business.marketplace.codexStep4') }}</span>
+            </li>
+          </ol>
         </div>
       </div>
     </div>
@@ -493,6 +580,7 @@ import { useRouter, useRoute } from 'vue-router';
 import { useAppConfig } from '@vben/hooks';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
+import { buildApiBaseUrl } from '#/utils/api-base-url';
 
 const router = useRouter();
 const route = useRoute();
@@ -509,23 +597,135 @@ const modelUsage = ref({ calls: 0, total_tokens: 0, user_count: 0, client_count:
 // 从路由参数获取模型名称
 const modelName = computed(() => route.query.name as string || '');
 
-// OpenAI API base_url
-const baseUrl = computed(() => `${serverHost}/v1`);
+// OpenAI API base_url（自动获取：配置的 serverHost → 同源回退 → 协议补全）
+const baseUrl = computed(() => buildApiBaseUrl(serverHost));
 
-// 调用示例代码
-const chatExample = computed(() => {
+// 调用示例标签
+const activeFormatTab = ref<'openai' | 'responses' | 'anthropic'>('openai');
+const activeExampleTab = ref<'curl' | 'python'>('curl');
+const activeExampleMode = ref<'request' | 'response'>('request');
+
+// OpenAI Chat Completions 请求示例
+const openaiChatRequest = computed(() => {
   return `curl ${baseUrl.value}/chat/completions \\
   -H "Content-Type: application/json" \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -d '{
     "model": "${modelName.value}",
     "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello!"}
+    ],
+    "stream": false
+  }'`;
+});
+
+// OpenAI Chat Completions 响应示例
+const openaiChatResponse = computed(() => {
+  return `{
+  "id": "chatcmpl-xxxxxxxxxxxxxxxxxxxxxxxx",
+  "object": "chat.completion",
+  "created": 1730000000,
+  "model": "${modelName.value}",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! How can I help you today?"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 9,
+    "total_tokens": 21
+  }
+}`;
+});
+
+// OpenAI Responses 请求示例
+const openaiResponsesRequest = computed(() => {
+  return `curl ${baseUrl.value}/responses \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "model": "${modelName.value}",
+    "instructions": "You are a helpful assistant.",
+    "input": "Hello!",
+    "stream": false
+  }'`;
+});
+
+// OpenAI Responses 响应示例
+const openaiResponsesResponse = computed(() => {
+  return `{
+  "id": "resp_xxxxxxxxxxxxxxxxxxxxxxxx",
+  "object": "response",
+  "created_at": 1730000000,
+  "status": "completed",
+  "model": "${modelName.value}",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Hello! How can I help you today?"
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 9,
+    "total_tokens": 21
+  }
+}`;
+});
+
+// Anthropic Messages 请求示例
+const anthropicRequest = computed(() => {
+  return `curl ${baseUrl.value}/messages \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: YOUR_API_KEY" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -d '{
+    "model": "${modelName.value}",
+    "max_tokens": 1024,
+    "system": "You are a helpful assistant.",
+    "messages": [
       {"role": "user", "content": "Hello!"}
     ]
   }'`;
 });
 
-const pythonExample = computed(() => {
+// Anthropic Messages 响应示例
+const anthropicResponse = computed(() => {
+  return `{
+  "id": "msg_xxxxxxxxxxxxxxxxxxxxxxxx",
+  "type": "message",
+  "role": "assistant",
+  "model": "${modelName.value}",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello! How can I help you today?"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 9
+  }
+}`;
+});
+
+// Python 请求示例（OpenAI SDK）
+const openaiPythonRequest = computed(() => {
   return `from openai import OpenAI
 
 client = OpenAI(
@@ -535,19 +735,72 @@ client = OpenAI(
 
 response = client.chat.completions.create(
     model="${modelName.value}",
-    messages=[{"role": "user", "content": "Hello!"}],
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello!"},
+    ],
 )
 print(response.choices[0].message.content)`;
 });
 
-const parameterSize = computed(() => modelName.value.split(':')[1] || $t('business.marketplace.parameters'));
+// Python 请求示例（Anthropic SDK）
+const anthropicPythonRequest = computed(() => {
+  return `from anthropic import Anthropic
 
-// 调用示例标签
-const activeExampleTab = ref<'curl' | 'python'>('curl');
+# 标准 Anthropic 认证：api_key 会发送 x-api-key 头，网关已支持
+client = Anthropic(
+    base_url="${baseUrl.value}",
+    api_key="YOUR_API_KEY",
+)
+
+response = client.messages.create(
+    model="${modelName.value}",
+    max_tokens=1024,
+    system="You are a helpful assistant.",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.content[0].text)`;
+});
+
+// 当前显示的示例代码
+const currentExample = computed(() => {
+  if (activeExampleMode.value === 'response') {
+    switch (activeFormatTab.value) {
+      case 'openai': return openaiChatResponse.value;
+      case 'responses': return openaiResponsesResponse.value;
+      case 'anthropic': return anthropicResponse.value;
+    }
+  }
+  if (activeExampleTab.value === 'python') {
+    return activeFormatTab.value === 'anthropic'
+      ? anthropicPythonRequest.value
+      : openaiPythonRequest.value;
+  }
+  switch (activeFormatTab.value) {
+    case 'openai': return openaiChatRequest.value;
+    case 'responses': return openaiResponsesRequest.value;
+    case 'anthropic': return anthropicRequest.value;
+  }
+});
+
+// Codex 一键接入脚本下载
+const codexScriptUrl = computed(() => `${window.location.origin}/download/codex-starfire-setup.ps1`);
+
+const downloadCodexScript = () => {
+  const filename = 'codex-starfire-setup.ps1';
+  const downloadUrl = `${window.location.origin}/download/${filename}?filename=${encodeURIComponent(filename)}`;
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
 
 // 复制调用示例
 const copyExample = async () => {
-  const text = activeExampleTab.value === 'curl' ? chatExample.value : pythonExample.value;
+  const text = currentExample.value;
   try {
     await navigator.clipboard.writeText(text);
     // 简单提示
@@ -557,6 +810,7 @@ const copyExample = async () => {
 };
 
 // 支持的最大上下文：默认输入 128K，输出 32K
+const parameterSize = computed(() => modelName.value.split(':')[1] || $t('business.marketplace.parameters'));
 const maxContext = computed(() => {
   const input = 128 * 1024;
   const output = 32 * 1024;

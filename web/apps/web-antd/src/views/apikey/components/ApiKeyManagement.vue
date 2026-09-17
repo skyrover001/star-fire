@@ -617,10 +617,14 @@
               </div>
               <div class="flex items-start">
                 <span class="mr-2">2.</span>
-                <span>{{ $t('business.apiKey.httpsAdvice') }}</span>
+                <span>{{ $t('business.apiKey.anthropicHeader') }} <code class="bg-blue-100 dark:bg-blue-800 px-1 rounded text-xs">x-api-key: YOUR_API_KEY</code></span>
               </div>
               <div class="flex items-start">
                 <span class="mr-2">3.</span>
+                <span>{{ $t('business.apiKey.httpsAdvice') }}</span>
+              </div>
+              <div class="flex items-start">
+                <span class="mr-2">4.</span>
                 <span>{{ $t('business.apiKey.rateLimitAdvice') }}</span>
               </div>
             </div>
@@ -662,12 +666,13 @@ import { message } from 'ant-design-vue';
 import { useAppConfig } from '@vben/hooks';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
+import { buildApiBaseUrl } from '#/utils/api-base-url';
 
 // 获取应用配置（服务器地址）
 const { serverHost } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
-// OpenAI API base_url
-const baseUrl = computed(() => `${serverHost}/v1`);
+// OpenAI API base_url（自动获取：配置的 serverHost → 同源回退 → 协议补全）
+const baseUrl = computed(() => buildApiBaseUrl(serverHost));
 
 // 接口类型定义 - 适配新接口格式
 interface ApiKey {
