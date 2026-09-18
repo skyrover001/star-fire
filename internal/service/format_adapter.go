@@ -21,6 +21,36 @@ import (
 	"star-fire/pkg/public"
 )
 
+// writeAPIError 按用户格式输出统一错误体。
+// OpenAI（openai/responses）使用 {"error":{"message","type","param","code"}}；
+// Anthropic 使用 {"type":"error","error":{"type","message"}}。
+func writeAPIError(c *gin.Context, status int, isAnthropic bool, errType, message string) {
+	if isAnthropic {
+		c.JSON(status, gin.H{
+			"type": "error",
+			"error": gin.H{
+				"type":    errType,
+				"message": message,
+			},
+		})
+		return
+	}
+	c.JSON(status, gin.H{
+		"error": gin.H{
+			"message": message,
+			"type":    errType,
+			"param":   nil,
+			"code":    errType,
+		},
+	})
+}
+
+// usesDoneTerminator 判断该用户格式的流式输出是否以 `data: [DONE]` 结尾。
+// OpenAI Chat / Responses 以 [DONE] 结尾；Anthropic 以 message_stop 结尾。
+func usesDoneTerminator(userConv format.Converter) bool {
+	return !format.IsAnthropic(userConv)
+}
+
 // HandleMultiFormatChatRequest 是多格式 API 的统一入口。
 // userFormat 是调用方使用的格式（openai | anthropic | responses）。
 //
@@ -34,7 +64,7 @@ func HandleMultiFormatChatRequest(c *gin.Context, server *models.Server, userFor
 	// 1. 读取请求体
 	body, err := io.ReadAll(c.Request.Body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "Failed to read request body"})
+		writeAPIError(c, http.StatusBadRequest, userFormat == public.FormatAnthropic, "invalid_request_error", "Failed to read request body")
 		return
 	}
 	c.Request.Body = io.NopCloser(bytes.NewReader(body))
@@ -42,14 +72,18 @@ func HandleMultiFormatChatRequest(c *gin.Context, server *models.Server, userFor
 	// 2. 按用户格式解析 → Canonical
 	userConv, err := format.GetConverter(userFormat)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("unsupported format: %s", userFormat)})
+		writeAPIError(c, http.StatusBadRequest, userFormat == public.FormatAnthropic, "invalid_request_error", fmt.Sprintf("unsupported format: %s", userFormat))
 		return
 	}
 	canonical, err := userConv.ParseRequest(body)
 	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": fmt.Sprintf("invalid %s request: %v", userFormat, err)})
+		writeAPIError(c, http.StatusBadRequest, format.IsAnthropic(userConv), "invalid_request_error", fmt.Sprintf("invalid %s request: %v", userFormat, err))
 		return
 	}
+
+	// 记录请求中的停止序列，供响应方向启发式判断使用
+	//（finish_reason=stop + 空 content 时映射 Anthropic stop_reason: stop_sequence）。
+	c.Set("stop_sequences", canonical.StopSequences)
 
 	// ===== 链路日志：server 收到的原始请求体（用户格式）=====
 	// log.Printf("[TRACE] server RAW %s request body=%s", userFormat, string(body))
@@ -74,14 +108,7 @@ func HandleMultiFormatChatRequest(c *gin.Context, server *models.Server, userFor
 
 	balance, _, _ := server.UserDB.GetBalance(userIDStr)
 	if balance <= 0 {
-		c.JSON(http.StatusPaymentRequired, gin.H{
-			"error": gin.H{
-				"message": "You exceeded your current quota, please check your plan and billing details.",
-				"type":    "insufficient_quota",
-				"param":   nil,
-				"code":    "insufficient_quota",
-			},
-		})
+		writeAPIError(c, http.StatusPaymentRequired, format.IsAnthropic(userConv), "insufficient_quota", "You exceeded your current quota, please check your plan and billing details.")
 		return
 	}
 
@@ -102,14 +129,7 @@ func HandleMultiFormatChatRequest(c *gin.Context, server *models.Server, userFor
 			if limitType == "tpm" {
 				limitName = "tokens"
 			}
-			c.JSON(http.StatusTooManyRequests, gin.H{
-				"error": gin.H{
-					"message": "You have exceeded your rate limit of " + limitName + " per minute.",
-					"type":    "rate_limit_exceeded",
-					"param":   nil,
-					"code":    "rate_limit_exceeded",
-				},
-			})
+			writeAPIError(c, http.StatusTooManyRequests, format.IsAnthropic(userConv), "rate_limit_exceeded", "You have exceeded your rate limit of "+limitName+" per minute.")
 			return
 		}
 	}
@@ -121,6 +141,12 @@ func HandleMultiFormatChatRequest(c *gin.Context, server *models.Server, userFor
 // handleMultiFormatWithRetry 多格式请求的重试转发。
 // 与 handleChatWithRetry 结构一致，但基于 CanonicalRequest，且响应按用户格式回传。
 func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical *public.CanonicalRequest, userConv format.Converter, userIDStr string) {
+	// 模型存在性校验：模型完全未知时直接 404，避免把「模型不存在」误报为 503。
+	if !server.HasModel(canonical.Model) {
+		writeAPIError(c, http.StatusNotFound, format.IsAnthropic(userConv), "not_found_error", fmt.Sprintf("The model `%s` does not exist or you do not have access to it.", canonical.Model))
+		return
+	}
+
 	failedClients := map[string]bool{}
 	start := time.Now()
 
@@ -401,14 +427,11 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 				server.RemoveRespClient(fingerPrint)
 				server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
 				client.DecrActiveConnections()
-				c.JSON(http.StatusBadRequest, gin.H{
-					"error": gin.H{
-						"message": fmt.Sprintf("%v", response.Content),
-						"type":    "invalid_request_error",
-						"param":   nil,
-						"code":    "invalid_request_error",
-					},
-				})
+				if isModelNotFound(response.Content) {
+					writeAPIError(c, http.StatusNotFound, format.IsAnthropic(userConv), "not_found_error", fmt.Sprintf("%v", response.Content))
+				} else {
+					writeAPIError(c, http.StatusBadRequest, format.IsAnthropic(userConv), "invalid_request_error", fmt.Sprintf("%v", response.Content))
+				}
 				return
 			}
 			client.IncrFailures()
@@ -430,7 +453,7 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 		}
 	}
 
-	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "All clients failed, please retry"})
+	writeAPIError(c, http.StatusServiceUnavailable, format.IsAnthropic(userConv), "overloaded_error", "All clients failed, please retry")
 }
 
 // handleMultiFormatResponse 处理多格式响应（非流式 + 流式），按用户格式回传。
@@ -454,6 +477,9 @@ func handleMultiFormatResponse(c *gin.Context, server *models.Server, fingerPrin
 		}
 		// 思考模型：保存本轮 reasoning_content，供后续工具循环续接回传。
 		saveResponseReasoning(c, server, canonicalResp)
+		// 停止序列启发式：把请求中的 stop_sequences 带入响应，供 Anthropic
+		// 转换器在 finish_reason=stop + 空 content 时映射 stop_reason: stop_sequence。
+		canonicalResp.StopSequences = stopSequencesFromContext(c)
 		userBody, err := userConv.BuildResponse(canonicalResp)
 		if err != nil {
 			log.Println("build user response error:", err)
@@ -475,21 +501,27 @@ func handleMultiFormatResponse(c *gin.Context, server *models.Server, fingerPrin
 		c.Writer.Header().Set("Cache-Control", "no-cache")
 		c.Writer.Header().Set("Connection", "keep-alive")
 
-		// 创建用户流式 writer（Responses 需要状态化输出结构性事件）
-		userWriter := newUserStreamWriter(userConv, reqModel)
+		// 创建用户流式 writer（Responses/Anthropic 需要状态化输出结构性事件）
+		userWriter := newUserStreamWriter(c, userConv, reqModel)
+
+		// 创建上游流式累积器（Anthropic/Responses 需要跨帧累积状态；OpenAI Chat 为 nil）
+		var streamAcc format.StreamAccumulator
+		if acc, ok := upstreamConv.(format.AccumulatingConverter); ok {
+			streamAcc = acc.NewStreamAccumulator()
+		}
 
 		// 处理第一条流式事件
-		finished := handleMultiFormatStreamEvent(c, server, fingerPrint, clientID, ippm, oppm, cippm, reqModel, response, respConn, userConv, upstreamConv, upstreamFormat, userWriter)
+		finished := handleMultiFormatStreamEvent(c, server, fingerPrint, clientID, ippm, oppm, cippm, reqModel, response, respConn, userConv, upstreamConv, upstreamFormat, userWriter, streamAcc)
 		if finished {
 			return
 		}
 		// 继续读取流
-		readMultiFormatStreamLoop(c, server, fingerPrint, respConn, time.Now(), clientID, ippm, oppm, cippm, reqModel, userConv, upstreamConv, upstreamFormat, userWriter)
+		readMultiFormatStreamLoop(c, server, fingerPrint, respConn, time.Now(), clientID, ippm, oppm, cippm, reqModel, userConv, upstreamConv, upstreamFormat, userWriter, streamAcc)
 		return
 
 	case public.CLOSE:
 		log.Println("Client closed connection")
-		if c.Writer.Header().Get("Content-Type") == "text/event-stream" {
+		if c.Writer.Header().Get("Content-Type") == "text/event-stream" && usesDoneTerminator(userConv) {
 			_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 			c.Writer.Flush()
 		}
@@ -498,20 +530,22 @@ func handleMultiFormatResponse(c *gin.Context, server *models.Server, fingerPrin
 
 	case public.MODEL_ERROR:
 		log.Println("Model error:", response.Content)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Model error: " + fmt.Sprintf("%v", response.Content)})
+		writeAPIError(c, http.StatusInternalServerError, format.IsAnthropic(userConv), "api_error", "Model error: "+fmt.Sprintf("%v", response.Content))
 		cleanupChatRequest(server, fingerPrint, clientID, respConn)
 		return
 
 	default:
 		log.Println("Unknown message type:", response.Type)
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "Unknown message type: " + response.Type})
+		writeAPIError(c, http.StatusInternalServerError, format.IsAnthropic(userConv), "api_error", "Unknown message type: "+response.Type)
 		cleanupChatRequest(server, fingerPrint, clientID, respConn)
 		return
 	}
 }
 
 // handleMultiFormatStreamEvent 处理单个流式事件，返回是否结束。
-func handleMultiFormatStreamEvent(c *gin.Context, server *models.Server, fingerPrint string, clientID string, ippm, oppm, cippm float64, reqModel string, response public.WSMessage, respConn *websocket.Conn, userConv, upstreamConv format.Converter, upstreamFormat string, userWriter format.UserStreamWriter) bool {
+// streamAcc 是上游流式累积器，必须跨帧复用（Anthropic/Responses 依赖跨事件
+// 状态，如 tool_use 的 id/name、usage、finish_reason）。OpenAI Chat 为 nil。
+func handleMultiFormatStreamEvent(c *gin.Context, server *models.Server, fingerPrint string, clientID string, ippm, oppm, cippm float64, reqModel string, response public.WSMessage, respConn *websocket.Conn, userConv, upstreamConv format.Converter, upstreamFormat string, userWriter format.UserStreamWriter, streamAcc format.StreamAccumulator) bool {
 	contentBytes, err := json.Marshal(response.Content)
 	if err != nil {
 		log.Println("marshal stream event error:", err)
@@ -522,10 +556,8 @@ func handleMultiFormatStreamEvent(c *gin.Context, server *models.Server, fingerP
 	// ===== 链路日志：server 收到的上游流式 chunk（含 tool_calls 的 id/name）=====
 	// log.Printf("[TRACE] server upstream stream chunk format=%s body=%s", upstreamFormat, string(contentBytes))
 
-	// 使用累积器处理（Anthropic/Responses 需要跨事件状态）
-	acc, ok := upstreamConv.(format.AccumulatingConverter)
-	if !ok {
-		// OpenAI Chat：逐帧处理
+	// 无累积器（OpenAI Chat）：逐帧处理
+	if streamAcc == nil {
 		ev, err := upstreamConv.ParseUpstreamStreamEvent(contentBytes)
 		if err != nil {
 			log.Println("parse upstream stream event error:", err)
@@ -541,7 +573,7 @@ func handleMultiFormatStreamEvent(c *gin.Context, server *models.Server, fingerP
 	}
 
 	// 累积器：Feed 当前帧
-	events, err := acc.NewStreamAccumulator().Feed(contentBytes)
+	events, err := streamAcc.Feed(contentBytes)
 	if err != nil {
 		log.Println("feed stream accumulator error:", err)
 		return false
@@ -587,16 +619,21 @@ func writeUserStreamEvent(c *gin.Context, server *models.Server, fingerPrint str
 			_, _ = c.Writer.Write([]byte("data: " + string(e) + "\n\n"))
 		}
 		c.Writer.Flush()
-		// done 事件：writer 内部已生成 response.completed，这里补 [DONE] 并收尾
+		// done 事件：writer 内部已生成收尾事件（response.completed / message_stop）。
+		// Anthropic 以 message_stop 结尾，不再补 [DONE]；OpenAI 格式补 [DONE]。
 		if ev.Type == public.StreamEventDone {
 			saveStreamReasoning(c, server, userWriter)
-			_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			if usesDoneTerminator(userConv) {
+				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			}
 			c.Writer.Flush()
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return true
 		}
 		if ev.Type == public.StreamEventError {
-			_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			if usesDoneTerminator(userConv) {
+				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+			}
 			c.Writer.Flush()
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return true
@@ -662,78 +699,97 @@ func saveResponseReasoning(c *gin.Context, server *models.Server, cr *public.Can
 	server.SaveReasoning(key, format.ExtractToolCallReasoning(cr))
 }
 
+// stopSequencesFromContext 读取入口处记录的请求停止序列。
+func stopSequencesFromContext(c *gin.Context) []string {
+	if c == nil {
+		return nil
+	}
+	v, ok := c.Get("stop_sequences")
+	if !ok {
+		return nil
+	}
+	stops, _ := v.([]string)
+	return stops
+}
+
 // newUserStreamWriter 为需要状态化输出的用户格式（Responses）创建 writer。
-func newUserStreamWriter(userConv format.Converter, model string) format.UserStreamWriter {
+// 同时把请求中的停止序列注入 writer（Anthropic done 事件启发式需要）。
+func newUserStreamWriter(c *gin.Context, userConv format.Converter, model string) format.UserStreamWriter {
 	if wc, ok := userConv.(format.UserStreamWriterConverter); ok {
 		w := wc.NewUserStreamWriter()
 		if setter, ok := w.(interface{ SetModel(string) }); ok {
 			setter.SetModel(model)
+		}
+		if setter, ok := w.(interface{ SetStopSequences([]string) }); ok {
+			setter.SetStopSequences(stopSequencesFromContext(c))
 		}
 		return w
 	}
 	return nil
 }
 
-// finishUserStream 在流异常退出时补发收尾事件，保证客户端（Codex 等）始终收到
-// 流终止标志，避免 "stream closed before response.completed"。
-// failed=true 时以 response.failed 收尾（上游报错），否则调用 userWriter.Flush()
-// 合成 response.completed（异常断开/超时/未知消息）。
-func finishUserStream(c *gin.Context, userWriter format.UserStreamWriter, failed bool) {
-	if userWriter != nil {
-		if failed {
-			_, _ = c.Writer.Write([]byte(`data: {"type":"response.failed","response":{"status":"failed"}}` + "\n\n"))
+// finishUserStream 在流异常退出时补发收尾事件，保证客户端始终收到流终止标志。
+// failed=true 时以错误事件收尾（上游报错），否则调用 userWriter.Flush() 合成
+// 收尾事件（response.completed / message_stop）。Anthropic 流式以 message_stop
+// 结尾，不输出 `data: [DONE]`。
+func finishUserStream(c *gin.Context, userConv format.Converter, userWriter format.UserStreamWriter, failed bool) {
+	if failed {
+		if format.IsAnthropic(userConv) {
+			_, _ = c.Writer.Write([]byte(`data: {"type":"error","error":{"type":"api_error","message":"stream failed"}}` + "\n\n"))
 		} else {
-			events, err := userWriter.Flush()
-			if err != nil {
-				log.Println("user stream writer flush error:", err)
-			}
-			for _, e := range events {
-				_, _ = c.Writer.Write([]byte("data: " + string(e) + "\n\n"))
-			}
+			_, _ = c.Writer.Write([]byte(`data: {"type":"response.failed","response":{"status":"failed"}}` + "\n\n"))
+		}
+	} else if userWriter != nil {
+		events, err := userWriter.Flush()
+		if err != nil {
+			log.Println("user stream writer flush error:", err)
+		}
+		for _, e := range events {
+			_, _ = c.Writer.Write([]byte("data: " + string(e) + "\n\n"))
 		}
 	}
-	if c.Writer.Header().Get("Content-Type") == "text/event-stream" {
+	if c.Writer.Header().Get("Content-Type") == "text/event-stream" && usesDoneTerminator(userConv) {
 		_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 	}
 	c.Writer.Flush()
 }
 
 // readMultiFormatStreamLoop 持续读取多格式流。
-func readMultiFormatStreamLoop(c *gin.Context, server *models.Server, fingerPrint string, respConn *websocket.Conn, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string, userConv, upstreamConv format.Converter, upstreamFormat string, userWriter format.UserStreamWriter) {
+func readMultiFormatStreamLoop(c *gin.Context, server *models.Server, fingerPrint string, respConn *websocket.Conn, waitStart time.Time, clientID string, ippm, oppm, cippm float64, reqModel string, userConv, upstreamConv format.Converter, upstreamFormat string, userWriter format.UserStreamWriter, streamAcc format.StreamAccumulator) {
 	for {
 		var response public.WSMessage
 		err := respConn.ReadJSON(&response)
 		if err != nil {
 			log.Println("Error while reading json from client:", err)
-			finishUserStream(c, userWriter, false)
+			finishUserStream(c, userConv, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
 		switch response.Type {
 		case public.MESSAGE_STREAM:
-			finished := handleMultiFormatStreamEvent(c, server, fingerPrint, clientID, ippm, oppm, cippm, reqModel, response, respConn, userConv, upstreamConv, upstreamFormat, userWriter)
+			finished := handleMultiFormatStreamEvent(c, server, fingerPrint, clientID, ippm, oppm, cippm, reqModel, response, respConn, userConv, upstreamConv, upstreamFormat, userWriter, streamAcc)
 			if finished {
 				return
 			}
 		case public.CLOSE:
 			log.Println("Client closed connection")
-			finishUserStream(c, userWriter, false)
+			finishUserStream(c, userConv, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		case public.MODEL_ERROR:
 			log.Println("Model error:", response.Content)
-			finishUserStream(c, userWriter, true)
+			finishUserStream(c, userConv, userWriter, true)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		default:
 			log.Println("Unknown message type:", response.Type)
-			finishUserStream(c, userWriter, false)
+			finishUserStream(c, userConv, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
 		if time.Since(waitStart) > public.CHAT_MAX_TIME*time.Second {
 			log.Println("Chat timeout")
-			finishUserStream(c, userWriter, false)
+			finishUserStream(c, userConv, userWriter, false)
 			cleanupChatRequest(server, fingerPrint, clientID, respConn)
 			return
 		}
@@ -840,6 +896,65 @@ func estimateCanonicalTokens(cr *public.CanonicalRequest) int {
 		total += len(s.Text) / 4
 	}
 	return total
+}
+
+// HandleAnthropicCountTokens 处理 POST /v1/messages/count_tokens。
+// 标准 Anthropic count_tokens 请求不含 max_tokens，仅含 model/messages/system/tools，
+// 因此无法复用 ParseRequest 的 max_tokens 必填校验——这里补一个占位 max_tokens
+// 再复用同一套解析，保证 messages/system 结构（字符串或 block 数组）都能正确解析。
+// 聚合网关无精确 tokenizer，返回启发式估算值。
+func HandleAnthropicCountTokens(c *gin.Context, server *models.Server) {
+	body, err := io.ReadAll(c.Request.Body)
+	if err != nil {
+		writeAPIError(c, http.StatusBadRequest, true, "invalid_request_error", "Failed to read request body")
+		return
+	}
+	var req struct {
+		Model    string            `json:"model"`
+		System   json.RawMessage   `json:"system"`
+		Messages []json.RawMessage `json:"messages"`
+		Tools    json.RawMessage   `json:"tools"`
+	}
+	if err := json.Unmarshal(body, &req); err != nil {
+		writeAPIError(c, http.StatusBadRequest, true, "invalid_request_error", "invalid JSON")
+		return
+	}
+	if req.Model == "" {
+		writeAPIError(c, http.StatusBadRequest, true, "invalid_request_error", "missing required field 'model'")
+		return
+	}
+	if len(req.Messages) == 0 {
+		writeAPIError(c, http.StatusBadRequest, true, "invalid_request_error", "missing required field 'messages'")
+		return
+	}
+
+	conv, err := format.GetConverter(public.FormatAnthropic)
+	if err != nil {
+		writeAPIError(c, http.StatusInternalServerError, true, "api_error", "internal error")
+		return
+	}
+	full := struct {
+		Model     string            `json:"model"`
+		MaxTokens int               `json:"max_tokens"`
+		System    json.RawMessage   `json:"system,omitempty"`
+		Messages  []json.RawMessage `json:"messages"`
+	}{
+		Model:     req.Model,
+		MaxTokens: 1,
+		System:    req.System,
+		Messages:  req.Messages,
+	}
+	fullBody, err := json.Marshal(full)
+	if err != nil {
+		writeAPIError(c, http.StatusInternalServerError, true, "api_error", "internal error")
+		return
+	}
+	canonical, err := conv.ParseRequest(fullBody)
+	if err != nil {
+		writeAPIError(c, http.StatusBadRequest, true, "invalid_request_error", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"input_tokens": estimateCanonicalTokens(canonical)})
 }
 
 // recordCanonicalUsage 记录 Canonical 格式的 token 用量。

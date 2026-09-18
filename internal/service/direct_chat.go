@@ -151,6 +151,9 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
+		// 停止序列启发式：把请求中的 stop_sequences 带入响应，供 Anthropic
+		// 转换器在 finish_reason=stop + 空 content 时映射 stop_reason: stop_sequence。
+		canonicalResp.StopSequences = stopSequencesFromContext(c)
 		userBody, convErr := userConv.BuildResponse(canonicalResp)
 		if convErr != nil {
 			log.Printf("direct %s: build user response error: %v", b.ID, convErr)
@@ -192,7 +195,7 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 		c.Writer.Header().Set("Content-Type", "text/event-stream")
 		c.Writer.Header().Set("Cache-Control", "no-cache")
 		c.Writer.Header().Set("Connection", "keep-alive")
-		userWriter = newUserStreamWriter(userConv, model)
+		userWriter = newUserStreamWriter(c, userConv, model)
 	}
 
 	for {

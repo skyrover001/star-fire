@@ -1308,6 +1308,19 @@ func (s *Server) HasDirectSupply(model string) bool {
 	return len(s.directBackends[model]) > 0
 }
 
+// HasModel 判断模型是否被网关已知（存在于众包 client 注册表或 Direct 后端注册表）。
+// 仅用于区分「模型不存在」(404) 与「模型存在但当前无可用供给」(503)：
+// 只要模型名在任一注册表出现（无论当前是否 online/健康），即视为已知。
+func (s *Server) HasModel(model string) bool {
+	allClients := s.clients.Load().(map[string]map[string]*Client)
+	if m, ok := allClients[model]; ok && len(m) > 0 {
+		return true
+	}
+	s.directBackendsMu.RLock()
+	defer s.directBackendsMu.RUnlock()
+	return len(s.directBackends[model]) > 0
+}
+
 // DirectModelSet 返回所有有 Direct 供给的模型名集合。
 func (s *Server) DirectModelSet() map[string]bool {
 	s.directBackendsMu.RLock()

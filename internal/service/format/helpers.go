@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"sort"
 	"strings"
 	"time"
 )
@@ -41,6 +42,71 @@ func randSuffix() string {
 // timeNowUnix 返回当前 Unix 时间戳（秒）。
 func timeNowUnix() int64 {
 	return time.Now().Unix()
+}
+
+// sortedExtraKeys 返回 canonical.Extra 中按字典序排序的键列表。
+// 排序保证注入顺序稳定（map 遍历顺序随机，会导致输出不确定）。
+func sortedExtraKeys(extra map[string]json.RawMessage) []string {
+	if len(extra) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(extra))
+	for k := range extra {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// extractRawTopLevelFields 从原始请求 JSON 中提取指定顶层字段。
+// 用于承载结构体（go-openai SDK / 本地 anthropicRequest）无法表示的
+// 非标准字段（如 chat_template_kwargs）。返回 nil 表示没有任何匹配字段。
+func extractRawTopLevelFields(body []byte, keys ...string) map[string]json.RawMessage {
+	if len(keys) == 0 {
+		return nil
+	}
+	var raw map[string]json.RawMessage
+	if json.Unmarshal(body, &raw) != nil {
+		return nil
+	}
+	var extra map[string]json.RawMessage
+	for _, key := range keys {
+		v, ok := raw[key]
+		if !ok || len(v) == 0 || string(v) == "null" {
+			continue
+		}
+		if extra == nil {
+			extra = map[string]json.RawMessage{}
+		}
+		extra[key] = v
+	}
+	return extra
+}
+
+// injectExtraFields 把 extra 中的字段注入到序列化后的请求 JSON 顶层。
+// go-openai 的 ChatCompletionRequest / 本地 anthropicRequest 结构体都无法
+// 承载任意非标准字段（如 chat_template_kwargs），因此先序列化结构体，
+// 再把 Extra 字段合并进顶层 JSON。这是保底无损透传的关键一步。
+func injectExtraFields(raw []byte, extra map[string]json.RawMessage, keys []string) []byte {
+	if len(extra) == 0 || len(keys) == 0 {
+		return raw
+	}
+	var req map[string]json.RawMessage
+	if json.Unmarshal(raw, &req) != nil {
+		return raw // 解析失败，原样返回
+	}
+	for _, k := range keys {
+		v := extra[k]
+		if len(v) == 0 || string(v) == "null" {
+			continue
+		}
+		req[k] = v
+	}
+	result, err := json.Marshal(req)
+	if err != nil {
+		return raw
+	}
+	return result
 }
 
 // inferToolType 根据工具名推断工具类型（用于响应方向映射标准 Responses item 类型）。

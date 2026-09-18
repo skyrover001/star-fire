@@ -1,7 +1,9 @@
 package format
 
 import (
+	"bytes"
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"star-fire/pkg/public"
@@ -454,5 +456,106 @@ func assertTextDelta(t *testing.T, ev *public.CanonicalStreamEvent, want string)
 	}
 	if ev.Text != want {
 		t.Errorf("text = %q, want %q", ev.Text, want)
+	}
+}
+
+// ---- 停止序列启发式（finish_reason=stop + 空 content → stop_sequence）----
+
+func TestAnthropicConverter_StopSequenceHeuristic_NonStream(t *testing.T) {
+	c := &AnthropicConverter{}
+
+	// 场景：请求带 stop_sequences，上游（推理模型）在思考阶段被截断，
+	// 返回 finish_reason=stop 且无正文内容。
+	emptyResp := &public.CanonicalResponse{
+		ID:            "msg_empty",
+		Content:       nil,
+		FinishReason:  "stop",
+		StopSequences: []string{"BBB"},
+	}
+	out, err := c.BuildResponse(emptyResp)
+	if err != nil {
+		t.Fatalf("BuildResponse error: %v", err)
+	}
+	var got struct {
+		StopReason string `json:"stop_reason"`
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if got.StopReason != "stop_sequence" {
+		t.Errorf("stop_reason = %q, want stop_sequence (stops requested + stop + empty content)", got.StopReason)
+	}
+
+	// 有文本内容时保持 end_turn（自然结束）。
+	textResp := &public.CanonicalResponse{
+		ID:            "msg_text",
+		Content:       []public.CanonicalContent{{Type: "text", Text: "AAA BBB CCC"}},
+		FinishReason:  "stop",
+		StopSequences: []string{"BBB"},
+	}
+	out, err = c.BuildResponse(textResp)
+	if err != nil {
+		t.Fatalf("BuildResponse error: %v", err)
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if got.StopReason != "end_turn" {
+		t.Errorf("stop_reason = %q, want end_turn (has text content)", got.StopReason)
+	}
+
+	// 无 stop_sequences 时空内容仍为 end_turn（不误判）。
+	noStopsResp := &public.CanonicalResponse{
+		ID:           "msg_nostops",
+		Content:      nil,
+		FinishReason: "stop",
+	}
+	out, err = c.BuildResponse(noStopsResp)
+	if err != nil {
+		t.Fatalf("BuildResponse error: %v", err)
+	}
+	if err := json.Unmarshal(out, &got); err != nil {
+		t.Fatalf("unmarshal error: %v", err)
+	}
+	if got.StopReason != "end_turn" {
+		t.Errorf("stop_reason = %q, want end_turn (no stop_sequences requested)", got.StopReason)
+	}
+}
+
+func TestAnthropicConverter_StopSequenceHeuristic_Stream(t *testing.T) {
+	// 流式：请求带 stop_sequences，全程无文本 delta，done 时 finish_reason=stop
+	// → message_delta 的 stop_reason 应为 stop_sequence。
+	w := (&AnthropicConverter{}).NewUserStreamWriter()
+	w.(interface{ SetStopSequences([]string) }).SetStopSequences([]string{"BBB"})
+
+	doneEvs, err := w.Write(&public.CanonicalStreamEvent{
+		Type:         public.StreamEventDone,
+		FinishReason: "stop",
+		Usage:        &public.CanonicalUsage{InputTokens: 10, OutputTokens: 13, TotalTokens: 23},
+	})
+	if err != nil {
+		t.Fatalf("writer Write error: %v", err)
+	}
+	joined := string(bytes.Join(doneEvs, []byte("\n")))
+	if !strings.Contains(joined, `"stop_reason":"stop_sequence"`) {
+		t.Errorf("stream done events missing stop_sequence stop_reason, got: %s", joined)
+	}
+
+	// 对照：有文本 delta 时保持 end_turn。
+	w2 := (&AnthropicConverter{}).NewUserStreamWriter()
+	w2.(interface{ SetStopSequences([]string) }).SetStopSequences([]string{"BBB"})
+	if _, err := w2.Write(&public.CanonicalStreamEvent{Type: public.StreamEventTextDelta, Text: "AAA BBB CCC"}); err != nil {
+		t.Fatalf("writer Write error: %v", err)
+	}
+	doneEvs2, err := w2.Write(&public.CanonicalStreamEvent{Type: public.StreamEventDone, FinishReason: "stop"})
+	if err != nil {
+		t.Fatalf("writer Write error: %v", err)
+	}
+	joined2 := string(bytes.Join(doneEvs2, []byte("\n")))
+	if strings.Contains(joined2, `"stop_reason":"stop_sequence"`) {
+		t.Errorf("stream with text should keep end_turn, got: %s", joined2)
+	}
+	if !strings.Contains(joined2, `"stop_reason":"end_turn"`) {
+		t.Errorf("stream with text should emit end_turn, got: %s", joined2)
 	}
 }

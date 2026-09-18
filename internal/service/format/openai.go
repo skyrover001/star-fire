@@ -53,9 +53,18 @@ func (c *OpenAIConverter) ParseRequest(body []byte) (*public.CanonicalRequest, e
 		v := float64(req.TopP)
 		cr.TopP = &v
 	}
+	if len(req.Stop) > 0 {
+		cr.StopSequences = req.Stop
+	}
 	// reasoning_effort → Thinking（保留为字符串字面量）。
 	if req.ReasoningEffort != "" {
 		cr.Thinking = marshalString(req.ReasoningEffort)
+	}
+	// chat_template_kwargs → Extra（go-openai v1.41.2 无该字段，从原始 JSON 提取）。
+	// vLLM 后端通过它控制推理模板行为（如 {"thinking":false} 关闭思考模式），
+	// OpenAI→openai 往返必须无损透传，否则推理模型提前截断时返回空 content。
+	if extra := extractRawTopLevelFields(body, "chat_template_kwargs"); extra != nil {
+		cr.Extra = extra
 	}
 
 	for _, t := range req.Tools {
@@ -126,6 +135,9 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 	}
 	if cr.TopP != nil {
 		req.TopP = float32(*cr.TopP)
+	}
+	if len(cr.StopSequences) > 0 {
+		req.Stop = cr.StopSequences
 	}
 
 	// 系统提示还原为 system 消息。
@@ -295,6 +307,14 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 	// 消息的 content 数组中。
 	if len(videoInjects) > 0 {
 		raw = ensureVideoParts(raw, videoInjects)
+	}
+	// Extra 透传：canonical.Extra 中的非标准字段（chat_template_kwargs 等）
+	// 注入到请求 JSON 顶层。典型场景：用户在 /v1/messages（Anthropic 格式）
+	// 请求中携带 chat_template_kwargs:{"thinking":false}，用于关闭 vLLM
+	// 推理模型的思考模式。不透传时推理模型会把全部输出 token 消耗在隐藏
+	// 思考阶段，提前截断（stop_sequences/max_tokens）时返回空 content。
+	if extraKeys := sortedExtraKeys(cr.Extra); len(extraKeys) > 0 {
+		raw = injectExtraFields(raw, cr.Extra, extraKeys)
 	}
 	return raw, nil
 }
@@ -466,6 +486,48 @@ func ensureVideoParts(raw []byte, injects []videoInject) []byte {
 	return result
 }
 
+// extractOpenAIReasoningField 从原始 Chat 响应 JSON 中提取新版 vLLM 后端的
+// reasoning 字段（choices[0].message.reasoning）。go-openai 只解析
+// reasoning_content（deepseek 旧格式），新版后端改用 reasoning 字段名，
+// SDK 不解析会导致思考文本被静默丢弃。这里从原始 JSON 兜底提取。
+func extractOpenAIReasoningField(data []byte) string {
+	var resp struct {
+		Choices []struct {
+			Message struct {
+				Reasoning string `json:"reasoning"`
+			} `json:"message"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(data, &resp) != nil {
+		return ""
+	}
+	if len(resp.Choices) == 0 {
+		return ""
+	}
+	return resp.Choices[0].Message.Reasoning
+}
+
+// extractStreamReasoningDelta 从原始流式 chunk JSON 中提取新版 vLLM 后端的
+// reasoning delta 字段（choices[0].delta.reasoning）。go-openai 只解析
+// delta.reasoning_content，新版后端改用 reasoning 字段名，SDK 不解析会导致
+// 思考增量被静默丢弃。这里从原始 JSON 兜底提取。
+func extractStreamReasoningDelta(line []byte) string {
+	var chunk struct {
+		Choices []struct {
+			Delta struct {
+				Reasoning string `json:"reasoning"`
+			} `json:"delta"`
+		} `json:"choices"`
+	}
+	if json.Unmarshal(line, &chunk) != nil {
+		return ""
+	}
+	if len(chunk.Choices) == 0 {
+		return ""
+	}
+	return chunk.Choices[0].Delta.Reasoning
+}
+
 // ParseUpstreamResponse 解析 OpenAI Chat 响应 → Canonical。
 func (c *OpenAIConverter) ParseUpstreamResponse(data []byte) (*public.CanonicalResponse, error) {
 	var resp openai.ChatCompletionResponse
@@ -480,6 +542,14 @@ func (c *OpenAIConverter) ParseUpstreamResponse(data []byte) (*public.CanonicalR
 		// reasoning_content（deepseek 等）→ thinking 块，置于正文之前。
 		if msg.ReasoningContent != "" {
 			cr.Content = append(cr.Content, public.CanonicalContent{Type: "thinking", Text: msg.ReasoningContent})
+		}
+		// 新版 vLLM 后端返回 reasoning 字段（而非 reasoning_content），go-openai
+		// 不解析该字段，思考文本会被静默丢弃。这里从原始 JSON 兜底提取，
+		// 映射为 thinking 块，让被截断的思考文本也能透出给用户。
+		if msg.ReasoningContent == "" {
+			if reasoning := extractOpenAIReasoningField(data); reasoning != "" {
+				cr.Content = append(cr.Content, public.CanonicalContent{Type: "thinking", Text: reasoning})
+			}
 		}
 		cr.Content = append(cr.Content, messageToBlocks(msg)...)
 		for _, tc := range msg.ToolCalls {
@@ -581,6 +651,10 @@ func (c *OpenAIConverter) ParseUpstreamStreamEvent(line []byte) (*public.Canonic
 
 	if delta.ReasoningContent != "" {
 		return &public.CanonicalStreamEvent{Type: public.StreamEventThinkingDelta, Text: delta.ReasoningContent}, nil
+	}
+	// 新版 vLLM 后端的 reasoning delta 字段（go-openai 不解析，从原始 JSON 兜底提取）。
+	if rc := extractStreamReasoningDelta(line); rc != "" {
+		return &public.CanonicalStreamEvent{Type: public.StreamEventThinkingDelta, Text: rc}, nil
 	}
 	if delta.Content != "" {
 		return &public.CanonicalStreamEvent{Type: public.StreamEventTextDelta, Text: delta.Content}, nil

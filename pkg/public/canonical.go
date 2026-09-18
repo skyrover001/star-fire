@@ -13,16 +13,19 @@ import "encoding/json"
 
 // CanonicalRequest 是三种格式请求的无损中间表示。
 type CanonicalRequest struct {
-	Model       string                     `json:"model"`
-	Stream      bool                       `json:"stream"`
-	System      []CanonicalContent         `json:"system"` // 系统提示（Anthropic system / OpenAI system message / Responses instructions）
-	Messages    []CanonicalMessage         `json:"messages"`
-	Tools       []CanonicalTool            `json:"tools"`
-	MaxTokens   *int                       `json:"max_tokens"`
-	Temperature *float64                   `json:"temperature"`
-	TopP        *float64                   `json:"top_p"`
-	Thinking    json.RawMessage            `json:"thinking,omitempty"` // 透传 thinking/reasoning 参数
-	Extra       map[string]json.RawMessage `json:"extra,omitempty"`    // 无法映射的原始字段透传（保底无损）
+	Model       string             `json:"model"`
+	Stream      bool               `json:"stream"`
+	System      []CanonicalContent `json:"system"` // 系统提示（Anthropic system / OpenAI system message / Responses instructions）
+	Messages    []CanonicalMessage `json:"messages"`
+	Tools       []CanonicalTool    `json:"tools"`
+	MaxTokens   *int               `json:"max_tokens"`
+	Temperature *float64           `json:"temperature"`
+	TopP        *float64           `json:"top_p"`
+	// StopSequences 停止序列（Anthropic stop_sequences / OpenAI Chat stop）。
+	// 上游模型命中任一序列时立即停止，并返回 stop_reason: stop_sequence。
+	StopSequences []string                   `json:"stop_sequences,omitempty"`
+	Thinking      json.RawMessage            `json:"thinking,omitempty"` // 透传 thinking/reasoning 参数
+	Extra         map[string]json.RawMessage `json:"extra,omitempty"`    // 无法映射的原始字段透传（保底无损）
 }
 
 // CanonicalMessage 是统一后的消息。
@@ -80,6 +83,9 @@ type CanonicalResponse struct {
 	Content      []CanonicalContent `json:"content"`
 	Usage        CanonicalUsage     `json:"usage"`
 	FinishReason string             `json:"finish_reason,omitempty"`
+	// StopSequences 记录请求中的停止序列（Anthropic stop_sequences / OpenAI stop）。
+	// 用于启发式判断：当上游 finish_reason=stop 且内容为空时，区分自然结束与命中停止序列。
+	StopSequences []string `json:"stop_sequences,omitempty"`
 }
 
 // CanonicalUsage 是统一后的 token 用量。

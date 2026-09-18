@@ -3,6 +3,7 @@ package format
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 
 	"star-fire/pkg/public"
 )
@@ -14,6 +15,13 @@ type AnthropicConverter struct{}
 
 func init() {
 	Register(public.FormatAnthropic, &AnthropicConverter{})
+}
+
+// IsAnthropic 判断 converter 是否为 Anthropic Messages 格式。
+// 适配层据此决定错误体格式与流式结尾标志（Anthropic 用 message_stop，而非 [DONE]）。
+func IsAnthropic(c Converter) bool {
+	_, ok := c.(*AnthropicConverter)
+	return ok
 }
 
 // ---- Anthropic 请求/响应局部结构（用 json.RawMessage 保底无损）----
@@ -31,6 +39,14 @@ type anthropicRequest struct {
 	Metadata      json.RawMessage    `json:"metadata,omitempty"`
 	Stream        bool               `json:"stream,omitempty"`
 }
+
+// anthropicExtraKeys 是需要透传到上游的非标准顶层字段。
+// 典型场景：vLLM 后端通过 chat_template_kwargs 控制推理模板行为
+// （如 {"thinking":false} 关闭思考模式）。Anthropic 标准没有该字段，
+// 但用户在 /v1/messages 请求中携带时必须无损转发给 OpenAI 上游，
+// 否则推理模型会把全部输出 token 消耗在隐藏思考阶段，提前截断时
+// 返回空 content（无法恢复从未生成的文本）。
+var anthropicExtraKeys = []string{"chat_template_kwargs"}
 
 type anthropicMessage struct {
 	Role    string          `json:"role"`
@@ -94,6 +110,9 @@ func (c *AnthropicConverter) ParseRequest(body []byte) (*public.CanonicalRequest
 	if len(req.Messages) == 0 {
 		return nil, errors.New("anthropic: missing required field 'messages'")
 	}
+	if req.MaxTokens <= 0 {
+		return nil, errors.New("anthropic: missing required field 'max_tokens'")
+	}
 
 	cr := &public.CanonicalRequest{
 		Model:       req.Model,
@@ -101,9 +120,12 @@ func (c *AnthropicConverter) ParseRequest(body []byte) (*public.CanonicalRequest
 		Temperature: req.Temperature,
 		TopP:        req.TopP,
 	}
-	if req.MaxTokens > 0 {
+	{
 		v := req.MaxTokens
 		cr.MaxTokens = &v
+	}
+	if len(req.StopSequences) > 0 {
+		cr.StopSequences = req.StopSequences
 	}
 	if len(req.System) > 0 {
 		cr.System = parseAnthropicSystem(req.System)
@@ -111,6 +133,8 @@ func (c *AnthropicConverter) ParseRequest(body []byte) (*public.CanonicalRequest
 	if len(req.Thinking) > 0 {
 		cr.Thinking = req.Thinking
 	}
+	// 非标准顶层字段（chat_template_kwargs 等）→ Extra，供下游透传。
+	cr.Extra = extractAnthropicExtra(body)
 
 	for _, t := range req.Tools {
 		ct := public.CanonicalTool{Type: "function", Name: t.Name, Description: t.Description}
@@ -168,6 +192,13 @@ func (c *AnthropicConverter) ParseRequest(body []byte) (*public.CanonicalRequest
 	return cr, nil
 }
 
+// extractAnthropicExtra 从原始请求 JSON 中提取需要透传的非标准顶层字段。
+// 只提取 anthropicExtraKeys 中列出的键，避免把 Anthropic 标准字段
+// （model/messages/max_tokens 等）重复塞进 Extra。
+func extractAnthropicExtra(body []byte) map[string]json.RawMessage {
+	return extractRawTopLevelFields(body, anthropicExtraKeys...)
+}
+
 // BuildUpstreamRequest 将 Canonical 请求 → Anthropic MessageCreateParams。
 func (c *AnthropicConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]byte, error) {
 	req := anthropicRequest{
@@ -179,6 +210,9 @@ func (c *AnthropicConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) (
 	}
 	if cr.MaxTokens != nil {
 		req.MaxTokens = *cr.MaxTokens
+	}
+	if len(cr.StopSequences) > 0 {
+		req.StopSequences = cr.StopSequences
 	}
 	if len(cr.Thinking) > 0 {
 		req.Thinking = cr.Thinking
@@ -192,6 +226,11 @@ func (c *AnthropicConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) (
 			req.System = marshalAnthropicBlocks(canonicalToAnthropicBlocks(cr.System))
 		}
 	}
+
+	// Extra 透传：canonical.Extra 中的非标准字段（chat_template_kwargs 等）
+	// 序列化后追加到请求 JSON 顶层，保证 Anthropic→Anthropic 往返不丢字段。
+	// （Anthropic→OpenAI 方向由 OpenAIConverter.BuildUpstreamRequest 处理。）
+	extraKeys := sortedExtraKeys(cr.Extra)
 
 	for _, t := range cr.Tools {
 		req.Tools = append(req.Tools, anthropicTool{
@@ -253,6 +292,15 @@ func (c *AnthropicConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) (
 		})
 	}
 
+	// Extra 透传：注入到序列化后的请求 JSON 顶层。
+	if len(extraKeys) > 0 {
+		raw, err := json.Marshal(req)
+		if err != nil {
+			return nil, err
+		}
+		return injectExtraFields(raw, cr.Extra, extraKeys), nil
+	}
+
 	return json.Marshal(req)
 }
 
@@ -286,14 +334,42 @@ func (c *AnthropicConverter) ParseUpstreamResponse(data []byte) (*public.Canonic
 // BuildResponse 将 Canonical 响应 → Anthropic Message。
 func (c *AnthropicConverter) BuildResponse(cr *public.CanonicalResponse) ([]byte, error) {
 	resp := anthropicResponse{
-		ID:         cr.ID,
+		ID:         anthropicMessageID(cr.ID),
 		Type:       "message",
 		Role:       "assistant",
 		Content:    canonicalToAnthropicBlocks(cr.Content),
-		StopReason: canonicalFinishToAnthropicStopReason(cr.FinishReason),
+		StopReason: canonicalFinishToAnthropicStopReasonWithStops(cr.FinishReason, cr.StopSequences, hasTextContent(cr.Content)),
 		Usage:      canonicalToAnthropicUsage(cr.Usage),
 	}
 	return json.Marshal(resp)
+}
+
+// hasTextContent 判断响应中是否有非空文本块（用于停止序列启发式）。
+func hasTextContent(content []public.CanonicalContent) bool {
+	for _, b := range content {
+		if b.Type == "text" && b.Text != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// anthropicMessageID 保证返回的 message id 以 msg_ 前缀开头（符合 Anthropic 标准）。
+// 上游可能是 OpenAI 的 chatcmpl-... 或 Anthropic 的 msg_...；前者需重写为 msg_，
+// 后者直接透传。
+func anthropicMessageID(id string) string {
+	if strings.HasPrefix(id, "msg_") {
+		return id
+	}
+	return "msg_" + randSuffix()
+}
+
+// anthropicToolUseID 保证 tool_use id 以 toolu_ 前缀开头（符合 Anthropic 标准）。
+func anthropicToolUseID(id string) string {
+	if strings.HasPrefix(id, "toolu_") {
+		return id
+	}
+	return "toolu_" + randSuffix()
 }
 
 // ---- 流式 ----
@@ -344,6 +420,275 @@ func (c *AnthropicConverter) BuildUserStreamEvent(ev *public.CanonicalStreamEven
 	default:
 		return json.Marshal(map[string]any{"type": "error"})
 	}
+}
+
+// NewUserStreamWriter 返回状态化的 Anthropic 用户流式 writer。
+//
+// Anthropic Messages 流式要求输出一整套结构性事件，且严格有序：
+//
+//	message_start → content_block_start → content_block_delta×N →
+//	content_block_stop → [更多 block] → message_delta → message_stop
+//
+// 而 Canonical 流式事件（text_delta / tool_call_delta / done）是扁平化的增量。
+// 本 writer 在首个 delta 前合成 message_start，在 block 切换时合成
+// content_block_start/stop，在 done 时合成 message_delta + message_stop。
+// Anthropic 流式以 message_stop 结尾，不使用 OpenAI 的 `data: [DONE]`。
+func (c *AnthropicConverter) NewUserStreamWriter() UserStreamWriter {
+	return &anthropicUserWriter{}
+}
+
+// SetModel 设置 writer 的模型名（用于 message_start 的 message.model 字段）。
+func (w *anthropicUserWriter) SetModel(model string) {
+	w.model = model
+}
+
+// SetStopSequences 设置请求中的停止序列（用于 done 事件的 stop_reason 启发式判断）。
+func (w *anthropicUserWriter) SetStopSequences(stops []string) {
+	w.stopSequences = stops
+}
+
+// anthropicUserWriter 累积 Anthropic 用户流式输出的状态。
+type anthropicUserWriter struct {
+	started      bool
+	finished     bool // message_stop 是否已发（防止异常路径重复收尾）
+	model        string
+	messageID    string
+	usage        public.CanonicalUsage
+	finishReason string
+
+	// stopSequences/hasText 用于停止序列启发式（见
+	// canonicalFinishToAnthropicStopReasonWithStops）：请求带 stop_sequences、
+	// 上游 finish_reason=stop 且全程无文本 delta 时，映射为 stop_sequence。
+	stopSequences []string
+	hasText       bool
+
+	blockIndex   int
+	blockStarted bool
+	blockType    string // "text" | "tool_use"
+	toolID       string
+	toolName     string
+}
+
+func (w *anthropicUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, error) {
+	if ev.Usage != nil {
+		w.usage = *ev.Usage
+	}
+	if ev.FinishReason != "" {
+		w.finishReason = ev.FinishReason
+	}
+
+	switch ev.Type {
+	case public.StreamEventTextDelta:
+		if ev.Text != "" {
+			w.hasText = true
+		}
+		if !w.started {
+			return w.startAndText(ev.Text)
+		}
+		var out [][]byte
+		// 若当前 block 不是 text（例如之前是 tool_use），先关闭并开启新的 text block。
+		if closeEvt := w.ensureBlock("text", "", ""); closeEvt != nil {
+			out = append(out, closeEvt...)
+		}
+		out = append(out, marshalStream(map[string]any{
+			"type":  "content_block_delta",
+			"index": w.blockIndex,
+			"delta": map[string]any{"type": "text_delta", "text": ev.Text},
+		}))
+		return out, nil
+
+	case public.StreamEventToolCallDelta:
+		if ev.ToolCall == nil {
+			return nil, nil
+		}
+		if !w.started {
+			return w.startAndTool(ev.ToolCall)
+		}
+		var out [][]byte
+		// 新工具调用（携带 id）→ 开启新的 tool_use block。
+		if ev.ToolCall.ID != "" {
+			if closeEvt := w.ensureBlock("tool_use", ev.ToolCall.ID, ev.ToolCall.Name); closeEvt != nil {
+				out = append(out, closeEvt...)
+			}
+		}
+		out = append(out, marshalStream(map[string]any{
+			"type":  "content_block_delta",
+			"index": w.blockIndex,
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": rawToString(ev.ToolCall.Arguments)},
+		}))
+		return out, nil
+
+	case public.StreamEventDone:
+		if w.finished {
+			return nil, nil
+		}
+		w.finished = true
+		var out [][]byte
+		if w.blockStarted {
+			out = append(out, marshalStream(map[string]any{
+				"type":  "content_block_stop",
+				"index": w.blockIndex,
+			}))
+			w.blockStarted = false
+		}
+		stopReason := canonicalFinishToAnthropicStopReasonWithStops(w.finishReason, w.stopSequences, w.hasText)
+		out = append(out,
+			marshalStream(map[string]any{
+				"type": "message_delta",
+				"delta": map[string]any{
+					"stop_reason":   stopReason,
+					"stop_sequence": nil,
+				},
+				"usage": map[string]any{"output_tokens": w.usage.OutputTokens},
+			}),
+			marshalStream(map[string]any{"type": "message_stop"}),
+		)
+		return out, nil
+
+	case public.StreamEventError:
+		return [][]byte{marshalStream(map[string]any{
+			"type": "error",
+			"error": map[string]any{
+				"type":    "api_error",
+				"message": ev.Text,
+			},
+		})}, nil
+
+	default:
+		return nil, nil
+	}
+}
+
+func (w *anthropicUserWriter) Flush() ([][]byte, error) {
+	if w.started {
+		return w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventDone, FinishReason: w.finishReason})
+	}
+	return nil, nil
+}
+
+// startAndText 在尚未发送 message_start 时，先合成 message_start + text block。
+func (w *anthropicUserWriter) startAndText(text string) ([][]byte, error) {
+	out := w.startMessage()
+	w.blockIndex = 0
+	w.blockStarted = true
+	w.blockType = "text"
+	out = append(out,
+		marshalStream(map[string]any{
+			"type":          "content_block_start",
+			"index":         0,
+			"content_block": map[string]any{"type": "text", "text": ""},
+		}),
+		marshalStream(map[string]any{
+			"type":  "content_block_delta",
+			"index": 0,
+			"delta": map[string]any{"type": "text_delta", "text": text},
+		}),
+	)
+	return out, nil
+}
+
+// startAndTool 在尚未发送 message_start 时，先合成 message_start + tool_use block。
+func (w *anthropicUserWriter) startAndTool(tc *public.CanonicalToolCall) ([][]byte, error) {
+	out := w.startMessage()
+	w.blockIndex = 0
+	w.blockStarted = true
+	w.blockType = "tool_use"
+	w.toolID = tc.ID
+	w.toolName = tc.Name
+	out = append(out, marshalStream(map[string]any{
+		"type":  "content_block_start",
+		"index": 0,
+		"content_block": map[string]any{
+			"type":  "tool_use",
+			"id":    tc.ID,
+			"name":  tc.Name,
+			"input": map[string]any{},
+		},
+	}))
+	if len(tc.Arguments) > 0 {
+		out = append(out, marshalStream(map[string]any{
+			"type":  "content_block_delta",
+			"index": 0,
+			"delta": map[string]any{"type": "input_json_delta", "partial_json": rawToString(tc.Arguments)},
+		}))
+	}
+	return out, nil
+}
+
+// startMessage 合成 message_start 事件，返回单元素切片。
+func (w *anthropicUserWriter) startMessage() [][]byte {
+	w.started = true
+	if w.messageID == "" {
+		w.messageID = "msg_" + randSuffix()
+	}
+	return [][]byte{marshalStream(map[string]any{
+		"type": "message_start",
+		"message": map[string]any{
+			"id":            w.messageID,
+			"type":          "message",
+			"role":          "assistant",
+			"content":       []any{},
+			"model":         w.model,
+			"stop_reason":   nil,
+			"stop_sequence": nil,
+			"usage": map[string]any{
+				"input_tokens":  w.usage.InputTokens,
+				"output_tokens": w.usage.OutputTokens,
+			},
+		},
+	})}
+}
+
+// ensureBlock 确保当前 content block 与期望类型一致；不一致时关闭旧 block 并
+// 开启新 block。返回需要下发的合成事件（含可能的 content_block_stop + start）。
+func (w *anthropicUserWriter) ensureBlock(blockType, toolID, toolName string) [][]byte {
+	// 同类型（且同工具）→ 无需切换。
+	sameBlock := w.blockStarted && w.blockType == blockType
+	if blockType == "tool_use" {
+		sameBlock = sameBlock && w.toolID == toolID
+	}
+	if sameBlock {
+		return nil
+	}
+
+	var out [][]byte
+	if w.blockStarted {
+		out = append(out, marshalStream(map[string]any{
+			"type":  "content_block_stop",
+			"index": w.blockIndex,
+		}))
+	}
+	w.blockIndex++
+	w.blockStarted = true
+	w.blockType = blockType
+	w.toolID = toolID
+	w.toolName = toolName
+
+	if blockType == "tool_use" {
+		out = append(out, marshalStream(map[string]any{
+			"type":  "content_block_start",
+			"index": w.blockIndex,
+			"content_block": map[string]any{
+				"type":  "tool_use",
+				"id":    toolID,
+				"name":  toolName,
+				"input": map[string]any{},
+			},
+		}))
+	} else {
+		out = append(out, marshalStream(map[string]any{
+			"type":          "content_block_start",
+			"index":         w.blockIndex,
+			"content_block": map[string]any{"type": "text", "text": ""},
+		}))
+	}
+	return out
+}
+
+// marshalStream 将事件 map 序列化为 JSON，忽略序列化错误（map 内容恒可序列化）。
+func marshalStream(m map[string]any) []byte {
+	b, _ := json.Marshal(m)
+	return b
 }
 
 // anthropicAccumulator 是有状态的上游 SSE 解析器。
@@ -554,7 +899,7 @@ func canonicalToAnthropicBlock(b public.CanonicalContent) anthropicContentBlock 
 	case "video":
 		return anthropicContentBlock{Type: "video", Source: imageURLToSource(b.VideoURL)}
 	case "tool_use":
-		return anthropicContentBlock{Type: "tool_use", ID: b.ID, Name: b.Name, Input: b.Input}
+		return anthropicContentBlock{Type: "tool_use", ID: anthropicToolUseID(b.ID), Name: b.Name, Input: b.Input}
 	case "thinking":
 		ab := anthropicContentBlock{Type: "thinking", Thinking: b.Text}
 		if b.Extra != nil {
@@ -622,6 +967,18 @@ func canonicalFinishToAnthropicStopReason(fr string) string {
 	default:
 		return fr
 	}
+}
+
+// canonicalFinishToAnthropicStopReasonWithStops 在 canonicalFinishToAnthropicStopReason
+// 基础上加入停止序列启发式：请求带 stop_sequences、上游 finish_reason=stop 且无文本
+// 内容时，判定为命中停止序列。背景：推理模型（如 DeepSeek-V4-Flash）在思考阶段被
+// stop/max_tokens 截断时不产出正文，上游只返回 finish_reason=stop，与自然结束无法
+// 区分；此时按 Anthropic 语义映射为 stop_sequence 更符合请求意图。
+func canonicalFinishToAnthropicStopReasonWithStops(fr string, stops []string, hasText bool) string {
+	if len(stops) > 0 && fr == "stop" && !hasText {
+		return "stop_sequence"
+	}
+	return canonicalFinishToAnthropicStopReason(fr)
 }
 
 func anthropicUsageToCanonical(u anthropicUsage) public.CanonicalUsage {

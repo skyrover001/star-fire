@@ -534,6 +534,34 @@ func isClientRequestError(content interface{}) bool {
 	return false
 }
 
+// isModelNotFound 判断上游错误是否为「模型不存在」，此类错误应返回 404 not_found_error。
+func isModelNotFound(content interface{}) bool {
+	msg := ""
+	switch v := content.(type) {
+	case string:
+		msg = v
+	case error:
+		msg = v.Error()
+	default:
+		msg = fmt.Sprintf("%v", v)
+	}
+	lower := strings.ToLower(msg)
+	markers := []string{
+		"model not found",
+		"invalid model",
+		"model_not_found",
+		"status code: 404",
+		"status: 404",
+		"api error: status=404",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // abortClientRequest 通知 client 停止处理指定 fingerprint 的请求（尽力而为）。
 // 用于 server 放弃某 client 时，避免 client 继续生成孤儿 token 浪费算力。
 func abortClientRequest(client *models.Client, fingerPrint string) {

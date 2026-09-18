@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"net/http"
+
 	client_handlers "star-fire/api/client_handlers"
 	user_handlers "star-fire/api/user_handlers"
 	"star-fire/internal/models"
@@ -111,6 +113,19 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		// Anthropic Messages 格式
 		api.POST("/messages", func(c *gin.Context) {
 			service.HandleMultiFormatChatRequest(c, server, "anthropic")
+		})
+		// Anthropic Messages：GET 返回 405（标准要求），count_tokens 端点
+		api.GET("/messages", func(c *gin.Context) {
+			c.JSON(http.StatusMethodNotAllowed, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": "Method Not Allowed",
+				},
+			})
+		})
+		api.POST("/messages/count_tokens", func(c *gin.Context) {
+			service.HandleAnthropicCountTokens(c, server)
 		})
 		// OpenAI Responses 格式
 		api.POST("/responses", func(c *gin.Context) {
