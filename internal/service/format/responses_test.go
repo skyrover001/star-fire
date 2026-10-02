@@ -336,6 +336,123 @@ func TestResponsesConverter_StreamToolCall(t *testing.T) {
 	}
 }
 
+// TestResponsesUserWriter_TruncatedStatus 覆盖“max_output_tokens 过小导致上游只吐
+// 思考、无文本无工具调用”的场景：流式 response.completed 必须回报
+// status=incomplete + incomplete_details.reason=max_output_tokens，
+// 而不是硬编码的 completed（否则客户端只见空 output，无法判断被截断）。
+func TestResponsesUserWriter_TruncatedStatus(t *testing.T) {
+	w := (&ResponsesConverter{}).NewUserStreamWriter()
+	if setter, ok := w.(interface{ SetModel(string) }); ok {
+		setter.SetModel("Qwen3.8-27B")
+	}
+
+	// 只有思考、无任何可见输出，且上游 finish_reason=length。
+	evs, err := w.Write(&public.CanonicalStreamEvent{
+		Type:         public.StreamEventDone,
+		FinishReason: "length",
+		Usage:        &public.CanonicalUsage{InputTokens: 277, OutputTokens: 16, TotalTokens: 293},
+	})
+	if err != nil {
+		t.Fatalf("Write done error: %v", err)
+	}
+	if len(evs) == 0 {
+		t.Fatal("expected at least response.created + response.completed")
+	}
+	var created map[string]any
+	_ = json.Unmarshal(evs[0], &created)
+	if created["type"] != "response.created" {
+		t.Fatalf("event[0] type = %v, want response.created", created["type"])
+	}
+	var completed map[string]any
+	_ = json.Unmarshal(evs[len(evs)-1], &completed)
+	if completed["type"] != "response.completed" {
+		t.Fatalf("last event type = %v, want response.completed", completed["type"])
+	}
+	resp, _ := completed["response"].(map[string]any)
+	if resp["status"] != "incomplete" {
+		t.Errorf("status = %v, want incomplete", resp["status"])
+	}
+	details, _ := resp["incomplete_details"].(map[string]any)
+	if details == nil || details["reason"] != "max_output_tokens" {
+		t.Errorf("incomplete_details = %v, want reason=max_output_tokens", resp["incomplete_details"])
+	}
+	if out, _ := resp["output"].([]any); len(out) != 0 {
+		t.Errorf("output = %v, want empty", out)
+	}
+}
+
+// TestResponsesConverter_BuildResponseStatus 验证非流式 status 字段：
+//   - 含工具调用 → completed（不能把 canonical 的 tool_calls 泄漏进 status）
+//   - finish_reason=length → incomplete + incomplete_details.reason
+func TestResponsesConverter_BuildResponseStatus(t *testing.T) {
+	c := &ResponsesConverter{}
+
+	cases := []struct {
+		name         string
+		finishReason string
+		wantStatus   string
+		wantReason   string
+		content      []public.CanonicalContent
+	}{
+		{
+			name:         "tool_calls 归一为 completed",
+			finishReason: "tool_calls",
+			wantStatus:   "completed",
+			content: []public.CanonicalContent{
+				{Type: "tool_use", ID: "call_1", Name: "get_weather", Input: json.RawMessage(`{"city":"Paris"}`)},
+			},
+		},
+		{
+			name:         "length 截断为 incomplete",
+			finishReason: "length",
+			wantStatus:   "incomplete",
+			wantReason:   "max_output_tokens",
+			content:      []public.CanonicalContent{{Type: "thinking", Text: "思考中…"}},
+		},
+		{
+			name:         "stop 正常完成",
+			finishReason: "stop",
+			wantStatus:   "completed",
+			content:      []public.CanonicalContent{{Type: "text", Text: "hi"}},
+		},
+		{
+			name:         "content_filter 截断为 incomplete",
+			finishReason: "content_filter",
+			wantStatus:   "incomplete",
+			wantReason:   "content_filter",
+			content:      []public.CanonicalContent{{Type: "text", Text: "hi"}},
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			b, err := c.BuildResponse(&public.CanonicalResponse{
+				ID:           "resp_1",
+				FinishReason: tc.finishReason,
+				Content:      tc.content,
+			})
+			if err != nil {
+				t.Fatalf("BuildResponse error: %v", err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatalf("unmarshal: %v", err)
+			}
+			if got["status"] != tc.wantStatus {
+				t.Errorf("status = %v, want %v", got["status"], tc.wantStatus)
+			}
+			details, _ := got["incomplete_details"].(map[string]any)
+			gotReason := ""
+			if details != nil {
+				gotReason, _ = details["reason"].(string)
+			}
+			if gotReason != tc.wantReason {
+				t.Errorf("incomplete_details.reason = %q, want %q", gotReason, tc.wantReason)
+			}
+		})
+	}
+}
+
 func TestResponsesConverter_StreamError(t *testing.T) {
 	acc := (&ResponsesConverter{}).NewStreamAccumulator()
 	events := feedAll(t, acc, []string{`{"type":"response.failed","delta":"模型负载过高，请重试"}`})
@@ -1666,6 +1783,257 @@ func TestResponsesToChat_ToolMessageMissingToolCallID(t *testing.T) {
 	if tcid != "fc_abc" {
 		t.Errorf("tool_call_id = %v, want fc_abc (from preceding assistant)", tcid)
 	}
+}
+
+// assertAssistantToolContent 检查 Chat 请求 JSON 中所有 assistant / tool 消息都带
+// string 类型的 content 字段。这是下游严格 Pydantic 校验（vLLM union 类型）的硬
+// 要求：content 缺失或为 null 会被直接 400。
+func assertAssistantToolContent(t *testing.T, chatBody []byte) {
+	t.Helper()
+	var obj struct {
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(chatBody, &obj); err != nil {
+		t.Fatalf("chat body is invalid JSON: %v\nbody=%s", err, chatBody)
+	}
+	for i, m := range obj.Messages {
+		var role string
+		_ = json.Unmarshal(m["role"], &role)
+		if role != "assistant" && role != "tool" {
+			continue
+		}
+		c, ok := m["content"]
+		if !ok {
+			t.Fatalf("messages[%d] role=%s missing content (downstream 400 risk); body=%s", i, role, chatBody)
+		}
+		if strings.TrimSpace(string(c)) == "null" {
+			t.Fatalf("messages[%d] role=%s content is null (downstream 400 risk); body=%s", i, role, chatBody)
+		}
+		var s string
+		if err := json.Unmarshal(c, &s); err != nil {
+			t.Fatalf("messages[%d] role=%s content is not a string: %v", i, role, err)
+		}
+	}
+}
+
+// TestResponsesToChat_ToolOutputVariants 覆盖 function_call_output 的 output 为
+// null / 缺失 / 空字符串 / 无法识别的对象或数组等情形，验证：
+//  1. 最终 Chat 请求里 tool 消息始终带 string content（下游 Pydantic 校验的硬要求）；
+//  2. 无法识别的 output 被转成文本透传，而不是被丢弃。
+//
+// 回归背景：Codex CLI 经 /v1/responses 请求 direct backend 时，下游返回
+//
+//	400 body.messages.485.ChatCompletionToolMessageParam.content: Field required
+//
+// 并被展开成"144 validation errors"（同一条畸形消息在 developer/system/user/
+// assistant/tool 各 union 分支上逐个报错）。根因就是这类 output 转换出的空 content
+// tool 消息被 go-openai 的 omitempty 把 content 字段整个丢弃。
+func TestResponsesToChat_ToolOutputVariants(t *testing.T) {
+	cases := []struct {
+		name     string
+		output   string // JSON 片段（含前导逗号）；空串表示不带 output 字段
+		wantText string // 期望 tool content 包含的文本；"" 表示期望空字符串
+	}{
+		{name: "null", output: `,"output":null`},
+		{name: "missing", output: ``},
+		{name: "empty_string", output: `,"output":""`},
+		{name: "blank_string", output: `,"output":"   "`, wantText: "   "},
+		{name: "unknown_object", output: `,"output":{"status":"ok","count":2}`, wantText: `{"status":"ok","count":2}`},
+		{name: "unknown_part", output: `,"output":[{"type":"unknown_part","foo":"bar"}]`, wantText: `[{"type":"unknown_part","foo":"bar"}]`},
+		{name: "plain_string", output: `,"output":"all good"`, wantText: "all good"},
+		{name: "content_parts", output: `,"output":[{"type":"output_text","text":"hello"}]`, wantText: "hello"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			body := `{
+				"model": "GLM-5.3-Flash",
+				"input": [
+					{"role":"user","content":[{"type":"input_text","text":"run"}]},
+					{"type":"function_call","call_id":"call_1","name":"exec_command","arguments":"{}"},
+					{"type":"function_call_output","call_id":"call_1"` + tc.output + `}
+				]
+			}`
+			rc := &ResponsesConverter{}
+			cr, err := rc.ParseRequest([]byte(body))
+			if err != nil {
+				t.Fatalf("ParseRequest error: %v", err)
+			}
+			// canonical 层：tool 消息的 content 不能是空切片（否则下游必然缺 content）。
+			for i, m := range cr.Messages {
+				if m.Role == "tool" && len(m.Content) == 0 {
+					t.Fatalf("canonical messages[%d] tool has empty content slice", i)
+				}
+			}
+
+			oc := &OpenAIConverter{}
+			chatBody, err := oc.BuildUpstreamRequest(cr)
+			if err != nil {
+				t.Fatalf("BuildUpstreamRequest error: %v", err)
+			}
+			assertAssistantToolContent(t, chatBody)
+
+			var obj struct {
+				Messages []map[string]any `json:"messages"`
+			}
+			if err := json.Unmarshal(chatBody, &obj); err != nil {
+				t.Fatalf("unmarshal chat body: %v", err)
+			}
+			var toolMsgs []map[string]any
+			for _, m := range obj.Messages {
+				if m["role"] == "tool" {
+					toolMsgs = append(toolMsgs, m)
+				}
+			}
+			if len(toolMsgs) != 1 {
+				t.Fatalf("want exactly 1 tool message, got %d; body=%s", len(toolMsgs), chatBody)
+			}
+			got, _ := toolMsgs[0]["content"].(string)
+			if tc.wantText == "" {
+				if got != "" {
+					t.Errorf("tool content = %q, want empty", got)
+				}
+			} else if !strings.Contains(got, tc.wantText) {
+				t.Errorf("tool content = %q, want to contain %q", got, tc.wantText)
+			}
+			if toolMsgs[0]["tool_call_id"] != "call_1" {
+				t.Errorf("tool_call_id = %v, want call_1", toolMsgs[0]["tool_call_id"])
+			}
+		})
+	}
+}
+
+// TestResponsesToChat_FunctionCallOutputMissingCallID 验证 function_call_output
+// 缺少 call_id 时，能关联到前面 assistant 工具调用（而不是用 item 自身的 id
+// 冒充 call_id，造成工具调用与结果的错配）。
+func TestResponsesToChat_FunctionCallOutputMissingCallID(t *testing.T) {
+	rc := &ResponsesConverter{}
+	body := `{
+		"model": "GLM-5.3-Flash",
+		"input": [
+			{"role":"user","content":[{"type":"input_text","text":"run"}]},
+			{"type":"function_call","call_id":"call_xyz","name":"exec_command","arguments":"{}"},
+			{"type":"function_call_output","id":"fco_1","output":"done"}
+		]
+	}`
+	cr, err := rc.ParseRequest([]byte(body))
+	if err != nil {
+		t.Fatalf("ParseRequest error: %v", err)
+	}
+
+	var toolMsg *public.CanonicalMessage
+	for i := range cr.Messages {
+		if cr.Messages[i].Role == "tool" {
+			toolMsg = &cr.Messages[i]
+			break
+		}
+	}
+	if toolMsg == nil {
+		t.Fatal("no tool message found in canonical")
+	}
+	if toolMsg.ToolCallID != "call_xyz" {
+		t.Errorf("canonical ToolCallID = %q, want call_xyz (from preceding assistant tool call)", toolMsg.ToolCallID)
+	}
+
+	oc := &OpenAIConverter{}
+	chatBody, err := oc.BuildUpstreamRequest(cr)
+	if err != nil {
+		t.Fatalf("BuildUpstreamRequest error: %v", err)
+	}
+	assertAssistantToolContent(t, chatBody)
+
+	var obj struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(chatBody, &obj); err != nil {
+		t.Fatalf("unmarshal chat body: %v", err)
+	}
+	for _, m := range obj.Messages {
+		if m["role"] != "tool" {
+			continue
+		}
+		if m["tool_call_id"] != "call_xyz" {
+			t.Errorf("chat tool_call_id = %v, want call_xyz", m["tool_call_id"])
+		}
+		if c, _ := m["content"].(string); c != "done" {
+			t.Errorf("chat tool content = %q, want done", c)
+		}
+	}
+}
+
+// TestResponsesToChat_ChatStyleToolNullContent 验证内嵌 Chat 风格的 tool 消息
+// content 为 null 时，不会产出没有 content 的 tool 消息。
+func TestResponsesToChat_ChatStyleToolNullContent(t *testing.T) {
+	rc := &ResponsesConverter{}
+	body := `{
+		"model": "GLM-5.3-Flash",
+		"input": [
+			{"role":"user","content":[{"type":"input_text","text":"run"}]},
+			{"role":"assistant","tool_calls":[{"id":"fc_1","type":"function","function":{"name":"exec_command","arguments":"{}"}}]},
+			{"role":"tool","tool_call_id":"fc_1","content":null}
+		]
+	}`
+	cr, err := rc.ParseRequest([]byte(body))
+	if err != nil {
+		t.Fatalf("ParseRequest error: %v", err)
+	}
+	for i, m := range cr.Messages {
+		if m.Role == "tool" && len(m.Content) == 0 {
+			t.Fatalf("canonical messages[%d] tool has empty content slice", i)
+		}
+	}
+
+	oc := &OpenAIConverter{}
+	chatBody, err := oc.BuildUpstreamRequest(cr)
+	if err != nil {
+		t.Fatalf("BuildUpstreamRequest error: %v", err)
+	}
+	assertAssistantToolContent(t, chatBody)
+
+	var obj struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(chatBody, &obj); err != nil {
+		t.Fatalf("unmarshal chat body: %v", err)
+	}
+	found := false
+	for _, m := range obj.Messages {
+		if m["role"] != "tool" {
+			continue
+		}
+		found = true
+		if c, ok := m["content"].(string); !ok || c != "" {
+			t.Errorf("chat tool content = %v, want empty string", m["content"])
+		}
+		if m["tool_call_id"] != "fc_1" {
+			t.Errorf("chat tool_call_id = %v, want fc_1", m["tool_call_id"])
+		}
+	}
+	if !found {
+		t.Fatal("no tool message in chat request")
+	}
+}
+
+// TestResponsesToChat_WebSearchCallEmptyOutput 验证 web_search_call /
+// custom_tool_call 自带空 output 时同样不会产出无 content 的 tool 消息。
+func TestResponsesToChat_WebSearchCallEmptyOutput(t *testing.T) {
+	rc := &ResponsesConverter{}
+	body := `{
+		"model": "GLM-5.3-Flash",
+		"input": [
+			{"role":"user","content":[{"type":"input_text","text":"搜索"}]},
+			{"type":"web_search_call","id":"ws_1","call_id":"ws_call_1","status":"completed","action":{"type":"search","query":"golang"},"output":[{"type":"unknown_result"}]}
+		]
+	}`
+	cr, err := rc.ParseRequest([]byte(body))
+	if err != nil {
+		t.Fatalf("ParseRequest error: %v", err)
+	}
+	oc := &OpenAIConverter{}
+	chatBody, err := oc.BuildUpstreamRequest(cr)
+	if err != nil {
+		t.Fatalf("BuildUpstreamRequest error: %v", err)
+	}
+	assertAssistantToolContent(t, chatBody)
 }
 
 // TestResponsesConverter_NonFunctionToolsUpstream 验证非 function 工具

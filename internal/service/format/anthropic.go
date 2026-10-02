@@ -462,6 +462,11 @@ type anthropicUserWriter struct {
 	stopSequences []string
 	hasText       bool
 
+	// reasoning/functionIDs 用于思考模型工具循环：累积 reasoning_content，
+	// 供适配层在流结束时保存到会话状态（实现 ReasoningProvider）。
+	reasoning   string
+	functionIDs []string
+
 	blockIndex   int
 	blockStarted bool
 	blockType    string // "text" | "tool_use"
@@ -478,6 +483,13 @@ func (w *anthropicUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, 
 	}
 
 	switch ev.Type {
+	case public.StreamEventThinkingDelta:
+		// 思考内容增量：透传累积 reasoning_content，供工具循环续接时回传。
+		// 不输出 thinking block（与 responsesUserWriter 一致），由 done/flush
+		// 统一收尾。
+		w.reasoning += ev.Text
+		return nil, nil
+
 	case public.StreamEventTextDelta:
 		if ev.Text != "" {
 			w.hasText = true
@@ -500,6 +512,9 @@ func (w *anthropicUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, 
 	case public.StreamEventToolCallDelta:
 		if ev.ToolCall == nil {
 			return nil, nil
+		}
+		if ev.ToolCall.ID != "" {
+			w.recordFunctionID(ev.ToolCall.ID)
 		}
 		if !w.started {
 			return w.startAndTool(ev.ToolCall)
@@ -524,6 +539,11 @@ func (w *anthropicUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, 
 		}
 		w.finished = true
 		var out [][]byte
+		// 空回复（无任何 text/tool delta）也必须先合成 message_start，
+		// 否则 SDK 会因缺少 message_start 而无法建立消息上下文。
+		if !w.started {
+			out = append(out, w.startMessage()...)
+		}
 		if w.blockStarted {
 			out = append(out, marshalStream(map[string]any{
 				"type":  "content_block_stop",
@@ -560,10 +580,43 @@ func (w *anthropicUserWriter) Write(ev *public.CanonicalStreamEvent) ([][]byte, 
 }
 
 func (w *anthropicUserWriter) Flush() ([][]byte, error) {
-	if w.started {
-		return w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventDone, FinishReason: w.finishReason})
+	// 无论是否收到过任何 delta，都必须合成收尾事件（message_delta + message_stop）。
+	// 上游（OpenAI Chat）可能只发 [DONE] 而不带 finish_reason chunk，或空回复/仅
+	// 思考无正文——此时 Write 从未收到 StreamEventDone，若 Flush 返回 nil，SDK 会
+	// 报 "stream ended without a stop reason"。Write 内部会在未 started 时先合成
+	// message_start，保证事件序列完整。
+	return w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventDone, FinishReason: w.finishReason})
+}
+
+// ReasoningMap 返回本流累积到的 reasoning_content，keyed by 最近一次 tool_call_id。
+// 若没有工具调用，则 key 为 ""。供适配层保存到会话状态，以便后续续接请求回传 reasoning。
+func (w *anthropicUserWriter) ReasoningMap() map[string]string {
+	out := map[string]string{}
+	if w.reasoning == "" {
+		return out
 	}
-	return nil, nil
+	// 为每个出现过的 tool_call_id 都关联同一段 reasoning_content：
+	// 同一 assistant 回合的并行工具调用共享一段 reasoning，续接请求可能只回传
+	// 其中任意一个（或第一个）call_id，必须全部命中才能正确回传。
+	for _, id := range w.functionIDs {
+		if id != "" {
+			out[id] = w.reasoning
+		}
+	}
+	return out
+}
+
+// recordFunctionID 记录本流出现过的 tool_call_id（去重）。
+func (w *anthropicUserWriter) recordFunctionID(id string) {
+	if id == "" {
+		return
+	}
+	for _, existing := range w.functionIDs {
+		if existing == id {
+			return
+		}
+	}
+	w.functionIDs = append(w.functionIDs, id)
 }
 
 // startAndText 在尚未发送 message_start 时，先合成 message_start + text block。

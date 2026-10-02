@@ -55,12 +55,13 @@ func printUsage() {
 	fmt.Println("  starfire add-backend <id> <名称> <base_url> <api_key> <优先级> <并发> <模型列表>")
 	fmt.Println("                                     添加 Direct 后端；模型支持 name 或 name:ippm:oppm:cippm")
 	fmt.Println("                                     示例: starfire add-backend vllm-1 \"vLLM 集群 1\" http://vllm-1:8000/v1 sk-xxx 1 8 qwen3-32b:1.5:2.0:0.3,qwen3-8b")
+	fmt.Println("                                     对已存在的 id 重复执行即为编辑（覆盖名称/地址/密钥/优先级/并发/模型列表）")
 	fmt.Println("  starfire list-backends             列出所有 Direct 后端（含模型价格）")
-	fmt.Println("  starfire enable-backend <id>       启用 Direct 后端（重启后生效）")
-	fmt.Println("  starfire disable-backend <id>      禁用 Direct 后端（重启后生效）")
-	fmt.Println("  starfire del-backend <id>          删除 Direct 后端（重启后生效）")
+	fmt.Println("  starfire enable-backend <id>       启用 Direct 后端（30 秒内自动生效，无需重启）")
+	fmt.Println("  starfire disable-backend <id>      禁用 Direct 后端（30 秒内自动生效，无需重启）")
+	fmt.Println("  starfire del-backend <id>          删除 Direct 后端（30 秒内自动生效，无需重启）")
 	fmt.Println()
-	fmt.Println("提示: 后端管理命令的变更会在服务运行期间 30 秒内自动加载。")
+	fmt.Println("提示: 后端管理命令的变更会在服务运行期间 30 秒内自动加载，无需重启服务。")
 }
 
 func main() {

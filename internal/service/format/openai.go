@@ -297,11 +297,12 @@ func (c *OpenAIConverter) BuildUpstreamRequest(cr *public.CanonicalRequest) ([]b
 	}
 	// 后处理：go-openai 的 ChatCompletionMessage.MarshalJSON 对空 Content
 	// 使用 omitempty，会省略 "content" 字段。但 vLLM 等后端的 Pydantic
-	// 校验要求 assistant 消息必须带 content 字段（即使是空字符串），
-	// 否则返回 400 "Expecting value: line 1 column 1 (char 0)"。
-	// 这里在序列化后的 JSON 中为缺失 content 的 assistant 消息补上
+	// 校验要求 assistant / tool 消息必须带 content 字段（即使是空字符串），
+	// 否则返回 400 "Expecting value: line 1 column 1 (char 0)" 或
+	// "body.messages.N.ChatCompletionToolMessageParam.content: Field required"。
+	// 这里在序列化后的 JSON 中为缺失 / 为 null 的 assistant、tool 消息补上
 	// "content":""，确保后端能接受。
-	raw = ensureAssistantContent(raw)
+	raw = ensureRequiredMessageContent(raw)
 	// 注入视频块：go-openai 无法承载 video_url，这里把收集到的视频块
 	// 以 {"type":"video_url","video_url":{"url":...}} 形式追加到对应
 	// 消息的 content 数组中。
@@ -346,15 +347,27 @@ func findUnmatchedToolCallID(messages []openai.ChatCompletionMessage, _ string) 
 	return ""
 }
 
-// ensureAssistantContent 在序列化后的 Chat 请求 JSON 中，为缺失 "content"
-// 字段的 assistant 消息补上 "content":""。
+// ensureRequiredMessageContent 在序列化后的 Chat 请求 JSON 中，为缺失或为 null
+// 的 "content" 字段补上 `""`。
 //
 // go-openai 的 ChatCompletionMessage.MarshalJSON 对空 Content 使用 omitempty，
-// 会完全省略 "content" 字段。但 vLLM 等后端的 Pydantic 校验要求 assistant
-// 消息必须带 content 字段，否则返回 400。
-// 这里解析 JSON 数组，逐条检查 role=assistant 且没有 content 键的消息，
-// 插入 "content":""。
-func ensureAssistantContent(raw []byte) []byte {
+// 会完全省略 "content" 字段。但下游后端（vLLM / Pydantic union 校验，如
+// tianhe-tech）要求 assistant 与 tool 消息必须带 content 字段，且类型为 string
+// 或 content 数组，否则返回 400，例如：
+//
+//	body.messages.485.ChatCompletionToolMessageParam.content: Field required
+//
+// tool 消息是最容易踩雷的一类：Codex CLI 的 function_call_output /
+// custom_tool_call_output 若 output 为空、为 null 或为无法识别的内容块，
+// 转换出的 tool 消息 content 就是空字符串，被 omitempty 直接丢弃，最终序列化出
+// {"role":"tool","tool_call_id":"..."} 这种没有 content 的消息。严格校验的下游会
+// 把这一条消息在 developer/system/user/assistant/tool 各 union 分支上逐个报错，
+// 看起来像"上百条校验错误"，实际只是一条畸形消息——这正是 /v1/responses 经
+// direct backend 转发时下游返回 400 的根因。
+//
+// 这里解析 JSON 数组，逐条检查 role=assistant / role=tool 的消息，
+// 若 content 缺失或为 null，则补上 "content":""。
+func ensureRequiredMessageContent(raw []byte) []byte {
 	var req map[string]json.RawMessage
 	if json.Unmarshal(raw, &req) != nil {
 		return raw // 解析失败，原样返回
@@ -377,14 +390,16 @@ func ensureAssistantContent(raw []byte) []byte {
 		if r, ok := m["role"]; ok {
 			_ = json.Unmarshal(r, &role)
 		}
-		if role != "assistant" {
+		// 只有 assistant / tool 的 content 是必填 string（或 content 数组）。
+		// user 消息可以为 null（多模态数组形式），不必强行补。
+		if role != openai.ChatMessageRoleAssistant && role != openai.ChatMessageRoleTool {
 			continue
 		}
-		// 检查是否已有 content 字段。
-		if _, hasContent := m["content"]; hasContent {
+		// content 已存在且不是 null → 无需处理。
+		if c, hasContent := m["content"]; hasContent && strings.TrimSpace(string(c)) != "null" {
 			continue
 		}
-		// 插入 "content":""。
+		// 补上（或把 null 修正为）"content":""。
 		m["content"] = json.RawMessage(`""`)
 		newRaw, err := json.Marshal(m)
 		if err != nil {

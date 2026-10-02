@@ -933,3 +933,122 @@ func TestOpenAIConverter_AssistantMessageHasContent(t *testing.T) {
 		t.Fatalf("expected empty content string, got %q", content)
 	}
 }
+
+// TestOpenAIConverter_ToolMessageHasContent 验证 tool 消息 content 为空时，
+// 序列化后的 JSON 仍然包含 "content" 字段（空字符串）。
+//
+// 回归背景：Codex CLI 走 /v1/responses 时，function_call_output 的 output 若为空 /
+// null / 无法识别，转换出的 tool 消息 content 就是空串；go-openai 的
+// ChatCompletionMessage.MarshalJSON 对空 Content 使用 omitempty，会把 content
+// 字段整个丢掉，序列化出 {"role":"tool","tool_call_id":"..."}。下游后端
+// （vLLM / Pydantic union 校验，如 tianhe-tech）要求 tool.content 为 string，
+// 于是返回 400 —— 表现为 "144 validation errors"（同一消息在多个 union 分支上
+// 逐个报错），Codex 因此拿到 HTTP 400 并中断。
+func TestOpenAIConverter_ToolMessageHasContent(t *testing.T) {
+	c := &OpenAIConverter{}
+	cr := &public.CanonicalRequest{
+		Model: "gpt-4o",
+		Messages: []public.CanonicalMessage{
+			{Role: "user", Content: []public.CanonicalContent{{Type: "text", Text: "run"}}},
+			{Role: "assistant", ToolCalls: []public.CanonicalToolCall{
+				{ID: "call_1", Name: "exec_command", Arguments: json.RawMessage(`{"cmd":"ls"}`)},
+				{ID: "call_2", Name: "exec_command", Arguments: json.RawMessage(`{"cmd":"pwd"}`)},
+			}},
+			// 空 tool_result（function_call_output 的 output 为空/null 的转换结果）
+			{Role: "tool", ToolCallID: "call_1", Content: []public.CanonicalContent{
+				{Type: "tool_result", ID: "call_1", Content: []public.CanonicalContent{{Type: "text", Text: ""}}},
+			}},
+			// 完全没有 content 的 tool 消息
+			{Role: "tool", ToolCallID: "call_2"},
+		},
+	}
+	built, err := c.BuildUpstreamRequest(cr)
+	if err != nil {
+		t.Fatalf("BuildUpstreamRequest error: %v", err)
+	}
+	var obj struct {
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(built, &obj); err != nil {
+		t.Fatalf("unmarshal built request error: %v", err)
+	}
+
+	// 所有 assistant / tool 消息都必须带 string 类型的 content 字段。
+	checked := 0
+	for i, m := range obj.Messages {
+		var role string
+		_ = json.Unmarshal(m["role"], &role)
+		if role != "assistant" && role != "tool" {
+			continue
+		}
+		checked++
+		contentRaw, hasContent := m["content"]
+		if !hasContent {
+			t.Errorf("messages[%d] role=%s missing 'content' field - strict backend will reject with 400 (body=%s)", i, role, string(built))
+			continue
+		}
+		if strings.TrimSpace(string(contentRaw)) == "null" {
+			t.Errorf("messages[%d] role=%s has null content - strict backend will reject with 400", i, role)
+			continue
+		}
+		var content string
+		if err := json.Unmarshal(contentRaw, &content); err != nil {
+			t.Errorf("messages[%d] role=%s content is not a string: %v", i, role, err)
+		}
+	}
+	if checked < 3 {
+		t.Fatalf("expected to check at least 3 assistant/tool messages, got %d", checked)
+	}
+}
+
+// TestEnsureRequiredMessageContent 直接验证后处理函数：缺失或为 null 的 content
+// 在 assistant / tool 消息上被补成 ""，其他角色保持原样。
+func TestEnsureRequiredMessageContent(t *testing.T) {
+	in := []byte(`{"model":"m","messages":[` +
+		`{"role":"tool","content":null,"tool_call_id":"c1"},` +
+		`{"role":"assistant"},` +
+		`{"role":"assistant","content":"real"},` +
+		`{"role":"user","content":[{"type":"text","text":"hi"}]},` +
+		`{"role":"user","content":null},` +
+		`{"role":"system","content":"sys"}` +
+		`]}`)
+	out := ensureRequiredMessageContent(in)
+
+	var obj struct {
+		Messages []map[string]json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(out, &obj); err != nil {
+		t.Fatalf("unmarshal result error: %v", err)
+	}
+	if len(obj.Messages) != 6 {
+		t.Fatalf("expected 6 messages, got %d", len(obj.Messages))
+	}
+	// tool(null) → ""
+	for _, idx := range []int{0, 1} {
+		c, ok := obj.Messages[idx]["content"]
+		if !ok {
+			t.Fatalf("messages[%d] missing content after post-process", idx)
+		}
+		var s string
+		if err := json.Unmarshal(c, &s); err != nil || s != "" {
+			t.Fatalf("messages[%d] expected empty string content, got %s (err=%v)", idx, string(c), err)
+		}
+	}
+	// assistant 已有真实 content → 不覆盖
+	var s string
+	if err := json.Unmarshal(obj.Messages[2]["content"], &s); err != nil || s != "real" {
+		t.Fatalf("assistant real content must be preserved, got %s (err=%v)", string(obj.Messages[2]["content"]), err)
+	}
+	// user 数组 content → 原样保留
+	if got := strings.TrimSpace(string(obj.Messages[3]["content"])); got != `[{"type":"text","text":"hi"}]` {
+		t.Fatalf("user array content must be preserved, got %s", got)
+	}
+	// user null content → 保持 null（user 的 content 允许为 null）
+	if got := strings.TrimSpace(string(obj.Messages[4]["content"])); got != "null" {
+		t.Fatalf("user null content must stay null, got %s", got)
+	}
+	// system → 原样保留
+	if err := json.Unmarshal(obj.Messages[5]["content"], &s); err != nil || s != "sys" {
+		t.Fatalf("system content must be preserved, got %s (err=%v)", string(obj.Messages[5]["content"]), err)
+	}
+}

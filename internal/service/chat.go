@@ -215,7 +215,9 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		}
 	}
 
+	attempts := 0
 	for attempt := 0; attempt < public.MAX_CHAT_RETRY; attempt++ {
+		attempts++
 		// 全局超时检查，避免极端情况下重试耗时过长
 		if time.Since(start) > public.CHAT_RETRY_TOTAL_TIMEOUT*time.Second {
 			break
@@ -442,6 +444,10 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 	}
 
 	// 重试耗尽，返回明确错误
+	// 调试日志：503 归因（direct 开关 / 模型是否有 direct 供给 / 实际重试次数 / 已排除候选）
+	log.Printf("[chat-503] model=%s routing=%s attempts=%d elapsed=%dms excluded=%v directEnabled=%v directSupply=%v",
+		request.Model, routing, attempts, time.Since(start).Milliseconds(),
+		failedClients, configs.Config.DirectBackendsEnabled, server.HasDirectSupply(request.Model))
 	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "All clients failed, please retry"})
 }
 

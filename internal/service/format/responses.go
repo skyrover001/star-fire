@@ -266,13 +266,17 @@ func (c *ResponsesConverter) ParseRequest(body []byte) (*public.CanonicalRequest
 			// function_call_output / custom_tool_call_output 结构相同（call_id + output），
 			// 统一转成 tool 结果消息。custom_tool_call_output 若落入 default 分支会因
 			// 无 role/content 被误转成 {"role":"user","content":null}，导致后端 400。
+			// tool_call_id 与 content 都必须落到实值：call_id 缺失时关联最近的
+			// assistant 工具调用；output 为空 / 无法识别时也要产出空 text 块，
+			// 否则下游会收到没有 content 的 tool 消息而被 400 拒绝。
+			callID := resolveToolResultCallID(cr.Messages, item)
 			cr.Messages = append(cr.Messages, public.CanonicalMessage{
 				Role:       "tool",
-				ToolCallID: item.CallID,
+				ToolCallID: callID,
 				Content: []public.CanonicalContent{{
 					Type:    "tool_result",
-					ID:      item.CallID,
-					Content: parseResponsesTextContent(item.Output),
+					ID:      callID,
+					Content: parseResponsesToolOutput(item.Output),
 				}},
 			})
 		case "web_search_call", "custom_tool_call":
@@ -332,7 +336,7 @@ func (c *ResponsesConverter) ParseRequest(body []byte) (*public.CanonicalRequest
 					Content: []public.CanonicalContent{{
 						Type:    "tool_result",
 						ID:      callID,
-						Content: parseResponsesTextContent(item.Output),
+						Content: parseResponsesToolOutput(item.Output),
 					}},
 				})
 			}
@@ -562,6 +566,11 @@ func (c *ResponsesConverter) BuildResponse(cr *public.CanonicalResponse) ([]byte
 		}
 	}
 	resp.Usage = canonicalToResponsesUsage(cr.Usage)
+	// 被 max_output_tokens / 内容过滤截断时，按官方规范给出 incomplete_details.reason，
+	// 否则客户端只能看到 output 为空，无法区分“模型真的没输出”与“被截断”。
+	if resp.Status == "incomplete" {
+		resp.IncompleteDetails.Reason = responsesIncompleteReason(cr.FinishReason)
+	}
 	return json.Marshal(resp)
 }
 
@@ -1085,22 +1094,32 @@ func (w *responsesUserWriter) buildCompletedEvent() [][]byte {
 	for _, it := range w.items {
 		output = append(output, streamItemToMap(it))
 	}
-	completed := map[string]any{
-		"type": "response.completed",
-		"response": map[string]any{
-			"id":         w.responseID,
-			"object":     "response",
-			"created_at": w.createdAt,
-			"status":     "completed",
-			"model":      w.model,
-			"output":     output,
-			"usage": map[string]any{
-				"input_tokens":         w.usage.InputTokens,
-				"output_tokens":        w.usage.OutputTokens,
-				"total_tokens":         w.usage.TotalTokens,
-				"input_tokens_details": map[string]any{"cached_tokens": w.usage.CachedTokens},
-			},
+	// 注意：不能硬编码 "completed"。上游 finish_reason=length（如 max_output_tokens
+	// 过小、被推理过程吃满）时必须是 incomplete，否则客户端看到的是
+	// “完成但输出为空”，既无法判断被截断也无法据此重试。
+	status := canonicalFinishToResponsesStatus(w.finishReason)
+	response := map[string]any{
+		"id":         w.responseID,
+		"object":     "response",
+		"created_at": w.createdAt,
+		"status":     status,
+		"model":      w.model,
+		"output":     output,
+		"usage": map[string]any{
+			"input_tokens":         w.usage.InputTokens,
+			"output_tokens":        w.usage.OutputTokens,
+			"total_tokens":         w.usage.TotalTokens,
+			"input_tokens_details": map[string]any{"cached_tokens": w.usage.CachedTokens},
 		},
+	}
+	if status == "incomplete" {
+		response["incomplete_details"] = map[string]any{
+			"reason": responsesIncompleteReason(w.finishReason),
+		}
+	}
+	completed := map[string]any{
+		"type":     "response.completed",
+		"response": response,
 	}
 	b, _ := json.Marshal(completed)
 	return [][]byte{b}
@@ -1397,6 +1416,88 @@ func parseResponsesTextContent(raw json.RawMessage) []public.CanonicalContent {
 	return out
 }
 
+// parseResponsesToolOutput 解析工具结果（function_call_output /
+// custom_tool_call_output 的 output、Chat 风格 tool 消息的 content）为 Canonical
+// 文本块。
+//
+// 与 parseResponsesTextContent 的关键区别：工具结果必须始终产出至少一个块。
+// 下游 Chat 格式要求 tool 消息带 content 字符串；若这里返回空切片，
+// openai.go 的 blocksToText 会得到空串，go-openai 的 omitempty 再把 content
+// 字段整个丢掉，最终下游收到 {"role":"tool","tool_call_id":"..."} —— 严格校验的
+// Pydantic 后端直接 400（并在 union 分支上展开成一堆校验错误，看起来像上百条）。
+// 这是 /v1/responses 经 direct backend 转发失败的根因，解析层必须兜住。
+//
+// 规则：
+//   - null / 空 / 空白 → 一个空 text 块（保证 content 字段存在）；
+//   - 已知 content part / 字符串 → 复用 parseResponsesTextContent；
+//   - 无法识别的对象/数组（工具返回的原始 JSON）→ 原文转文本透传，而不是丢弃。
+func parseResponsesToolOutput(raw json.RawMessage) []public.CanonicalContent {
+	trimmed := strings.TrimSpace(string(raw))
+	if trimmed == "" || trimmed == "null" {
+		return []public.CanonicalContent{{Type: "text", Text: ""}}
+	}
+	if out := parseResponsesTextContent(raw); len(out) > 0 {
+		return out
+	}
+	// 兜底：无法识别的内容原样透传为文本，避免产出空 tool 消息。
+	text := trimmed
+	if text[0] == '"' {
+		// JSON 字符串字面量：去掉引号与转义。
+		var s string
+		if json.Unmarshal(raw, &s) == nil {
+			text = s
+		}
+	}
+	if strings.TrimSpace(text) == "" {
+		return []public.CanonicalContent{{Type: "text", Text: ""}}
+	}
+	return []public.CanonicalContent{{Type: "text", Text: text}}
+}
+
+// resolveToolResultCallID 为工具结果消息确定 tool_call_id。
+//
+// 优先用 item 自带的 call_id；缺失时再尝试 item.id（部分客户端把 call_id 放在
+// id 里），但仅当该 id 确实对应前面某条 assistant 工具调用时才采用——否则用
+// item 自身的消息 id 冒充 call_id 只会造成错配，比留空更糟。都不匹配时关联最近
+// 一条尚未被工具结果匹配的 assistant 工具调用。仍找不到则返回空串，交由
+// openai.go 的 findUnmatchedToolCallID 在构建阶段再次兜底。
+func resolveToolResultCallID(messages []public.CanonicalMessage, item responsesItem) string {
+	if item.CallID != "" {
+		return item.CallID
+	}
+	if item.ID != "" {
+		for _, m := range messages {
+			if m.Role == "assistant" && hasToolCallID(m.ToolCalls, item.ID) {
+				return item.ID
+			}
+		}
+	}
+	return lastUnmatchedToolCallID(messages)
+}
+
+// lastUnmatchedToolCallID 返回最近一条 assistant 消息里尚未被任何 tool 消息匹配的
+// tool_call.id（从后往前找），没有则返回空串。
+func lastUnmatchedToolCallID(messages []public.CanonicalMessage) string {
+	matched := make(map[string]bool, len(messages))
+	for _, m := range messages {
+		if m.Role == "tool" && m.ToolCallID != "" {
+			matched[m.ToolCallID] = true
+		}
+	}
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "assistant" {
+			continue
+		}
+		tcs := messages[i].ToolCalls
+		for j := len(tcs) - 1; j >= 0; j-- {
+			if id := tcs[j].ID; id != "" && !matched[id] {
+				return id
+			}
+		}
+	}
+	return ""
+}
+
 func responsesMessageToCanonical(item responsesItem, tools []public.CanonicalTool) public.CanonicalMessage {
 	cm := public.CanonicalMessage{Role: item.Role}
 	if cm.Role == "" {
@@ -1411,7 +1512,7 @@ func responsesMessageToCanonical(item responsesItem, tools []public.CanonicalToo
 		cm.Content = []public.CanonicalContent{{
 			Type:    "tool_result",
 			ID:      item.ToolCallID,
-			Content: parseResponsesTextContent(item.Content),
+			Content: parseResponsesToolOutput(item.Content),
 		}}
 		return cm
 	}
@@ -1556,15 +1657,30 @@ func responsesFinishReason(resp responsesResponse) string {
 	return responsesStatusToCanonical(resp.Status)
 }
 
+// canonicalFinishToResponsesStatus 把 canonical finish_reason 映射为 Responses
+// 的 status 字段。注意：Responses 的 status 只允许
+// completed / failed / in_progress / cancelled / queued / incomplete，
+// 绝不能把 tool_calls / stop 等 finish_reason 原样写进 status
+// （否则客户端会看到 status="tool_calls" 这种非法值，无法判断是否被截断）。
 func canonicalFinishToResponsesStatus(fr string) string {
 	switch fr {
-	case "stop", "":
-		return "completed"
-	case "length":
+	case "length", "content_filter":
+		// 命中 max_output_tokens 或内容过滤 → 未完成，配合 incomplete_details 说明原因
 		return "incomplete"
-	default:
+	case "failed", "cancelled", "incomplete":
 		return fr
+	default:
+		// stop / tool_calls / "" 等正常结束一律为 completed
+		return "completed"
 	}
+}
+
+// responsesIncompleteReason 由 canonical finish_reason 推导 incomplete_details.reason。
+func responsesIncompleteReason(fr string) string {
+	if fr == "content_filter" {
+		return "content_filter"
+	}
+	return "max_output_tokens"
 }
 
 func responsesUsageToCanonical(u responsesUsage) public.CanonicalUsage {

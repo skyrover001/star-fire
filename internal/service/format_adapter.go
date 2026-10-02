@@ -453,6 +453,10 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 		}
 	}
 
+	// 调试日志：503 归因（多格式路径）
+	log.Printf("[chat-503][multi-format] model=%s routing=%s elapsed=%dms excluded=%v directEnabled=%v directSupply=%v",
+		canonical.Model, routing, time.Since(start).Milliseconds(),
+		failedClients, configs.Config.DirectBackendsEnabled, server.HasDirectSupply(canonical.Model))
 	writeAPIError(c, http.StatusServiceUnavailable, format.IsAnthropic(userConv), "overloaded_error", "All clients failed, please retry")
 }
 
@@ -616,7 +620,7 @@ func writeUserStreamEvent(c *gin.Context, server *models.Server, fingerPrint str
 		// ===== 链路日志：server 回传给用户的流式事件（含 function_call 的 call_id/name）=====
 		for _, e := range events {
 			// log.Printf("[TRACE] server send to user stream event=%s", string(e))
-			_, _ = c.Writer.Write([]byte("data: " + string(e) + "\n\n"))
+			writeUserSSE(c, userConv, e)
 		}
 		c.Writer.Flush()
 		// done 事件：writer 内部已生成收尾事件（response.completed / message_stop）。
@@ -661,9 +665,24 @@ func writeUserStreamEvent(c *gin.Context, server *models.Server, fingerPrint str
 		log.Println("build user stream event error:", err)
 		return false
 	}
-	_, _ = c.Writer.Write([]byte("data: " + string(userEvent) + "\n\n"))
+	writeUserSSE(c, userConv, userEvent)
 	c.Writer.Flush()
 	return false
+}
+
+func writeUserSSE(c *gin.Context, userConv format.Converter, data []byte) {
+	frame := ""
+	if format.IsAnthropic(userConv) {
+		var event struct {
+			Type string `json:"type"`
+		}
+		if err := json.Unmarshal(data, &event); err != nil {
+			log.Println("invalid Anthropic stream event:", err)
+			return
+		}
+		frame = "event: " + event.Type + "\n"
+	}
+	_, _ = c.Writer.Write([]byte(frame + "data: " + string(data) + "\n\n"))
 }
 
 // saveStreamReasoning 在流结束时把用户 writer 累积到的 reasoning_content 保存到会话状态。
@@ -735,9 +754,9 @@ func newUserStreamWriter(c *gin.Context, userConv format.Converter, model string
 func finishUserStream(c *gin.Context, userConv format.Converter, userWriter format.UserStreamWriter, failed bool) {
 	if failed {
 		if format.IsAnthropic(userConv) {
-			_, _ = c.Writer.Write([]byte(`data: {"type":"error","error":{"type":"api_error","message":"stream failed"}}` + "\n\n"))
+			writeUserSSE(c, userConv, []byte(`{"type":"error","error":{"type":"api_error","message":"stream failed"}}`))
 		} else {
-			_, _ = c.Writer.Write([]byte(`data: {"type":"response.failed","response":{"status":"failed"}}` + "\n\n"))
+			writeUserSSE(c, userConv, []byte(`{"type":"response.failed","response":{"status":"failed"}}`))
 		}
 	} else if userWriter != nil {
 		events, err := userWriter.Flush()
@@ -745,7 +764,7 @@ func finishUserStream(c *gin.Context, userConv format.Converter, userWriter form
 			log.Println("user stream writer flush error:", err)
 		}
 		for _, e := range events {
-			_, _ = c.Writer.Write([]byte("data: " + string(e) + "\n\n"))
+			writeUserSSE(c, userConv, e)
 		}
 	}
 	if c.Writer.Header().Get("Content-Type") == "text/event-stream" && usesDoneTerminator(userConv) {

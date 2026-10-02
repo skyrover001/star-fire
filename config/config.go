@@ -117,7 +117,7 @@ func loadConfig() Configuration {
 	port := getEnv("SERVER_PORT", ":8080")
 	keepAliveTime, _ := strconv.Atoi(getEnv("KEEPALIVE_TIME", "30"))
 	maxLatency, _ := strconv.Atoi(getEnv("MAX_LATENCY", "30"))
-	chatMaxTime, _ := strconv.Atoi(getEnv("CHAT_MAX_TIME", "300"))
+	chatMaxTime, _ := strconv.Atoi(getEnv("CHAT_MAX_TIME", "600"))
 	wsBuffer, _ := strconv.Atoi(getEnv("WS_BUFFER", "1048576")) // 1MB
 	jwtSecret := getEnv("JWT_SECRET", "123456789qwertyuiasdfghjkzxcvbnm")
 	jwtExpiry, _ := strconv.Atoi(getEnv("JWT_EXPIRY", "24"))

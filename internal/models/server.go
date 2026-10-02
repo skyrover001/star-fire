@@ -521,7 +521,12 @@ func (s *Server) eligibleClients(model, userID string, excludeIDs map[string]boo
 	}
 
 	if len(eligible) == 0 {
-		log.Println("no eligible client for model:", model)
+		// 调试日志：区分「模型没有任何众包 client 注册」与「有注册但全被过滤」
+		registered := 0
+		if snapshot != nil {
+			registered = len(snapshot)
+		}
+		log.Printf("[lb] no eligible client for model=%s (registered=%d, all filtered by exclude/cooldown/health/price/capacity)", model, registered)
 		return nil
 	}
 	return eligible
@@ -1267,7 +1272,10 @@ func (s *Server) LoadDirectBackends() error {
 			continue
 		}
 		if old := previous[b.ID]; old != nil {
-			atomic.StoreInt32(&b.ActiveConns, old.GetActive())
+			// P0 修复：不搬运 ActiveConns。旧对象被在飞请求持有，其 defer DecrActive()
+			// 只会递减旧对象；若把旧计数搬到新对象，新对象的计数永远无人递减，
+			// 单调泄漏直至 MaxConns → PickDirect 永久过滤 at-capacity → 永久 503。
+			// 新对象从 0 开始，在飞请求结束时旧对象归零，互不干扰。
 			atomic.StoreInt32(&b.RecentFailures, old.GetFailures())
 			atomic.StoreInt64(&b.CooldownUntil, atomic.LoadInt64(&old.CooldownUntil))
 			atomic.StoreUint64(&b.LatencyEMA, atomic.LoadUint64(&old.LatencyEMA))
@@ -1347,8 +1355,19 @@ func (s *Server) PickDirect(model, userID string, exclude map[string]bool) *Dire
 	var best *DirectBackend
 	bestPrio := int(^uint(0) >> 1) // maxint
 	bestLoad := math.Inf(1)
+	// 调试日志：记录每个候选被过滤的具体原因（此前过滤完全静默，503 无法归因）
+	var reasons []string
 	for _, b := range list {
-		if exclude["direct:"+b.ID] || !b.IsHealthy() || b.InCooldown() {
+		switch {
+		case exclude["direct:"+b.ID]:
+			reasons = append(reasons, b.ID+":excluded-by-retry")
+			continue
+		case !b.IsHealthy():
+			reasons = append(reasons, b.ID+":unhealthy")
+			continue
+		case b.InCooldown():
+			reasons = append(reasons, fmt.Sprintf("%s:cooldown-until-%s(failures=%d)",
+				b.ID, time.Unix(0, atomic.LoadInt64(&b.CooldownUntil)).Format("15:04:05"), b.GetFailures()))
 			continue
 		}
 		maxc := b.MaxConns
@@ -1356,16 +1375,25 @@ func (s *Server) PickDirect(model, userID string, exclude map[string]bool) *Dire
 			maxc = 1
 		}
 		if int(b.GetActive()) >= maxc {
+			reasons = append(reasons, fmt.Sprintf("%s:at-capacity(%d/%d)", b.ID, b.GetActive(), maxc))
 			continue
 		}
 		ippm, oppm, _, ok := b.PriceFor(model)
-		if !ok || ippm > maxIPPM || oppm > maxOPPM {
+		if !ok {
+			reasons = append(reasons, b.ID+":no-price-for-model")
+			continue
+		}
+		if ippm > maxIPPM || oppm > maxOPPM {
+			reasons = append(reasons, fmt.Sprintf("%s:price-exceeds-cap(%.2f/%.2f>cap)", b.ID, ippm, oppm))
 			continue
 		}
 		load := float64(b.GetActive()) / float64(maxc)
 		if b.Priority < bestPrio || (b.Priority == bestPrio && load < bestLoad) {
 			best, bestPrio, bestLoad = b, b.Priority, load
 		}
+	}
+	if best == nil && len(list) > 0 {
+		log.Printf("[pick-direct] model=%s: all %d direct backend(s) filtered: %s", model, len(list), strings.Join(reasons, "; "))
 	}
 	return best
 }
@@ -1537,6 +1565,7 @@ func (s *Server) directHealthCheckOnce(timeout time.Duration) {
 		url := strings.TrimRight(b.BaseURL, "/") + "/models"
 		req, err := http.NewRequest(http.MethodGet, url, nil)
 		if err != nil {
+			log.Printf("[health] direct %s: build request error: %v → unhealthy", b.ID, err)
 			b.SetHealthy(false)
 			continue
 		}
@@ -1547,15 +1576,21 @@ func (s *Server) directHealthCheckOnce(timeout time.Duration) {
 		start := time.Now()
 		resp, err := client.Do(req)
 		if err != nil {
+			// 调试日志：健康检查失败此前完全静默（远端 503 排障的关键观测点）
+			log.Printf("[health] direct %s: GET %s failed in %dms: %v → unhealthy", b.ID, url, time.Since(start).Milliseconds(), err)
 			b.SetHealthy(false)
 			continue
 		}
 		resp.Body.Close()
 		if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+			if !b.IsHealthy() {
+				log.Printf("[health] direct %s: RECOVERED, GET %s → %d in %dms", b.ID, url, resp.StatusCode, time.Since(start).Milliseconds())
+			}
 			b.SetHealthy(true)
 			b.SetLatencyEMA(float64(time.Since(start).Milliseconds()))
 			b.ResetFailures()
 		} else {
+			log.Printf("[health] direct %s: GET %s → status %d in %dms → unhealthy", b.ID, url, resp.StatusCode, time.Since(start).Milliseconds())
 			b.SetHealthy(false)
 		}
 	}

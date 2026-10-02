@@ -559,3 +559,144 @@ func TestAnthropicConverter_StopSequenceHeuristic_Stream(t *testing.T) {
 		t.Errorf("stream with text should emit end_turn, got: %s", joined2)
 	}
 }
+
+// ---- 空流收尾（修复 "stream ended without a stop reason"）----
+
+// TestAnthropicConverter_FlushEmptyStream 覆盖：上游（OpenAI Chat）只发 [DONE]
+// 而无任何 delta（空回复 / 仅思考无正文）时，Flush 必须合成完整的
+// message_start → message_delta → message_stop 序列，否则 Anthropic SDK 会报
+// "stream ended without a stop reason"。
+func TestAnthropicConverter_FlushEmptyStream(t *testing.T) {
+	w := (&AnthropicConverter{}).NewUserStreamWriter()
+	w.(interface{ SetModel(string) }).SetModel("claude-3-5-sonnet")
+
+	evs, err := w.Flush()
+	if err != nil {
+		t.Fatalf("Flush error: %v", err)
+	}
+	if len(evs) != 3 {
+		t.Fatalf("len(evs) = %d, want 3 (message_start + message_delta + message_stop), got: %s", len(evs), bytes.Join(evs, []byte("\n")))
+	}
+	joined := string(bytes.Join(evs, []byte("\n")))
+	if !strings.Contains(joined, `"type":"message_start"`) {
+		t.Errorf("missing message_start, got: %s", joined)
+	}
+	if !strings.Contains(joined, `"type":"message_delta"`) {
+		t.Errorf("missing message_delta, got: %s", joined)
+	}
+	if !strings.Contains(joined, `"stop_reason":"end_turn"`) {
+		t.Errorf("missing stop_reason end_turn, got: %s", joined)
+	}
+	if !strings.Contains(joined, `"type":"message_stop"`) {
+		t.Errorf("missing message_stop, got: %s", joined)
+	}
+}
+
+// TestAnthropicConverter_DoneEmptyStream 覆盖：writer 直接收到 StreamEventDone
+// 但从未收到任何 delta（空回复）时，Write 必须合成 message_start 再收尾。
+func TestAnthropicConverter_DoneEmptyStream(t *testing.T) {
+	w := (&AnthropicConverter{}).NewUserStreamWriter()
+
+	evs, err := w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventDone, FinishReason: "stop"})
+	if err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	joined := string(bytes.Join(evs, []byte("\n")))
+	if !strings.Contains(joined, `"type":"message_start"`) {
+		t.Errorf("missing message_start, got: %s", joined)
+	}
+	if !strings.Contains(joined, `"type":"message_delta"`) {
+		t.Errorf("missing message_delta, got: %s", joined)
+	}
+	if !strings.Contains(joined, `"type":"message_stop"`) {
+		t.Errorf("missing message_stop, got: %s", joined)
+	}
+
+	// 再次 Flush 不应重复收尾（finished 守卫）。
+	evs2, err := w.Flush()
+	if err != nil {
+		t.Fatalf("second Flush error: %v", err)
+	}
+	if len(evs2) != 0 {
+		t.Errorf("second Flush should emit nothing, got: %s", bytes.Join(evs2, []byte("\n")))
+	}
+}
+
+// TestAnthropicConverter_FlushAfterText 覆盖：已有文本 delta 后 Flush 正常收尾，
+// 且不重复 message_start。
+func TestAnthropicConverter_FlushAfterText(t *testing.T) {
+	w := (&AnthropicConverter{}).NewUserStreamWriter()
+	if _, err := w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventTextDelta, Text: "你好"}); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	evs, err := w.Flush()
+	if err != nil {
+		t.Fatalf("Flush error: %v", err)
+	}
+	joined := string(bytes.Join(evs, []byte("\n")))
+	if strings.Count(joined, `"type":"message_start"`) != 0 {
+		t.Errorf("Flush after text should not re-emit message_start, got: %s", joined)
+	}
+	if !strings.Contains(joined, `"type":"message_delta"`) || !strings.Contains(joined, `"type":"message_stop"`) {
+		t.Errorf("missing termination events, got: %s", joined)
+	}
+}
+
+// TestAnthropicConverter_ThinkingDelta 覆盖：思考增量被累积（供 ReasoningProvider
+// 回传），且不输出 thinking block；随后 Flush 正常收尾。
+func TestAnthropicConverter_ThinkingDelta(t *testing.T) {
+	w := (&AnthropicConverter{}).NewUserStreamWriter()
+	if _, err := w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventThinkingDelta, Text: "先思考"}); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if _, err := w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventThinkingDelta, Text: "再回答"}); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	// 思考增量不应产生任何输出事件。
+	rp, ok := w.(ReasoningProvider)
+	if !ok {
+		t.Fatalf("writer does not implement ReasoningProvider")
+	}
+	// 无工具调用时 reasoning 不落 map（与 responsesUserWriter 一致，仅按
+	// tool_call_id 关联回传）。
+	rm := rp.ReasoningMap()
+	if len(rm) != 0 {
+		t.Errorf("ReasoningMap() = %v, want empty (no tool calls)", rm)
+	}
+
+	// Flush 收尾（无正文 → 空流序列）。
+	evs, err := w.Flush()
+	if err != nil {
+		t.Fatalf("Flush error: %v", err)
+	}
+	joined := string(bytes.Join(evs, []byte("\n")))
+	if !strings.Contains(joined, `"type":"message_start"`) || !strings.Contains(joined, `"type":"message_stop"`) {
+		t.Errorf("missing termination events, got: %s", joined)
+	}
+}
+
+// TestAnthropicConverter_ThinkingDeltaWithTool 覆盖：思考 + 工具调用时，
+// ReasoningMap 按 tool_call_id 关联同一段 reasoning。
+func TestAnthropicConverter_ThinkingDeltaWithTool(t *testing.T) {
+	w := (&AnthropicConverter{}).NewUserStreamWriter()
+	if _, err := w.Write(&public.CanonicalStreamEvent{Type: public.StreamEventThinkingDelta, Text: "推理过程"}); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	if _, err := w.Write(&public.CanonicalStreamEvent{
+		Type: public.StreamEventToolCallDelta,
+		ToolCall: &public.CanonicalToolCall{
+			ID:   "call_1",
+			Name: "get_weather",
+		},
+	}); err != nil {
+		t.Fatalf("Write error: %v", err)
+	}
+	rp, ok := w.(ReasoningProvider)
+	if !ok {
+		t.Fatalf("writer does not implement ReasoningProvider")
+	}
+	rm := rp.ReasoningMap()
+	if rm["call_1"] != "推理过程" {
+		t.Errorf("ReasoningMap()[\"call_1\"] = %q, want 推理过程", rm["call_1"])
+	}
+}

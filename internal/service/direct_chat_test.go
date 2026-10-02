@@ -75,6 +75,56 @@ func registerDirectBackend(t *testing.T, server *models.Server, b *models.Direct
 	}
 }
 
+func TestAnthropicSSEEventNames(t *testing.T) {
+	for _, scenario := range []struct {
+		name   string
+		event  *public.CanonicalStreamEvent
+		failed bool
+	}{
+		{name: "empty"},
+		{name: "text", event: &public.CanonicalStreamEvent{Type: public.StreamEventTextDelta, Text: "hello"}},
+		{name: "tool", event: &public.CanonicalStreamEvent{Type: public.StreamEventToolCallDelta, ToolCall: &public.CanonicalToolCall{ID: "call_1", Name: "weather"}}},
+		{name: "error", failed: true},
+	} {
+		t.Run(scenario.name, func(t *testing.T) {
+			ctx, recorder := newDirectGin()
+			ctx.Writer.Header().Set("Content-Type", "text/event-stream")
+			converter := &format.AnthropicConverter{}
+			writer := newUserStreamWriter(ctx, converter, "test-model")
+			if scenario.event != nil {
+				writeUserStreamEvent(ctx, nil, "", "", 0, 0, 0, "test-model", scenario.event, converter, nil, writer)
+			}
+			finishUserStream(ctx, converter, writer, scenario.failed)
+			body := recorder.Body.String()
+			if strings.Contains(body, "[DONE]") {
+				t.Fatal("Anthropic stream must not contain [DONE]")
+			}
+			for _, frame := range strings.Split(strings.TrimSpace(body), "\n\n") {
+				lines := strings.Split(frame, "\n")
+				if len(lines) != 2 || !strings.HasPrefix(lines[0], "event: ") || !strings.HasPrefix(lines[1], "data: ") {
+					t.Fatalf("expected named SSE event, got %q", frame)
+				}
+				var payload struct {
+					Type string `json:"type"`
+				}
+				if err := json.Unmarshal([]byte(strings.TrimPrefix(lines[1], "data: ")), &payload); err != nil {
+					t.Fatal(err)
+				}
+				if lines[0] != "event: "+payload.Type {
+					t.Fatalf("SSE event name does not match payload: %q", frame)
+				}
+			}
+			if scenario.failed {
+				if !strings.HasPrefix(body, "event: error\n") {
+					t.Fatal(body)
+				}
+			} else if !strings.Contains(body, "event: message_delta\n") || !strings.Contains(body, `"stop_reason":"end_turn"`) || !strings.HasSuffix(body, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n") {
+				t.Fatalf("missing named termination events: %s", body)
+			}
+		})
+	}
+}
+
 func TestDirectChatNonStream(t *testing.T) {
 	srv := mockDirectBackend(t, func(w http.ResponseWriter, r *http.Request) {
 		// 校验鉴权头
@@ -134,6 +184,46 @@ func TestDirectChatNonStream(t *testing.T) {
 	// 成功应采样可靠性 1，EMA 从 0.5 上升
 	if ema := b.GetReliabilityEMA(); ema <= 0.5 {
 		t.Fatalf("reliability EMA = %v, want > 0.5 after success", ema)
+	}
+}
+
+func TestDirectChatAnthropicStream(t *testing.T) {
+	for _, scenario := range []struct {
+		finishReason string
+		stopReason   string
+	}{
+		{finishReason: "stop", stopReason: "end_turn"},
+		{finishReason: "length", stopReason: "max_tokens"},
+		{finishReason: "tool_calls", stopReason: "tool_use"},
+	} {
+		t.Run(scenario.finishReason, func(t *testing.T) {
+			upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+				writer.Header().Set("Content-Type", "text/event-stream")
+				if scenario.finishReason == "tool_calls" {
+					fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"weather\",\"arguments\":\"{}\"}}]}}]}\n\n")
+				} else {
+					fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
+				}
+				fmt.Fprintf(writer, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":%q}]}\n\ndata: [DONE]\n\n", scenario.finishReason)
+			})
+			server := newDirectTestServer(t)
+			backend := &models.DirectBackend{ID: "anthropic-test", BaseURL: upstream.URL, Format: "openai", Enabled: true, MaxConns: 4}
+			ctx, recorder := newDirectGin()
+			request := public.ExtendedChatRequest{}
+			request.Model = "test-model"
+			request.Stream = true
+			request.Messages = []openai.ChatCompletionMessage{{Role: "user", Content: "hi"}}
+			if !handleDirectChat(ctx, server, backend, request, "u1", &format.AnthropicConverter{}) {
+				t.Fatal("handleDirectChat returned false")
+			}
+			body := recorder.Body.String()
+			if !strings.HasPrefix(body, "event: message_start\n") || !strings.Contains(body, "event: message_delta\n") || !strings.HasSuffix(body, "event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n") {
+				t.Fatalf("missing named lifecycle events: %s", body)
+			}
+			if !strings.Contains(body, `"stop_reason":"`+scenario.stopReason+`"`) || strings.Contains(body, "[DONE]") {
+				t.Fatalf("invalid Anthropic termination: %s", body)
+			}
+		})
 	}
 }
 
