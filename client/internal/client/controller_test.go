@@ -47,6 +47,7 @@ func (engine *concurrentFakeEngine) ListModels(ctx context.Context, cfg *config.
 }
 
 func (engine *fakeEngine) Name() string                                     { return engine.name }
+func (engine *fakeEngine) Format() string                                   { return "openai" }
 func (engine *fakeEngine) Initialize(context.Context, *config.Config) error { return nil }
 func (engine *fakeEngine) ListModels(context.Context, *config.Config) ([]*public.Model, error) {
 	models := make([]*public.Model, 0, len(engine.models))

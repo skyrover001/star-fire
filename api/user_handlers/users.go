@@ -128,13 +128,22 @@ func (uh *UserHandler) Register(c *gin.Context, server *models.Server) {
 	}
 
 	// search the max user ID and set new user ID
-	maxID, err := server.UserDB.GetMaxUserID()
-	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户ID失败"})
-		return
+	// 并发注册时两个请求可能取到相同 maxID，SaveUser 会因主键冲突失败，
+	// 故重试最多 3 次，每次重新读取最新 maxID。
+	var registerErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		maxID, err := server.UserDB.GetMaxUserID()
+		if err != nil {
+			c.JSON(http.StatusInternalServerError, gin.H{"error": "获取用户ID失败"})
+			return
+		}
+		user.ID = fmt.Sprintf("%d", maxID+1) // 假设ID是数字类型，转换为字符串
+		registerErr = server.UserDB.SaveUser(&user)
+		if registerErr == nil {
+			break
+		}
 	}
-	user.ID = fmt.Sprintf("%d", maxID+1) // 假设ID是数字类型，转换为字符串
-	if err := server.UserDB.SaveUser(&user); err != nil {
+	if registerErr != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "用户注册失败"})
 		return
 	}
@@ -144,6 +153,21 @@ func (uh *UserHandler) Register(c *gin.Context, server *models.Server) {
 	if bonus > 0 {
 		if err := server.UserDB.AddBalance(user.ID, bonus); err != nil {
 			log.Printf("赠送注册余额失败 user=%s: %v", user.ID, err)
+		}
+	}
+
+	// 通知管理员有新会员注册
+	if server.NotificationDB != nil {
+		adminUsers, _, _ := server.UserDB.ListUsers(1, 100)
+		for _, admin := range adminUsers {
+			if admin.Role == "admin" {
+				_ = server.NotificationDB.Create(
+					admin.ID,
+					"register",
+					"新用户注册",
+					fmt.Sprintf("新用户 %s（%s）已注册", user.Username, user.Email),
+				)
+			}
 		}
 	}
 

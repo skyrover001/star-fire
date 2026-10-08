@@ -1,18 +1,26 @@
 <script lang="ts" setup>
-import { computed, watch } from 'vue';
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue';
+import { useRouter } from 'vue-router';
 
 import { AuthenticationLoginExpiredModal } from '@vben/common-ui';
 import { useWatermark } from '@vben/hooks';
-import { BookOpenText, CircleHelp, MdiGithub } from '@vben/icons';
+import { BookOpenText, CircleHelp, MdiGithub, VipCrown } from '@vben/icons';
 import {
   BasicLayout,
   LockScreen,
+  Notification,
   UserDropdown,
 } from '@vben/layouts';
 import { preferences } from '@vben/preferences';
 import { useAccessStore, useUserStore } from '@vben/stores';
 import { openWindow } from '@vben/utils';
 
+import {
+  getNotificationsApi,
+  getUnreadCountApi,
+  markAllNotificationsReadApi,
+  markNotificationReadApi,
+} from '#/api/core/notification';
 import { $t } from '#/locales';
 import { useAuthStore } from '#/store';
 import LoginForm from '#/views/_core/authentication/login.vue';
@@ -20,6 +28,7 @@ import LoginForm from '#/views/_core/authentication/login.vue';
 const userStore = useUserStore();
 const authStore = useAuthStore();
 const accessStore = useAccessStore();
+const router = useRouter();
 const { destroyWatermark, updateWatermark } = useWatermark();
 
 const GITHUB_BASE_URL = 'https://github.com/skyrover001/star-fire';
@@ -32,7 +41,16 @@ const openGitHubIssues = () => {
   openWindow(`${GITHUB_BASE_URL}/issues`, { target: '_blank' });
 };
 
+const openMembership = () => {
+  router.push('/membership');
+};
+
 const menus = computed(() => [
+  {
+    handler: openMembership,
+    icon: VipCrown,
+    text: $t('business.navigation.membership'),
+  },
   {
     handler: openGitHub,
     icon: BookOpenText,
@@ -70,6 +88,72 @@ const userName = computed(() => {
 async function handleLogout() {
   await authStore.logout(false);
 }
+
+// ===== 通知逻辑 =====
+const notifications = ref<any[]>([]);
+const unreadCount = ref(0);
+let notifTimer: ReturnType<typeof setInterval> | null = null;
+
+const loadNotifications = async () => {
+  try {
+    const res = await getNotificationsApi(1, 20);
+    if (res?.data) {
+      notifications.value = res.data.map((n: any) => ({
+        avatar: preferences.app.defaultAvatar,
+        date: n.created_at ? new Date(n.created_at).toLocaleString() : '',
+        isRead: n.is_read,
+        message: n.content,
+        title: n.title,
+        id: n.id,
+      }));
+    }
+  } catch {
+    // ignore
+  }
+};
+
+const loadUnreadCount = async () => {
+  try {
+    const res = await getUnreadCountApi();
+    unreadCount.value = res?.unread ?? 0;
+  } catch {
+    // ignore
+  }
+};
+
+const refreshNotifications = () => {
+  loadNotifications();
+  loadUnreadCount();
+};
+
+const handleNotificationRead = async (item: any) => {
+  if (!item.isRead && item.id) {
+    await markNotificationReadApi(item.id);
+    item.isRead = true;
+    unreadCount.value = Math.max(0, unreadCount.value - 1);
+  }
+};
+
+const handleMarkAllRead = async () => {
+  await markAllNotificationsReadApi();
+  notifications.value.forEach((n) => (n.isRead = true));
+  unreadCount.value = 0;
+};
+
+const handleViewAll = () => {
+  // 暂无通知中心页面，跳转到会员中心或保持现状
+};
+
+onMounted(() => {
+  refreshNotifications();
+  notifTimer = setInterval(refreshNotifications, 30000);
+});
+
+onUnmounted(() => {
+  if (notifTimer) {
+    clearInterval(notifTimer);
+  }
+});
 
 watch(
   () => preferences.app.watermark,
@@ -119,6 +203,16 @@ watch(
         :description="userDescription"
         :tag-text="userTagText"
         @logout="handleLogout"
+      />
+    </template>
+    <template #notification>
+      <Notification
+        :dot="unreadCount > 0"
+        :notifications="notifications"
+        @clear="handleMarkAllRead"
+        @make-all="handleMarkAllRead"
+        @read="handleNotificationRead"
+        @view-all="handleViewAll"
       />
     </template>
     <template #extra>

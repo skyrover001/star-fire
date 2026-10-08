@@ -9,10 +9,11 @@
 | `starfire.rar` | `/download/windows/starfire.rar` | Windows 客户端压缩包 |
 | `starfire.zip` | `/download/macos/starfire.zip` | macOS 客户端压缩包 |
 | `starfire.tar.gz` | `/download/linux/starfire.tar.gz` | Linux 客户端压缩包 |
+| `codex-starfire-setup.ps1` | `/download/codex-starfire-setup.ps1` | Codex 一键接入脚本（Windows PowerShell） |
 
 ## 使用方式
 
-1. 将 `starfire.rar`、`starfire.zip`、`starfire.tar.gz` 放入本目录。
+1. 将 `starfire.rar`、`starfire.zip`、`starfire.tar.gz`、`codex-starfire-setup.ps1` 放入本目录。
 2. 重新构建前端镜像：
 
    ```bash
@@ -26,6 +27,7 @@
    http://<host>:8080/download/windows/starfire.rar
    http://<host>:8080/download/macos/starfire.zip
    http://<host>:8080/download/linux/starfire.tar.gz
+   http://<host>:8080/download/codex-starfire-setup.ps1
    ```
 
 > 注意：如果文件不存在，nginx 会返回 404，前端会提示下载失败（而不是之前的 HTML 解析报错）。

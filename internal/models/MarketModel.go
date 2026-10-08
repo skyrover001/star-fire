@@ -8,9 +8,10 @@ type ClientModel struct {
 }
 
 type MarketplaceModel struct {
-	Name         string         `json:"name"`
-	Type         string         `json:"type"`
-	Size         string         `json:"size"`
-	Quantization string         `json:"quantization"`
-	ClientModels []*ClientModel `json:"client_models"`
+	Name         string               `json:"name"`
+	Type         string               `json:"type"`
+	Size         string               `json:"size"`
+	Quantization string               `json:"quantization"`
+	ClientModels []*ClientModel       `json:"client_models"`
+	Direct       *DirectSupplySummary `json:"direct,omitempty"`
 }

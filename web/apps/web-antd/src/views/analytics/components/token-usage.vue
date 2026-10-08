@@ -97,7 +97,7 @@
               :class="selectedPeriod === period.value 
                 ? 'bg-[var(--primary-color)] text-white shadow-lg' 
                 : 'bg-[var(--content-bg)] text-[var(--text-secondary)] border border-[var(--border-color)] hover:bg-[var(--bg-color-secondary)] hover:text-[var(--text-primary)]'"
-              @click="selectedPeriod = period.value; fetchTokenUsage()"
+              @click="selectedPeriod = period.value"
             >
               {{ period.label }}
             </button>
@@ -172,6 +172,7 @@ import type { Ref } from 'vue';
 import { message } from 'ant-design-vue';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
+import dayjs from 'dayjs';
 import {
   SvgBellIcon,
   SvgCakeIcon,
@@ -362,8 +363,14 @@ const fetchTodayUsage = async () => {
 
 // 获取模型统计（调 /usage/models 接口，替代客户端聚合）
 const fetchModelStats = async () => {
+  const period = selectedPeriod.value;
+  const days = Number.parseInt(period, 10);
+  loading.value = true;
   try {
-    const response = await requestClient.get('/user/usage/models');
+    const response = await requestClient.get('/user/usage/models', {
+      params: { start_date: dayjs().subtract(days - 1, 'day').format('YYYY-MM-DD'), end_date: dayjs().format('YYYY-MM-DD') },
+    });
+    if (period !== selectedPeriod.value) return;
     if (response && Array.isArray(response.data)) {
       const stats = response.data as ModelUsageStat[];
       const totalTokensAll = stats.reduce((sum, item) => sum + item.total_tokens, 0);
@@ -380,9 +387,13 @@ const fetchModelStats = async () => {
     }
   } catch (error) {
     console.error('获取模型统计失败:', error);
-    modelStats.value = [];
+    if (period === selectedPeriod.value) modelStats.value = [];
+  } finally {
+    if (period === selectedPeriod.value) loading.value = false;
   }
 };
+
+watch(selectedPeriod, fetchModelStats);
 
 // 监听注入数据变化，重新计算
 watch([usageTotalStats, usageStats], () => {

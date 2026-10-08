@@ -50,4 +50,7 @@ type Model struct {
 	OPPM        float64      `json:"oppm"`  // 输出tokens价格
 	CIPPM       float64      `json:"cippm"` // 缓存命中输入tokens价格 (cached input price per million)
 	OpenAIModel openai.Model `json:"openai_model"`
+	// UpstreamFormat 是该模型上游服务的协议格式（openai | anthropic | responses）。
+	// client 上报时从 Backend.Format 读取，server 据此决定把用户请求转成什么格式。
+	UpstreamFormat string `json:"upstream_format,omitempty"`
 }

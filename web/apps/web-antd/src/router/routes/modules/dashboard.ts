@@ -141,6 +141,16 @@ const routes: RouteRecordRaw[] = [
   //   path: '/workspace',
   //   component: () => import('#/views/dashboard/workspace/index.vue'),
   // },
+  // 会员中心（隐藏侧边栏导航，从右上角用户菜单进入）
+  {
+    meta: {
+      hideInMenu: true,
+      title: $t('business.navigation.membership'),
+    },
+    name: 'Membership',
+    path: '/membership',
+    component: () => import('#/views/membership/index.vue'),
+  },
 ];
 
 export default routes;

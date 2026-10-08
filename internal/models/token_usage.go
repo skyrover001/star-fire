@@ -58,13 +58,13 @@ func NewTokenUsageDB(db *gorm.DB) *TokenUsageDB {
 
 	// 创建复合索引以大幅提升大表查询性能
 	// (user_id, timestamp) — 使用量详单/统计/趋势查询
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_user_timestamp ON token_usages(user_id, timestamp)")
+	_ = EnsureIndex(db, "idx_token_usages_user_timestamp", "token_usages", "user_id, timestamp")
 	// (client_id, timestamp) — 收益详单/统计/趋势查询
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_client_timestamp ON token_usages(client_id, timestamp)")
+	_ = EnsureIndex(db, "idx_token_usages_client_timestamp", "token_usages", "client_id, timestamp")
 	// (user_id, model, timestamp) — 按模型的使用量查询
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_user_model_timestamp ON token_usages(user_id, model, timestamp)")
+	_ = EnsureIndex(db, "idx_token_usages_user_model_timestamp", "token_usages", "user_id, model, timestamp")
 	// (client_id, model, timestamp) — 按模型的收益查询
-	db.Exec("CREATE INDEX IF NOT EXISTS idx_token_usages_client_model_timestamp ON token_usages(client_id, model, timestamp)")
+	_ = EnsureIndex(db, "idx_token_usages_client_model_timestamp", "token_usages", "client_id, model, timestamp")
 
 	return &TokenUsageDB{db: db}
 }
@@ -98,6 +98,7 @@ func (tdb *TokenUsageDB) GetIncomeTokenUsage(clientIDs []string, startTime, endT
 	var usages []*TokenUsage
 	result := tdb.db.Where("client_id IN ? AND timestamp BETWEEN ? AND ?",
 		clientIDs, startTime, endTime).
+		Where("client_id <> '' AND client_id NOT LIKE 'direct:%'").
 		Order("timestamp DESC").
 		Find(&usages)
 
@@ -106,6 +107,30 @@ func (tdb *TokenUsageDB) GetIncomeTokenUsage(clientIDs []string, startTime, endT
 	}
 
 	return usages, nil
+}
+
+// GetTotalTokensByClientIDs 按 client 聚合 total_tokens（since 为零值 = 全部历史，对齐现 perfScore 语义）。
+// 命中索引 idx_token_usages_client_timestamp。
+func (tdb *TokenUsageDB) GetTotalTokensByClientIDs(clientIDs []string, since time.Time) (map[string]int64, error) {
+	type row struct {
+		ClientID string
+		Total    int64
+	}
+	var rows []row
+	q := tdb.db.Model(&TokenUsage{}).
+		Select("client_id, SUM(total_tokens) AS total").
+		Where("client_id IN ?", clientIDs)
+	if !since.IsZero() {
+		q = q.Where("timestamp >= ?", since)
+	}
+	if err := q.Group("client_id").Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+	out := make(map[string]int64, len(rows))
+	for _, r := range rows {
+		out[r.ClientID] = r.Total
+	}
+	return out, nil
 }
 
 // GetUserTokenStats
@@ -239,6 +264,7 @@ func (tdb *TokenUsageDB) GetTotalIncomeByUserID(id string, clientDB *ClientDB) (
 	err = tdb.db.Model(&TokenUsage{}).
 		Select("SUM(((input_tokens - cached_tokens) * ip_pm + cached_tokens * cippm + output_tokens * oppm) / 1000000.0) as total_income").
 		Where("client_id IN ?", clientIDs).
+		Where("client_id <> '' AND client_id NOT LIKE 'direct:%'").
 		Scan(&result).Error
 
 	if err != nil {
@@ -268,6 +294,8 @@ func (tdb *TokenUsageDB) GetTotalIncomeStatsByUserID(userID string, clientDB *Cl
 			"models":        0,
 			"client_count":  0,
 			"unique_users":  0,
+			"max_income":    0,
+			"min_income":    0,
 		}, nil
 	}
 
@@ -286,6 +314,8 @@ func (tdb *TokenUsageDB) GetTotalIncomeStatsByUserID(userID string, clientDB *Cl
 		Models       int64
 		ClientCount  int64
 		UniqueUsers  int64
+		MaxIncome    float64
+		MinIncome    float64
 	}
 
 	var result Result
@@ -299,9 +329,12 @@ func (tdb *TokenUsageDB) GetTotalIncomeStatsByUserID(userID string, clientDB *Cl
 			SUM(total_tokens) as total_tokens,
 			COUNT(DISTINCT model) as models,
 			COUNT(DISTINCT client_id) as client_count,
-			COUNT(DISTINCT user_id) as unique_users
+			COUNT(DISTINCT user_id) as unique_users,
+			MAX(((input_tokens - cached_tokens) * ip_pm + cached_tokens * cippm + output_tokens * oppm) / 1000000.0) as max_income,
+			MIN(((input_tokens - cached_tokens) * ip_pm + cached_tokens * cippm + output_tokens * oppm) / 1000000.0) as min_income
 		`).
 		Where("client_id IN ?", clientIDs).
+		Where("client_id <> '' AND client_id NOT LIKE 'direct:%'").
 		Scan(&result).Error
 
 	if err != nil {
@@ -318,6 +351,8 @@ func (tdb *TokenUsageDB) GetTotalIncomeStatsByUserID(userID string, clientDB *Cl
 		"models":        float64(result.Models),
 		"client_count":  float64(result.ClientCount),
 		"unique_users":  float64(result.UniqueUsers),
+		"max_income":    result.MaxIncome,
+		"min_income":    result.MinIncome,
 	}, nil
 }
 
@@ -358,6 +393,7 @@ func (tdb *TokenUsageDB) GetIncomeStatsByTimeRange(clientIDs []string, startTime
 			COUNT(DISTINCT model) as models
 		`).
 		Where("client_id IN ? AND timestamp BETWEEN ? AND ?", clientIDs, startTime, endTime).
+		Where("client_id <> '' AND client_id NOT LIKE 'direct:%'").
 		Scan(&result).Error
 
 	if err != nil {
@@ -381,7 +417,8 @@ func (tdb *TokenUsageDB) GetIncomeTokenUsagePaged(clientIDs []string, startTime,
 	var total int64
 
 	query := tdb.db.Model(&TokenUsage{}).Where("client_id IN ? AND timestamp BETWEEN ? AND ?",
-		clientIDs, startTime, endTime)
+		clientIDs, startTime, endTime).
+		Where("client_id <> '' AND client_id NOT LIKE 'direct:%'")
 
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, err
@@ -413,6 +450,7 @@ func (tdb *TokenUsageDB) GetIncomeTrendByDay(clientIDs []string, startTime, endT
 			COUNT(*) as calls
 		`).
 		Where("client_id IN ? AND timestamp BETWEEN ? AND ?", clientIDs, startTime, endTime).
+		Where("client_id <> '' AND client_id NOT LIKE 'direct:%'").
 		Group("DATE(timestamp)").
 		Order("date ASC").
 		Scan(&points).Error
@@ -451,6 +489,7 @@ func (tdb *TokenUsageDB) GetIncomeStatsByModel(clientIDs []string, startTime, en
 			COUNT(DISTINCT client_id) as client_count
 		`).
 		Where("client_id IN ? AND timestamp BETWEEN ? AND ?", clientIDs, startTime, endTime).
+		Where("client_id <> '' AND client_id NOT LIKE 'direct:%'").
 		Group("model").
 		Order("income DESC").
 		Scan(&stats).Error
@@ -474,6 +513,7 @@ func (tdb *TokenUsageDB) GetUsageTotalStatsByUserID(userID string) (map[string]f
 		TotalTokens  int64
 		TotalCost    float64
 		ClientCount  int64
+		DirectCount  int64
 		ModelCount   int64
 	}
 
@@ -486,7 +526,8 @@ func (tdb *TokenUsageDB) GetUsageTotalStatsByUserID(userID string) (map[string]f
 			SUM(cached_tokens) as cached_tokens,
 			SUM(total_tokens) as total_tokens,
 			SUM(cost) as total_cost,
-			COUNT(DISTINCT client_id) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id <> '' AND client_id NOT LIKE 'direct:%' THEN client_id END) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id LIKE 'direct:%' THEN client_id END) as direct_count,
 			COUNT(DISTINCT model) as model_count
 		`).
 		Where("user_id = ?", userID).
@@ -504,6 +545,7 @@ func (tdb *TokenUsageDB) GetUsageTotalStatsByUserID(userID string) (map[string]f
 		"total_tokens":  float64(result.TotalTokens),
 		"total_cost":    result.TotalCost,
 		"client_count":  float64(result.ClientCount),
+		"direct_count":  float64(result.DirectCount),
 		"model_count":   float64(result.ModelCount),
 	}, nil
 }
@@ -518,6 +560,7 @@ func (tdb *TokenUsageDB) GetUsageStatsByUserID(userID string, startTime, endTime
 		TotalTokens  int64
 		TotalCost    float64
 		ClientCount  int64
+		DirectCount  int64
 		ModelCount   int64
 	}
 
@@ -530,7 +573,8 @@ func (tdb *TokenUsageDB) GetUsageStatsByUserID(userID string, startTime, endTime
 			SUM(cached_tokens) as cached_tokens,
 			SUM(total_tokens) as total_tokens,
 			SUM(cost) as total_cost,
-			COUNT(DISTINCT client_id) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id <> '' AND client_id NOT LIKE 'direct:%' THEN client_id END) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id LIKE 'direct:%' THEN client_id END) as direct_count,
 			COUNT(DISTINCT model) as model_count
 		`).
 		Where("user_id = ? AND timestamp BETWEEN ? AND ?", userID, startTime, endTime).
@@ -548,6 +592,7 @@ func (tdb *TokenUsageDB) GetUsageStatsByUserID(userID string, startTime, endTime
 		"total_tokens":  float64(result.TotalTokens),
 		"total_cost":    result.TotalCost,
 		"client_count":  float64(result.ClientCount),
+		"direct_count":  float64(result.DirectCount),
 		"model_count":   float64(result.ModelCount),
 	}, nil
 }
@@ -607,15 +652,19 @@ func (tdb *TokenUsageDB) GetUsageTrendByDay(userID string, startTime, endTime ti
 
 // ModelUsageStat 按模型使用统计
 type ModelUsageStat struct {
-	Model        string  `json:"model"`
-	InputTokens  int64   `json:"input_tokens"`
-	OutputTokens int64   `json:"output_tokens"`
-	CachedTokens int64   `json:"cached_tokens"`
-	TotalTokens  int64   `json:"total_tokens"`
-	TotalCost    float64 `json:"total_cost"`
-	Calls        int64   `json:"calls"`
-	ClientCount  int64   `json:"client_count"`
-	LastUsed     string  `json:"last_used"`
+	Model             string  `json:"model"`
+	InputTokens       int64   `json:"input_tokens"`
+	OutputTokens      int64   `json:"output_tokens"`
+	CachedTokens      int64   `json:"cached_tokens"`
+	TotalTokens       int64   `json:"total_tokens"`
+	TotalCost         float64 `json:"total_cost"`
+	UncachedInputCost float64 `json:"uncached_input_cost"`
+	CachedInputCost   float64 `json:"cached_input_cost"`
+	OutputCost        float64 `json:"output_cost"`
+	Calls             int64   `json:"calls"`
+	ClientCount       int64   `json:"client_count"`
+	DirectCount       int64   `json:"direct_count"`
+	LastUsed          string  `json:"last_used"`
 }
 
 // GetUsageStatsByModel 按模型聚合使用统计
@@ -629,8 +678,12 @@ func (tdb *TokenUsageDB) GetUsageStatsByModel(userID string, startTime, endTime 
 			SUM(cached_tokens) as cached_tokens,
 			SUM(total_tokens) as total_tokens,
 			SUM(cost) as total_cost,
+			SUM((input_tokens - cached_tokens) * ip_pm / 1000000.0) as uncached_input_cost,
+			SUM(cached_tokens * cippm / 1000000.0) as cached_input_cost,
+			SUM(output_tokens * oppm / 1000000.0) as output_cost,
 			COUNT(*) as calls,
-			COUNT(DISTINCT client_id) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id <> '' AND client_id NOT LIKE 'direct:%' THEN client_id END) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id LIKE 'direct:%' THEN client_id END) as direct_count,
 			MAX(timestamp) as last_used
 		`).
 		Where("user_id = ? AND timestamp BETWEEN ? AND ?", userID, startTime, endTime).
@@ -675,6 +728,7 @@ type ModelMarketStat struct {
 	TotalTokens  int64  `json:"total_tokens"`
 	Calls        int64  `json:"calls"`
 	ClientCount  int64  `json:"client_count"`
+	DirectCount  int64  `json:"direct_count"`
 	UserCount    int64  `json:"user_count"`
 	LastUsed     string `json:"last_used"`
 }
@@ -886,6 +940,32 @@ func (tdb *TokenUsageDB) GetPublicHomepageStats(clientDB *ClientDB, userDB *User
 }
 
 // GetModelMarketStats 获取所有模型在指定时间段的全局使用统计（跨所有用户）
+type DirectBackendUsageStat struct {
+	ClientID     string `json:"-"`
+	Calls        int64  `json:"calls"`
+	InputTokens  int64  `json:"input_tokens"`
+	OutputTokens int64  `json:"output_tokens"`
+	CachedTokens int64  `json:"cached_tokens"`
+	TotalTokens  int64  `json:"total_tokens"`
+	LastUsed     string `json:"last_used"`
+}
+
+func (tdb *TokenUsageDB) GetDirectBackendUsage(model string, start, end time.Time) (map[string]DirectBackendUsageStat, error) {
+	var rows []DirectBackendUsageStat
+	err := tdb.db.Model(&TokenUsage{}).
+		Select("client_id, COUNT(*) as calls, SUM(input_tokens) as input_tokens, SUM(output_tokens) as output_tokens, SUM(cached_tokens) as cached_tokens, SUM(total_tokens) as total_tokens, MAX(timestamp) as last_used").
+		Where("model = ? AND timestamp BETWEEN ? AND ? AND client_id LIKE 'direct:%'", model, start, end).
+		Group("client_id").Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	stats := make(map[string]DirectBackendUsageStat, len(rows))
+	for _, row := range rows {
+		stats[strings.TrimPrefix(row.ClientID, "direct:")] = row
+	}
+	return stats, nil
+}
+
 func (tdb *TokenUsageDB) GetModelMarketStats(startTime, endTime time.Time) ([]ModelMarketStat, error) {
 	var stats []ModelMarketStat
 	err := tdb.db.Model(&TokenUsage{}).
@@ -896,7 +976,8 @@ func (tdb *TokenUsageDB) GetModelMarketStats(startTime, endTime time.Time) ([]Mo
 			SUM(cached_tokens) as cached_tokens,
 			SUM(total_tokens) as total_tokens,
 			COUNT(*) as calls,
-			COUNT(DISTINCT client_id) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id <> '' AND client_id NOT LIKE 'direct:%' THEN client_id END) as client_count,
+			COUNT(DISTINCT CASE WHEN client_id LIKE 'direct:%' THEN client_id END) as direct_count,
 			COUNT(DISTINCT user_id) as user_count,
 			MAX(timestamp) as last_used
 		`).

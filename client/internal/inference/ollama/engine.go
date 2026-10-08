@@ -45,6 +45,10 @@ func (e *Engine) Name() string {
 	return "ollama"
 }
 
+func (e *Engine) Format() string {
+	return "openai"
+}
+
 func (e *Engine) Initialize(ctx context.Context, conf *config.Config) error {
 	httpClient := &http.Client{
 		Timeout: 3600 * time.Second,

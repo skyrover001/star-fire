@@ -63,7 +63,7 @@ func (h *ClientHandler) RegisterClient(c *gin.Context) {
 		Content:     "",
 		FingerPrint: reconnectResponse.Token,
 	}
-	err = conn.WriteJSON(reconnectMsg)
+	err = client.SendControl(reconnectMsg)
 	if err != nil {
 		log.Printf("Error sending welcome message: %v", err)
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "Failed to send welcome message"})
@@ -88,6 +88,12 @@ func (h *ClientHandler) RegisterClient(c *gin.Context) {
 
 	if err := h.server.ClientDB.SaveClient(client); err != nil {
 		log.Printf("save client to database failed: %v", err)
+	}
+	// 记录 client 上线（smart 负载均衡：在线稳定性统计）
+	if h.server.ClientStatsDB != nil {
+		if err := h.server.ClientStatsDB.RecordOnline(client.ID); err != nil {
+			log.Printf("record client online failed: %v", err)
+		}
 	}
 	service.HandleClientConnection(client, h.server)
 }

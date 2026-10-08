@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
+import { supplyLabelKey, usageCostBreakdown } from '#/utils/supply';
 
 interface TokenUsageRecord {
   ID: number;
@@ -18,6 +19,7 @@ interface TokenUsageRecord {
   OutputTokens: number;
   CachedTokens: number;
   TotalTokens: number;
+  Cost?: number;
   Timestamp: string;
 }
 
@@ -28,8 +30,12 @@ interface ModelUsageStat {
   cached_tokens: number;
   total_tokens: number;
   total_cost: number;
+  uncached_input_cost: number;
+  cached_input_cost: number;
+  output_cost: number;
   calls: number;
   client_count: number;
+  direct_count: number;
   last_used: string;
 }
 
@@ -46,9 +52,11 @@ interface ModelUsageSummary {
   outputCost: number;
   lastUsed: string;
   clientCount: number;
+  directCount: number;
 }
 
 const loading = ref(false);
+const calcRecordCost = usageCostBreakdown;
 const modelStatsData = ref<ModelUsageStat[]>([]);
 
 // 当前展开详情的模型
@@ -71,11 +79,12 @@ const modelUsageSummary = computed<ModelUsageSummary[]>(() => {
     outputTokens: stat.output_tokens,
     cachedTokens: stat.cached_tokens,
     totalCost: stat.total_cost,
-    uncachedInputCost: 0, // 后端聚合不再细分，如需可后端补字段
-    cachedInputCost: 0,
-    outputCost: 0,
+    uncachedInputCost: stat.uncached_input_cost || 0,
+    cachedInputCost: stat.cached_input_cost || 0,
+    outputCost: stat.output_cost || 0,
     lastUsed: stat.last_used ? new Date(stat.last_used).toLocaleString('zh-CN') : 'N/A',
     clientCount: stat.client_count,
+    directCount: stat.direct_count || 0,
   }));
 });
 
@@ -206,6 +215,7 @@ onMounted(() => {
             >
               <td class="border border-[var(--border-color)] px-4 py-2.5">
                 <span class="font-mono text-sm font-medium text-[var(--text-primary)]">{{ model.model }}</span>
+                <div class="mt-1 text-xs text-[var(--text-secondary)]">{{ $t('business.supply.personal') }}: {{ model.clientCount }} · {{ $t('business.supply.direct') }}: {{ model.directCount }}</div>
               </td>
               <td class="border border-[var(--border-color)] px-4 py-2.5 text-right text-sm text-[var(--text-primary)]">
                 {{ model.totalCalls.toLocaleString() }}
@@ -339,7 +349,8 @@ onMounted(() => {
                 <td class="px-3 py-2 text-sm text-right text-green-500">¥{{ calcRecordCost(record).output.toFixed(6) }}</td>
                 <td class="px-3 py-2 text-sm text-right font-semibold text-emerald-600">¥{{ calcRecordCost(record).total.toFixed(6) }}</td>
                 <td class="px-3 py-2 text-xs text-[var(--text-secondary)]">
-                  <div class="max-w-[80px] truncate" :title="record.ClientID">{{ record.ClientID }}</div>
+                  <div>{{ $t(supplyLabelKey(record.ClientID)) }}</div>
+                  <div class="max-w-[80px] truncate text-xs" :title="record.ClientID">{{ record.ClientID || '-' }}</div>
                 </td>
                 <td class="px-3 py-2 text-xs text-[var(--text-secondary)]">{{ formatTime(record.Timestamp) }}</td>
               </tr>

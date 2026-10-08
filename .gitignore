@@ -71,3 +71,5 @@ coverage.html
 *.db-wal
 *.db-shm
 *.sqlite
+# 开发文档（不推送到 GitHub）
+docs/spec/

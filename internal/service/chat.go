@@ -1,9 +1,15 @@
 package service
 
 import (
+	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
 	"net/http"
+	configs "star-fire/config"
 	"star-fire/internal/models"
 	"star-fire/pkg/public"
 	"strconv"
@@ -16,14 +22,60 @@ import (
 	"github.com/sashabaranov/go-openai"
 )
 
+// rateLimitConfigFor 根据会员等级返回限流配置。
+// 优先使用环境变量配置，未配置时使用默认值。
+func rateLimitConfigFor(membership string) models.RateLimitConfig {
+	switch membership {
+	case models.MembershipSVIP:
+		if cfg := models.ParseRateLimit(configs.Config.RateLimitSVIP); cfg.RPM > 0 || cfg.TPM > 0 {
+			return cfg
+		}
+		return models.DefaultRateLimit(models.MembershipSVIP)
+	case models.MembershipVIP:
+		if cfg := models.ParseRateLimit(configs.Config.RateLimitVIP); cfg.RPM > 0 || cfg.TPM > 0 {
+			return cfg
+		}
+		return models.DefaultRateLimit(models.MembershipVIP)
+	default:
+		if cfg := models.ParseRateLimit(configs.Config.RateLimitNormal); cfg.RPM > 0 || cfg.TPM > 0 {
+			return cfg
+		}
+		return models.DefaultRateLimit(models.MembershipNormal)
+	}
+}
+
 // handle user chat request
 func HandleChatRequest(c *gin.Context, server *models.Server) {
+	// ===== 链路日志：调用方发来的【原始请求体】（在反序列化之前，用于确认 content 是否在源头就为空）=====
+	// if rawBody, err := io.ReadAll(c.Request.Body); err == nil {
+	// 	log.Printf("[TRACE] server RAW request body=%s", string(rawBody))
+	// 	// 读完后恢复 body，供后续 ShouldBindJSON 使用
+	// 	c.Request.Body = io.NopCloser(bytes.NewReader(rawBody))
+	// } else {
+	// 	log.Printf("[TRACE] server read raw body error: %v", err)
+	// }
+
+	// 多模态视频输入：go-openai 的 ChatMessagePart 不支持 video part，
+	// 反序列化时会丢弃 video_url。这里先读取原始请求体并恢复，供后续
+	// ShouldBindJSON 使用；若含视频则存入 RawBody，供 client 走原始 JSON
+	// 直连上游，避免视频 part 丢失。
+	var rawBody []byte
+	if rb, rerr := io.ReadAll(c.Request.Body); rerr == nil {
+		rawBody = rb
+		c.Request.Body = io.NopCloser(bytes.NewReader(rawBody))
+	}
+
 	//扩展结构体（在 go-openai 标准请求之上承载 thinking / enable_thinking）
 	var extendedRequest public.ExtendedChatRequest
 	err := c.ShouldBindJSON(&extendedRequest)
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
+	}
+	c.Set("direct_request_body", rawBody)
+
+	if len(rawBody) > 0 && containsVideoInput(rawBody) {
+		extendedRequest.RawBody = rawBody
 	}
 
 	// 仅在用户未显式提供 reasoning_effort 时才填充默认值，
@@ -46,6 +98,34 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 	userID, _ := c.Get("user_id")
 	userIDStr, _ := userID.(string)
 
+	// ===== 调试日志：详细输出请求 messages，排查 "System message must be at the beginning" =====
+	// log.Printf("[DEBUG] chat request user=%s model=%s stream=%v messages=%d",
+	// 	userIDStr, request.Model, request.Stream, len(request.Messages))
+	// for i, m := range request.Messages {
+	// 	content := m.Content
+	// 	if len(content) > 200 {
+	// 		content = content[:200] + "...(truncated)"
+	// 	}
+	// 	// 标记 system message 是否在开头
+	// 	pos := "pos=" + strconv.Itoa(i)
+	// 	if m.Role == "system" {
+	// 		pos += " <-- SYSTEM"
+	// 		if i != 0 {
+	// 			pos += " (NOT AT BEGINNING!)"
+	// 		}
+	// 	}
+	// 	log.Printf("[DEBUG]   msg[%d] role=%q %s content=%q", i, m.Role, pos, content)
+	// }
+	// ===== 调试日志结束 =====
+
+	// ===== 链路日志：server 收到的完整请求体（用于排查上游 400 validation errors）=====
+	// 默认关闭：每请求全量 body 会刷爆日志。排查时取消注释。
+	// if rawBody, err := json.Marshal(extendedRequest); err == nil {
+	// 	log.Printf("[TRACE] server received request user=%s body=%s", userIDStr, string(rawBody))
+	// } else {
+	// 	log.Printf("[TRACE] server marshal request body error: %v", err)
+	// }
+
 	// Balance pre-check: reject if balance insufficient (OpenAI-compatible error)
 	balance, _, _ := server.UserDB.GetBalance(userIDStr)
 	if balance <= 0 {
@@ -58,6 +138,41 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 			},
 		})
 		return
+	}
+
+	// 限流检查（参考 OpenAI/Anthropic/DeepSeek 的 RPM/TPM 策略）
+	if server.RateLimiter != nil && configs.Config.RateLimitEnabled {
+		// 根据会员等级获取限流配置
+		membership := server.UserDB.GetEffectiveMembership(userIDStr)
+		cfg := rateLimitConfigFor(membership)
+
+		// 估算本次请求消耗的 token 数
+		estimatedTokens := models.EstimateTokens(request.Messages)
+
+		// 限流 key：优先用 API Key，其次用用户 ID
+		limitKey := userIDStr
+		if apiKeyID, ok := c.Get("api_key_id"); ok && apiKeyID.(string) != "" {
+			limitKey = "key:" + apiKeyID.(string)
+		} else {
+			limitKey = "user:" + userIDStr
+		}
+
+		allowed, limitType := server.RateLimiter.Allow(limitKey, cfg, estimatedTokens)
+		if !allowed {
+			limitName := "requests"
+			if limitType == "tpm" {
+				limitName = "tokens"
+			}
+			c.JSON(http.StatusTooManyRequests, gin.H{
+				"error": gin.H{
+					"message": "You have exceeded your rate limit of " + limitName + " per minute. Please slow down your requests. For more information, see https://platform.openai.com/docs/guides/error-codes/api-errors.",
+					"type":    "rate_limit_exceeded",
+					"param":   nil,
+					"code":    "rate_limit_exceeded",
+				},
+			})
+			return
+		}
 	}
 
 	if request.Stream {
@@ -78,14 +193,86 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 	failedClients := map[string]bool{}
 	start := time.Now()
 
+	// P1-M2: 解析路由偏好 + 容忍度。
+	routing := resolveRouting(c, extendedRequest.Routing)
+	maxLatencyMs := extendedRequest.MaxLatencyMs
+	minStability := extendedRequest.MinStability
+
+	// P2: 会话亲和 L0 短路——命中且目标可用则跳过 LoadBalance 直接用粘住 client。
+	var affinityKey string
+	var affinityClient *models.Client
+	var affinityHit bool
+	if server.Affinity != nil {
+		affinityKey = affinityKeyFromChat(request)
+		if affinityKey == "" {
+			affinityKey = userIDStr + ":" + request.Model
+		}
+		if entry, ok := server.Affinity.Get(affinityKey); ok {
+			if ac := server.ResolveAffinity(entry, request.Model, userIDStr); ac != nil {
+				affinityClient = ac
+			} else {
+				server.Affinity.MarkLease(affinityKey)
+			}
+		}
+	}
+
+	attempts := 0
 	for attempt := 0; attempt < public.MAX_CHAT_RETRY; attempt++ {
+		attempts++
 		// 全局超时检查，避免极端情况下重试耗时过长
 		if time.Since(start) > public.CHAT_RETRY_TOTAL_TIMEOUT*time.Second {
 			break
 		}
 
-		// 1. 选 client（排除已失败的）
-		client := server.LoadBalanceExcluding(request.Model, userIDStr, failedClients)
+		// 0. Direct 主力池优先（M1 stability 路由）：命中则直连固定后端，失败回退 crowdsource。
+		//    cost 路由：PickCheapest 已把 Direct 并入最低价层，此处不再单独优先。
+		if configs.Config.DirectBackendsEnabled && routing != RoutingCost {
+			if b := server.PickDirect(request.Model, userIDStr, failedClients); b != nil {
+				failedClients["direct:"+b.ID] = true
+				if handleDirectChat(c, server, b, extendedRequest, userIDStr) {
+					return
+				}
+				time.Sleep(backoff(attempt))
+				continue
+			}
+		}
+
+		// 1. 选 client（排除已失败的）。attempt 0 且亲和命中 → 直接用粘住 client。
+		var client *models.Client
+		if attempt == 0 && affinityClient != nil {
+			client = affinityClient
+			affinityHit = true
+		} else {
+			switch routing {
+			case RoutingCost:
+				// cost：合并两池按单价选最低价层；层内众包走 pickSmart、Direct 按负载率。
+				cc, cb := server.PickCheapest(request.Model, userIDStr, failedClients)
+				if cb != nil {
+					failedClients["direct:"+cb.ID] = true
+					if handleDirectChat(c, server, cb, extendedRequest, userIDStr) {
+						return
+					}
+					time.Sleep(backoff(attempt))
+					continue
+				}
+				client = cc
+			case RoutingBalanced:
+				// balanced：perfScore 下限过滤 + 容忍度；无候选溢出 Direct。
+				client = server.LoadBalanceBalanced(request.Model, userIDStr, failedClients, maxLatencyMs, minStability)
+				if client == nil && configs.Config.DirectBackendsEnabled {
+					if b := server.PickDirect(request.Model, userIDStr, failedClients); b != nil {
+						failedClients["direct:"+b.ID] = true
+						if handleDirectChat(c, server, b, extendedRequest, userIDStr) {
+							return
+						}
+						time.Sleep(backoff(attempt))
+						continue
+					}
+				}
+			default: // stability
+				client = server.LoadBalanceWithTolerance(request.Model, userIDStr, failedClients, maxLatencyMs, minStability)
+			}
+		}
 		if client == nil {
 			break
 		}
@@ -111,15 +298,26 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 			log.Printf("save fingerprint and client relation failed: %v", err)
 		}
 
-		log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
+		// 默认关闭：每请求一行会刷爆日志。排查时取消注释。
+		// log.Println("Client ID:", client.ID, "Model:", request.Model, "IPPM:", ippm, "OPPM:", oppm, "CIPPM:", cippm)
 
-		// 4. 发送请求到 client
-		if err := client.ControlConn.WriteJSON(public.WSMessage{
+		// ===== 链路日志：server 实际发给 client 的请求体 =====
+		// 默认关闭：每请求全量 body 会刷爆日志。排查时取消注释。
+		// if rawBody, err := json.Marshal(extendedRequest); err == nil {
+		// 	log.Printf("[TRACE] attempt %d send to client %s body=%s", attempt, client.ID, string(rawBody))
+		// } else {
+		// 	log.Printf("[TRACE] attempt %d marshal body error: %v", attempt, err)
+		// }
+
+		// 4. 发送请求到 client（ControlConn 单 writer 串行写入）。
+		err := client.SendControl(public.WSMessage{
 			Type:        public.MESSAGE,
 			Content:     extendedRequest,
 			FingerPrint: fingerPrint,
-		}); err != nil {
+		})
+		if err != nil {
 			log.Printf("attempt %d: send to client %s failed: %v", attempt, client.ID, err)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
 			time.Sleep(backoff(attempt))
 			continue
@@ -132,6 +330,7 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		case <-time.After(public.CHAT_MAX_TIME * time.Second):
 			server.RemoveRespClientChan(fingerPrint)
 			log.Printf("attempt %d: response conn timeout for client %s", attempt, client.ID)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			abortClientRequest(client, fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
 			time.Sleep(backoff(attempt))
@@ -141,6 +340,7 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		// 6. 获取响应连接
 		respConn, ok := server.GetRespClient(fingerPrint)
 		if !ok {
+			client.IncrFailures() // smart 负载均衡：记录失败
 			abortClientRequest(client, fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
 			time.Sleep(backoff(attempt))
@@ -150,6 +350,7 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		// 7. 更新 fingerprint 状态为 transmitting
 		if err := server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, client.ID, "transmitting"); err != nil {
 			log.Printf("save fingerprint and client relation failed: %v", err)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			abortClientRequest(client, fingerPrint)
@@ -158,14 +359,19 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 			continue
 		}
 
+		// 进入 transmitting 后，增加该 client 的内存连接计数（会员连接数限制用）
+		client.IncrActiveConnections()
+
 		// 8. 读取第一条消息（判断类型）
 		var response public.WSMessage
 		if err := respConn.ReadJSON(&response); err != nil {
 			log.Printf("attempt %d: read first msg from client %s failed: %v", attempt, client.ID, err)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			abortClientRequest(client, fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		}
@@ -174,33 +380,75 @@ func handleChatWithRetry(c *gin.Context, server *models.Server, extendedRequest 
 		switch response.Type {
 		case public.MESSAGE, public.MESSAGE_STREAM:
 			// 成功！进入正常处理流程
+			client.ResetFailures() // smart 负载均衡：请求成功，清零失败计数
+			// P2: 成功写回亲和。租约未过期且换了 client → 不覆盖（下次仍优先试原 client = 回迁）。
+			if server.Affinity != nil {
+				if affinityHit || server.Affinity.LeaseExpired(affinityKey) {
+					server.Affinity.Touch(affinityKey, client.ID, false)
+				}
+			}
+			// P2: 传给计费层做实测命中校验
+			if server.Affinity != nil {
+				c.Set("affinity_key", affinityKey)
+				if affinityHit {
+					c.Set("affinity_hit", true)
+				}
+			}
 			handleChatResponseWithFirst(c, server, fingerPrint, time.Now(), client.ID, ippm, oppm, cippm, request.Model, response, respConn)
 			return
 		case public.CLOSE:
 			log.Printf("attempt %d: client %s closed before first token", attempt, client.ID)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		case public.MODEL_ERROR:
 			log.Printf("attempt %d: model error from client %s: %v", attempt, client.ID, response.Content)
+			// 判断是否为"请求本身错误"（4xx 类，如 messages 顺序错误、参数非法等）。
+			// 这类错误与 client 无关，重试也无效，不应标记 client 失败（避免污染 smart 评分），
+			// 也不应继续重试，直接返回 400 给调用方。
+			if isClientRequestError(response.Content) {
+				respConn.Close()
+				server.RemoveRespClient(fingerPrint)
+				server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+				client.DecrActiveConnections() // 递减计数，与 +1 对应
+				c.JSON(http.StatusBadRequest, gin.H{
+					"error": gin.H{
+						"message": fmt.Sprintf("%v", response.Content),
+						"type":    "invalid_request_error",
+						"param":   nil,
+						"code":    "invalid_request_error",
+					},
+				})
+				return
+			}
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		default:
 			log.Printf("attempt %d: unexpected first msg type %s from client %s", attempt, response.Type, client.ID)
+			client.IncrFailures() // smart 负载均衡：记录失败
 			respConn.Close()
 			server.RemoveRespClient(fingerPrint)
 			server.ClientFingerprintDB.DeleteFingerprint(fingerPrint)
+			client.DecrActiveConnections() // 递减计数，与 +1 对应
 			time.Sleep(backoff(attempt))
 			continue
 		}
 	}
 
 	// 重试耗尽，返回明确错误
+	// 调试日志：503 归因（direct 开关 / 模型是否有 direct 供给 / 实际重试次数 / 已排除候选）
+	log.Printf("[chat-503] model=%s routing=%s attempts=%d elapsed=%dms excluded=%v directEnabled=%v directSupply=%v",
+		request.Model, routing, attempts, time.Since(start).Milliseconds(),
+		failedClients, configs.Config.DirectBackendsEnabled, server.HasDirectSupply(request.Model))
 	c.JSON(http.StatusServiceUnavailable, gin.H{"error": "All clients failed, please retry"})
 }
 
@@ -209,15 +457,125 @@ func backoff(attempt int) time.Duration {
 	return time.Duration(public.CHAT_RETRY_BASE_DELAY*(1<<attempt)) * time.Millisecond
 }
 
+// affinityKeyFromChat 会话指纹：sha256(model + 前两条消息的 role+content 前 256B)[:16]，hex。
+// 多轮对话 messages 只会追加，开头前缀稳定 ⇒ 同会话同 key。
+func affinityKeyFromChat(req openai.ChatCompletionRequest) string {
+	h := sha256.New()
+	h.Write([]byte(req.Model))
+	for i := 0; i < len(req.Messages) && i < 2; i++ {
+		m := req.Messages[i]
+		h.Write([]byte(m.Role))
+		content := m.Content
+		if len(content) > 256 {
+			content = content[:256]
+		}
+		h.Write([]byte(content))
+	}
+	return hex.EncodeToString(h.Sum(nil)[:16])
+}
+
+// containsVideoInput 判断请求体是否含视频输入（video_url / input_video / video 块）。
+// go-openai 无法承载 video part，反序列化时会丢弃，因此需要检测并走原始 JSON 透传。
+func containsVideoInput(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	// 快速路径：直接字符串匹配，避免完整解析大体积 base64 请求体。
+	lower := strings.ToLower(string(body))
+	for _, marker := range []string{`"video_url"`, `"input_video"`, `"type":"video"`, `"type": "video"`} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// isClientRequestError 判断 MODEL_ERROR 的内容是否为"请求本身错误"（4xx 类）。
+// 这类错误由调用方传入的请求参数导致（如 messages 顺序错误、模型名非法、参数超限等），
+// 与 client 无关，重试无效。识别后应直接返回 400，不重试、不标记 client 失败。
+func isClientRequestError(content interface{}) bool {
+	msg := ""
+	switch v := content.(type) {
+	case string:
+		msg = v
+	case error:
+		msg = v.Error()
+	default:
+		msg = fmt.Sprintf("%v", v)
+	}
+	lower := strings.ToLower(msg)
+	// 常见 4xx 请求错误特征
+	requestErrorMarkers := []string{
+		"system message must be at the beginning",
+		"bad request",
+		"invalid request",
+		"invalid_api_key",
+		"invalid parameter",
+		"invalid parameters",
+		"invalid model",
+		"model not found",
+		"context length exceeded",
+		"maximum context length",
+		"prompt is too long",
+		"400 bad request",
+		"status code: 400",
+		"status: 400",
+		// 上游 Pydantic/JSON 校验失败（如 video_url Field required、unknown variant）
+		"unknown variant",
+		"field required",
+		"validation error",
+		// 上游模型能力拒绝（如 "This model does not support image"）
+		"does not support",
+		// client openai 引擎 raw 路径的错误格式："API error: status=4xx, body=..."
+		"api error: status=400",
+		"api error: status=401",
+		"api error: status=403",
+		"api error: status=404",
+		"api error: status=422",
+	}
+	for _, marker := range requestErrorMarkers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
+// isModelNotFound 判断上游错误是否为「模型不存在」，此类错误应返回 404 not_found_error。
+func isModelNotFound(content interface{}) bool {
+	msg := ""
+	switch v := content.(type) {
+	case string:
+		msg = v
+	case error:
+		msg = v.Error()
+	default:
+		msg = fmt.Sprintf("%v", v)
+	}
+	lower := strings.ToLower(msg)
+	markers := []string{
+		"model not found",
+		"invalid model",
+		"model_not_found",
+		"status code: 404",
+		"status: 404",
+		"api error: status=404",
+	}
+	for _, marker := range markers {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
+}
+
 // abortClientRequest 通知 client 停止处理指定 fingerprint 的请求（尽力而为）。
 // 用于 server 放弃某 client 时，避免 client 继续生成孤儿 token 浪费算力。
 func abortClientRequest(client *models.Client, fingerPrint string) {
-	if client == nil || client.ControlConn == nil {
+	if client == nil {
 		return
 	}
-	client.ControlConnMutex.Lock()
-	defer client.ControlConnMutex.Unlock()
-	if err := client.ControlConn.WriteJSON(public.WSMessage{
+	if err := client.SendControl(public.WSMessage{
 		Type:        public.CLOSE,
 		Content:     public.ABORT,
 		FingerPrint: fingerPrint,
@@ -230,12 +588,19 @@ func abortClientRequest(client *models.Client, fingerPrint string) {
 // 并将 fingerprint 状态更新为 completed（避免 transmitting 记录泄漏）。
 // 所有 chat 请求结束路径都应调用此函数，确保 fingerprint 不会永久停留在 transmitting。
 func cleanupChatRequest(server *models.Server, fingerPrint, clientID string, respConn *websocket.Conn) {
+	if fingerPrint == "" && clientID == "" && respConn == nil {
+		return
+	}
 	if respConn != nil {
 		_ = respConn.Close()
 	}
 	server.RemoveRespClient(fingerPrint)
 	if clientID != "" {
 		_ = server.ClientFingerprintDB.UpdateFingerprint(fingerPrint, clientID, "completed")
+		// 递减该 client 的内存连接计数（与 transmitting 时的 +1 对应）
+		if c := server.GetClientByID(clientID); c != nil {
+			c.DecrActiveConnections()
+		}
 	}
 }
 
@@ -375,10 +740,11 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 			return true
 		}
 
-		if chatResponse.Usage != nil {
-			log.Printf("chatResponse: usage prompt=%d, completion=%d, total=%d",
-				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
-		}
+		// 默认关闭：每流式块刷日志。排查时取消注释。
+		// if chatResponse.Usage != nil {
+		// 	log.Printf("chatResponse: usage prompt=%d, completion=%d, total=%d",
+		// 		chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
+		// }
 
 		// 发送数据到客户端
 		_, err = c.Writer.Write([]byte("data: " + string(jsonData) + "\n\n"))
@@ -391,8 +757,9 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 		// 检查是否有 usage 信息（可能在 finish_reason 之后的单独数据块中）
 		if chatResponse.Usage != nil && chatResponse.Usage.TotalTokens > 0 {
-			log.Printf("Recording usage: prompt=%d, completion=%d, total=%d",
-				chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
+			// 默认关闭：每请求刷日志。排查时取消注释。
+			// log.Printf("Recording usage: prompt=%d, completion=%d, total=%d",
+			// 	chatResponse.Usage.PromptTokens, chatResponse.Usage.CompletionTokens, chatResponse.Usage.TotalTokens)
 
 			// 提取缓存命中tokens
 			cachedTokens := 0
@@ -413,7 +780,8 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 
 		// 检查是否完成（finish_reason 为 stop、tool_calls 或 length）
 		if len(chatResponse.Choices) > 0 && chatResponse.Choices[0].FinishReason != "" {
-			log.Printf("Received finish_reason: %s", chatResponse.Choices[0].FinishReason)
+			// 默认关闭：每请求刷日志。排查时取消注释。
+			// log.Printf("Received finish_reason: %s", chatResponse.Choices[0].FinishReason)
 			// 如果这个数据块中已经有 usage，直接处理
 			if usage, hasUsage := content["usage"].(map[string]interface{}); hasUsage {
 				promptTokens := int(usage["prompt_tokens"].(float64))
@@ -428,8 +796,9 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 					}
 				}
 
-				log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d, cached=%d",
-					promptTokens, completionTokens, totalTokens, cachedTokens)
+				// 默认关闭：每请求刷日志。排查时取消注释。
+				// log.Printf("Recording usage from finish block: prompt=%d, completion=%d, total=%d, cached=%d",
+				// 	promptTokens, completionTokens, totalTokens, cachedTokens)
 
 				recordTokenUsage(c, server, fingerPrint, reqModel,
 					promptTokens, completionTokens, totalTokens, cachedTokens, clientID, ippm, oppm, cippm)
@@ -440,7 +809,8 @@ func handleStreamChatResponse(c *gin.Context, server *models.Server, fingerPrint
 				return true
 			}
 			// 如果没有 usage，继续等待下一个可能包含 usage 的数据块
-			log.Printf("Finish reason received but no usage yet, waiting for usage block...")
+			// 默认关闭：每请求刷日志。排查时取消注释。
+			// log.Printf("Finish reason received but no usage yet, waiting for usage block...")
 		}
 
 		return false
@@ -509,21 +879,13 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 		log.Printf("保存token使用记录失败: %v", err)
 		return
 	}
-	log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
+	// 默认关闭：每请求一行会刷爆日志。排查时取消注释。
+	// log.Printf("记录用户 %s 使用 %s 模型，消耗 %d tokens", userID, model, totalTokens)
 
 	// 根据client的用户userid 获取最新的总收入（异步执行，避免阻塞聊天请求）
 	chatClient := server.GetClientByModel(model, clientID)
 	if chatClient == nil {
 		log.Printf("client %s not found for model %s", clientID, model)
-		return
-	}
-
-	chatClient.ControlConnMutex.Lock()
-	conn := chatClient.ControlConn
-	chatClient.ControlConnMutex.Unlock()
-
-	if conn == nil {
-		log.Printf("client %s ControlConn is nil", clientID)
 		return
 	}
 
@@ -535,7 +897,7 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 			return
 		}
 		totalIncome, _ := totalIncomeResult.(float64)
-		_ = conn.WriteJSON(public.WSMessage{
+		if err := chatClient.SendControl(public.WSMessage{
 			Type: public.INCOME,
 			Content: map[string]interface{}{
 				"model": model,
@@ -549,8 +911,30 @@ func recordTokenUsage(c *gin.Context, server *models.Server, requestID string, m
 				"total_income": totalIncome,
 				"timestamp":    strconv.Itoa(int(time.Now().Unix())),
 			},
-		})
+		}); err != nil {
+			log.Printf("push income update to client %s failed: %v", clientID, err)
+		}
 	}(clientID, model,
 		(ippm*float64(inputTokens-cachedTokens)+cippm*float64(cachedTokens)+oppm*float64(outputTokens))/1000000,
 		inputTokens, outputTokens, totalTokens, cachedTokens)
+
+	// P2: 实测命中反馈（纯内存，零 DB）。仅用于 tiebreak 与亲和失效校验，不进 perfScore。
+	if inputTokens > 0 {
+		h := float64(cachedTokens) / float64(inputTokens)
+		if cl := server.GetClientByID(clientID); cl != nil {
+			cl.UpdateCacheHit(h)
+		}
+		// 亲和实测校验：粘性命中但实测低命中 → 连续 K 次删除亲和
+		if server.Affinity != nil {
+			if keyVal, ok := c.Get("affinity_key"); ok {
+				if hit, _ := c.Get("affinity_hit"); hit == true {
+					if h < configs.Config.AffinityMinHitRate {
+						if server.Affinity.RecordMiss(keyVal.(string)) >= int32(configs.Config.AffinityMissK) {
+							server.Affinity.Delete(keyVal.(string))
+						}
+					} // h 达标 → Touch 已在成功分支做过，MissCount 由 Touch 清零
+				}
+			}
+		}
+	}
 }
