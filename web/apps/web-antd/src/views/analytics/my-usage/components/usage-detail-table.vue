@@ -2,6 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
+import { supplyLabelKey, usageCostBreakdown } from '#/utils/supply';
 
 interface TokenUsageRecord {
   ID: number;
@@ -18,22 +19,22 @@ interface TokenUsageRecord {
   OutputTokens: number;
   CachedTokens: number;
   TotalTokens: number;
+  Cost?: number;
   Timestamp: string;
 }
 
 // 计算费用明细
 const calcUncachedInputCost = (r: TokenUsageRecord) => {
-  const cached = r.CachedTokens || 0;
-  return ((r.InputTokens - cached) * (r.IPPM || 0)) / 1000000;
+  return usageCostBreakdown(r).uncachedInput;
 };
 const calcCachedInputCost = (r: TokenUsageRecord) => {
-  return ((r.CachedTokens || 0) * (r.CIPPM || 0)) / 1000000;
+  return usageCostBreakdown(r).cachedInput;
 };
 const calcOutputCost = (r: TokenUsageRecord) => {
-  return (r.OutputTokens * (r.OPPM || 0)) / 1000000;
+  return usageCostBreakdown(r).output;
 };
 const calcTotalCost = (r: TokenUsageRecord) => {
-  return calcUncachedInputCost(r) + calcCachedInputCost(r) + calcOutputCost(r);
+  return usageCostBreakdown(r).total;
 };
 
 const loading = ref(false);
@@ -154,7 +155,7 @@ onMounted(() => {
               {{ $t('business.analytics.totalCost') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)]">
-              {{ $t('business.analytics.client') }}
+              {{ $t('business.supply.source') }}
             </th>
             <th class="border border-[var(--border-color)] px-3 py-2 text-left text-sm font-medium text-[var(--text-primary)]">
               {{ $t('business.analytics.time') }}
@@ -210,8 +211,9 @@ onMounted(() => {
             </td>
             <td class="border border-[var(--border-color)] px-3 py-2 text-sm text-[var(--text-secondary)]">
               <div class="max-w-[100px] truncate" :title="record.ClientID">
-                {{ record.ClientID }}
+                {{ $t(supplyLabelKey(record.ClientID)) }}
               </div>
+              <div class="max-w-[100px] truncate text-xs" :title="record.ClientID">{{ record.ClientID || '-' }}</div>
             </td>
             <td class="border border-[var(--border-color)] px-3 py-2 text-sm text-[var(--text-secondary)]">
               {{ formatTime(record.Timestamp) }}

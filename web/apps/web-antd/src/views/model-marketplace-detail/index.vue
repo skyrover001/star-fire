@@ -17,7 +17,8 @@
             {{ modelName }}
           </h1>
           <p class="mt-1 text-[var(--text-secondary)]">
-            {{ $t('business.marketplace.clientList') }} ({{ clientModels.length }})
+            {{ $t('business.supply.personalClients') }}: {{ clientModels.length }}
+            <span v-if="directBackends.length"> · {{ $t('business.supply.directBackends') }}: {{ directBackends.length }}</span>
           </p>
         </div>
       </div>
@@ -90,8 +91,8 @@
     </div>
 
     <!-- 贡献者报价与调用分析 -->
-    <div class="mb-6 grid grid-cols-1 gap-4 xl:grid-cols-2">
-      <section class="rounded-xl border border-[var(--border-color)] bg-[var(--content-bg)] p-5">
+    <div class="mb-6 grid grid-cols-1 gap-4" :class="clientModels.length ? 'xl:grid-cols-2' : ''">
+      <section v-if="clientModels.length" class="rounded-xl border border-[var(--border-color)] bg-[var(--content-bg)] p-5">
         <div class="mb-4 flex items-center gap-2">
           <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-500/10">
             <svg class="h-4 w-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8V7m0 9v1m9-5a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
@@ -110,13 +111,13 @@
           <div><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.calls') }}</div><div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">{{ formatNumber(modelUsage.calls) }}</div></div>
           <div><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.totalTokens') }}</div><div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">{{ formatTokens(modelUsage.total_tokens) }}</div></div>
           <div><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.callers') }}</div><div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">{{ formatNumber(modelUsage.user_count) }}</div></div>
-          <div><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.marketplace.callingClients') }}</div><div class="mt-1 text-lg font-semibold text-[var(--text-primary)]">{{ formatNumber(modelUsage.client_count) }}</div></div>
+          <div><div class="text-xs text-[var(--text-secondary)]">{{ $t('business.supply.source') }}</div><div class="mt-1 text-sm font-semibold text-[var(--text-primary)]">{{ $t('business.supply.personal') }}: {{ formatNumber(modelUsage.client_count) }} · {{ $t('business.supply.direct') }}: {{ formatNumber(modelUsage.direct_count) }}</div></div>
         </div>
       </section>
     </div>
 
     <!-- 客户端状态统计 -->
-    <div class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div v-if="clientModels.length" class="mb-6 grid grid-cols-2 md:grid-cols-4 gap-4">
       <div class="rounded-xl bg-gradient-to-br from-green-500/10 to-green-600/5 p-4 text-center border border-green-500/20">
         <div class="text-2xl font-bold text-green-500">{{ clientStats.online }}</div>
         <div class="text-sm text-green-600 dark:text-green-400">{{ $t('business.marketplace.onlineClients') }}</div>
@@ -135,6 +136,51 @@
       </div>
     </div>
 
+    <section v-if="directLoading || directError || directBackends.length" class="mb-6 border-y border-[var(--border-color)] py-5">
+      <div class="mb-4 flex flex-wrap items-center justify-between gap-3">
+        <h3 class="text-lg font-semibold text-[var(--text-primary)]">{{ $t('business.supply.directSupply') }}</h3>
+        <span class="text-sm text-[var(--text-secondary)]">{{ $t('business.supply.directBackends') }}: {{ directBackends.length }} · {{ $t('business.supply.healthy') }}: {{ directBackends.filter(backend => backend.healthy && !backend.in_cooldown).length }}</span>
+      </div>
+      <p v-if="directError" role="alert" class="mb-3 text-sm text-red-500">{{ $t('business.supply.loadError') }}</p>
+      <p v-if="directLoading && !directBackends.length" class="py-4 text-sm text-[var(--text-secondary)]">{{ $t('business.marketplace.loading') }}</p>
+      <div v-if="directBackends.length" class="overflow-x-auto">
+        <table class="w-full min-w-[1200px] text-left text-sm">
+          <thead class="bg-[var(--hover-bg)] text-[var(--text-secondary)]">
+            <tr>
+              <th class="p-3">{{ $t('business.supply.name') }}</th>
+              <th class="p-3">{{ $t('business.supply.status') }}</th>
+              <th class="p-3">{{ $t('business.marketplace.pricing') }} (¥/M)</th>
+              <th class="p-3">{{ $t('business.supply.load') }}</th>
+              <th class="p-3">{{ $t('business.supply.ttft') }}</th>
+              <th class="p-3">{{ $t('business.supply.responseLatency') }}</th>
+              <th class="p-3">{{ $t('business.supply.healthLatency') }}</th>
+              <th class="p-3" :title="$t('business.supply.billedRequests')">{{ $t('business.supply.calls') }}</th>
+              <th class="p-3">{{ $t('business.supply.tokens') }}</th>
+              <th class="p-3">{{ $t('business.supply.cacheHit') }}</th>
+              <th class="p-3">{{ $t('business.supply.reliability') }}</th>
+              <th class="p-3">{{ $t('business.supply.lastUsed') }}</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-[var(--border-color)] text-[var(--text-primary)]">
+            <tr v-for="backend in directBackends" :key="backend.id">
+              <td class="p-3"><div class="max-w-48 break-words font-medium">{{ backend.name || backend.id }}</div><div class="text-xs text-[var(--text-secondary)]">{{ backend.format }} · {{ $t('business.supply.priority') }} {{ backend.priority }}</div></td>
+              <td class="p-3" :class="backend.in_cooldown ? 'text-amber-500' : backend.healthy ? 'text-emerald-500' : 'text-red-500'">{{ $t(backend.in_cooldown ? 'business.supply.cooldown' : backend.healthy ? 'business.supply.healthy' : 'business.supply.unhealthy') }}</td>
+              <td class="p-3 whitespace-nowrap"><template v-if="backend.priced"><div>{{ $t('business.marketplace.input') }} {{ backend.ippm }}</div><div>{{ $t('business.marketplace.output') }} {{ backend.oppm }}</div><div>{{ $t('business.marketplace.cached') }} {{ backend.cippm }}</div></template><span v-else>{{ $t('business.supply.unpriced') }}</span></td>
+              <td class="p-3 whitespace-nowrap">{{ backend.active_conns }} / {{ backend.max_conns }}</td>
+              <td class="p-3 whitespace-nowrap">{{ formatLatency(backend.ttft_ms) }}</td>
+              <td class="p-3 whitespace-nowrap">{{ formatLatency(backend.response_latency_ms) }}</td>
+              <td class="p-3 whitespace-nowrap">{{ formatLatency(backend.health_latency_ms) }}</td>
+              <td class="p-3">{{ formatNumber(backend.calls) }}</td>
+              <td class="p-3" :title="`${$t('business.marketplace.input')}: ${backend.input_tokens}; ${$t('business.marketplace.output')}: ${backend.output_tokens}; ${$t('business.marketplace.cached')}: ${backend.cached_tokens}`">{{ formatTokens(backend.total_tokens) }}</td>
+              <td class="p-3">{{ (backend.cache_hit_ema * 100).toFixed(1) }}%</td>
+              <td class="p-3" :title="`${backend.recent_failures}`">{{ (backend.reliability_ema * 100).toFixed(1) }}%</td>
+              <td class="p-3 whitespace-nowrap">{{ backend.last_used ? formatDate(backend.last_used) : '-' }}</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
     <!-- 加载状态 -->
     <div v-if="loading" class="flex justify-center py-12">
       <div class="flex items-center space-x-3 text-[var(--text-secondary)]">
@@ -144,7 +190,7 @@
     </div>
 
     <!-- 客户端列表 -->
-    <div v-else class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)]">
+    <div v-else-if="clientModels.length || (!directBackends.length && !modelInfo.direct?.count)" class="rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)]">
       <div class="p-6 border-b border-[var(--border-color)]">
         <h3 class="text-lg font-semibold text-[var(--text-primary)]">{{ $t('business.marketplace.clientList') }}</h3>
         <p class="mt-1 text-[var(--text-secondary)]">{{ $t('business.marketplace.clientListDescription') }}</p>
@@ -437,29 +483,410 @@
         </div>
       </div>
     </div>
+
+    <!-- API 调用示例 -->
+    <div class="mb-6 rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] overflow-hidden">
+      <div class="p-6 border-b border-[var(--border-color)]">
+        <div class="flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-500/10">
+            <svg class="h-4 w-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4"/></svg>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold text-[var(--text-primary)]">{{ $t('business.marketplace.apiExample') }}</h3>
+            <p class="text-xs text-[var(--text-secondary)]">
+              {{ $t('business.marketplace.apiExampleDescription') }}
+            </p>
+          </div>
+        </div>
+        <div class="mt-3 rounded-lg bg-[var(--hover-bg)] px-3 py-2 text-sm">
+          <span class="text-[var(--text-secondary)]">Base URL: </span>
+          <code class="font-mono text-blue-500">{{ baseUrl }}</code>
+        </div>
+      </div>
+
+      <!-- 格式切换 -->
+      <div class="flex border-b border-[var(--border-color)]">
+        <button
+          class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+          :class="activeFormatTab === 'openai' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeFormatTab = 'openai'"
+        >OpenAI Chat</button>
+        <button
+          class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+          :class="activeFormatTab === 'responses' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeFormatTab = 'responses'"
+        >OpenAI Responses</button>
+        <button
+          class="px-4 py-2 text-sm font-medium border-b-2 transition-colors"
+          :class="activeFormatTab === 'anthropic' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+          @click="activeFormatTab = 'anthropic'"
+        >Anthropic</button>
+      </div>
+
+      <!-- 语言 / 请求响应切换 -->
+      <div class="flex items-center justify-between border-b border-[var(--border-color)] px-4">
+        <div class="flex">
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleTab === 'curl' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleTab = 'curl'"
+          >cURL</button>
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleTab === 'python' ? 'border-blue-500 text-blue-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleTab = 'python'"
+          >Python</button>
+        </div>
+        <div class="flex">
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleMode === 'request' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleMode = 'request'"
+          >{{ $t('business.marketplace.request') }}</button>
+          <button
+            class="px-3 py-2 text-sm font-medium border-b-2 transition-colors"
+            :class="activeExampleMode === 'response' ? 'border-emerald-500 text-emerald-500' : 'border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]'"
+            @click="activeExampleMode = 'response'"
+          >{{ $t('business.marketplace.response') }}</button>
+        </div>
+      </div>
+
+      <div class="p-4">
+        <div class="relative">
+          <button
+            class="absolute top-2 right-2 px-2 py-1 text-xs rounded bg-[var(--hover-bg)] text-[var(--text-secondary)] hover:bg-[var(--border-color)] transition-colors"
+            @click="copyExample"
+          >
+            {{ $t('business.marketplace.copy') }}
+          </button>
+          <pre class="overflow-x-auto rounded-lg bg-[#1e1e1e] p-4 text-sm text-green-400 font-mono leading-relaxed"><code>{{ currentExample }}</code></pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- Codex 一键接入 -->
+    <div class="mb-6 rounded-xl bg-[var(--content-bg)] border border-[var(--border-color)] overflow-hidden">
+      <div class="p-6 border-b border-[var(--border-color)]">
+        <div class="flex items-center gap-2">
+          <div class="flex h-8 w-8 items-center justify-center rounded-lg bg-orange-500/10">
+            <svg class="h-4 w-4 text-orange-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
+          </div>
+          <div>
+            <h3 class="text-base font-semibold text-[var(--text-primary)]">{{ $t('business.marketplace.codexSetup') }}</h3>
+            <p class="text-xs text-[var(--text-secondary)]">
+              {{ $t('business.marketplace.codexSetupDescription') }}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="p-6">
+        <div class="flex flex-col sm:flex-row sm:items-center gap-4">
+          <button
+            @click="downloadCodexScript"
+            class="inline-flex items-center justify-center px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
+          >
+            <svg class="w-4 h-4 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            {{ $t('business.marketplace.downloadCodexScript') }}
+          </button>
+          <code class="font-mono text-xs text-[var(--text-secondary)] break-all">{{ codexScriptUrl }}</code>
+        </div>
+
+        <div class="mt-5 rounded-lg bg-[var(--hover-bg)] p-4">
+          <h4 class="text-sm font-semibold text-[var(--text-primary)] mb-3">{{ $t('business.marketplace.codexUsageSteps') }}</h4>
+          <ol class="space-y-2 text-sm text-[var(--text-secondary)]">
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">1</span>
+              <span>{{ $t('business.marketplace.codexStep1') }}</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">2</span>
+              <span>{{ $t('business.marketplace.codexStep2') }}</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">3</span>
+              <span>{{ $t('business.marketplace.codexStep3') }}</span>
+            </li>
+            <li class="flex items-start gap-2">
+              <span class="flex-shrink-0 w-5 h-5 rounded-full bg-orange-500/10 text-orange-500 text-xs font-bold flex items-center justify-center">4</span>
+              <span>{{ $t('business.marketplace.codexStep4') }}</span>
+            </li>
+          </ol>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script lang="ts" setup>
 import { computed, ref, onMounted, onUnmounted, watch } from 'vue';
 import { useRouter, useRoute } from 'vue-router';
+import { useAppConfig } from '@vben/hooks';
 import { requestClient } from '#/api/request';
 import { $t } from '#/locales';
+import { buildApiBaseUrl } from '#/utils/api-base-url';
 
 const router = useRouter();
 const route = useRoute();
+
+// 获取应用配置（服务器地址）
+const { serverHost } = useAppConfig(import.meta.env, import.meta.env.PROD);
 
 // 响应式状态
 const loading = ref(false);
 const clientModels = ref<any[]>([]);
 const modelInfo = ref<any>({});
-const modelUsage = ref({ calls: 0, total_tokens: 0, user_count: 0, client_count: 0 });
+const modelUsage = ref({ calls: 0, total_tokens: 0, user_count: 0, client_count: 0, direct_count: 0 });
+interface DirectBackendView {
+  id: string;
+  name: string;
+  format: string;
+  priority: number;
+  ippm: number;
+  oppm: number;
+  cippm: number;
+  priced: boolean;
+  healthy: boolean;
+  in_cooldown: boolean;
+  active_conns: number;
+  max_conns: number;
+  ttft_ms: number;
+  response_latency_ms: number;
+  health_latency_ms: number;
+  cache_hit_ema: number;
+  reliability_ema: number;
+  recent_failures: number;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cached_tokens: number;
+  total_tokens: number;
+  last_used: string;
+}
+const directBackends = ref<DirectBackendView[]>([]);
+const directLoading = ref(false);
+const directError = ref(false);
+const formatLatency = (value: number) => value > 0 ? `${value.toFixed(1)} ms` : '-';
 
 // 从路由参数获取模型名称
 const modelName = computed(() => route.query.name as string || '');
 
-const parameterSize = computed(() => modelName.value.split(':')[1] || $t('business.marketplace.parameters'));
+// OpenAI API base_url（自动获取：配置的 serverHost → 同源回退 → 协议补全）
+const baseUrl = computed(() => buildApiBaseUrl(serverHost));
+
+// 调用示例标签
+const activeFormatTab = ref<'openai' | 'responses' | 'anthropic'>('openai');
+const activeExampleTab = ref<'curl' | 'python'>('curl');
+const activeExampleMode = ref<'request' | 'response'>('request');
+
+// OpenAI Chat Completions 请求示例
+const openaiChatRequest = computed(() => {
+  return `curl ${baseUrl.value}/chat/completions \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "model": "${modelName.value}",
+    "messages": [
+      {"role": "system", "content": "You are a helpful assistant."},
+      {"role": "user", "content": "Hello!"}
+    ],
+    "stream": false
+  }'`;
+});
+
+// OpenAI Chat Completions 响应示例
+const openaiChatResponse = computed(() => {
+  return `{
+  "id": "chatcmpl-xxxxxxxxxxxxxxxxxxxxxxxx",
+  "object": "chat.completion",
+  "created": 1730000000,
+  "model": "${modelName.value}",
+  "choices": [
+    {
+      "index": 0,
+      "message": {
+        "role": "assistant",
+        "content": "Hello! How can I help you today?"
+      },
+      "finish_reason": "stop"
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 12,
+    "completion_tokens": 9,
+    "total_tokens": 21
+  }
+}`;
+});
+
+// OpenAI Responses 请求示例
+const openaiResponsesRequest = computed(() => {
+  return `curl ${baseUrl.value}/responses \\
+  -H "Content-Type: application/json" \\
+  -H "Authorization: Bearer YOUR_API_KEY" \\
+  -d '{
+    "model": "${modelName.value}",
+    "instructions": "You are a helpful assistant.",
+    "input": "Hello!",
+    "stream": false
+  }'`;
+});
+
+// OpenAI Responses 响应示例
+const openaiResponsesResponse = computed(() => {
+  return `{
+  "id": "resp_xxxxxxxxxxxxxxxxxxxxxxxx",
+  "object": "response",
+  "created_at": 1730000000,
+  "status": "completed",
+  "model": "${modelName.value}",
+  "output": [
+    {
+      "type": "message",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "Hello! How can I help you today?"
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 9,
+    "total_tokens": 21
+  }
+}`;
+});
+
+// Anthropic Messages 请求示例
+const anthropicRequest = computed(() => {
+  return `curl ${baseUrl.value}/messages \\
+  -H "Content-Type: application/json" \\
+  -H "x-api-key: YOUR_API_KEY" \\
+  -H "anthropic-version: 2023-06-01" \\
+  -d '{
+    "model": "${modelName.value}",
+    "max_tokens": 1024,
+    "system": "You are a helpful assistant.",
+    "messages": [
+      {"role": "user", "content": "Hello!"}
+    ]
+  }'`;
+});
+
+// Anthropic Messages 响应示例
+const anthropicResponse = computed(() => {
+  return `{
+  "id": "msg_xxxxxxxxxxxxxxxxxxxxxxxx",
+  "type": "message",
+  "role": "assistant",
+  "model": "${modelName.value}",
+  "content": [
+    {
+      "type": "text",
+      "text": "Hello! How can I help you today?"
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 12,
+    "output_tokens": 9
+  }
+}`;
+});
+
+// Python 请求示例（OpenAI SDK）
+const openaiPythonRequest = computed(() => {
+  return `from openai import OpenAI
+
+client = OpenAI(
+    base_url="${baseUrl.value}",
+    api_key="YOUR_API_KEY",
+)
+
+response = client.chat.completions.create(
+    model="${modelName.value}",
+    messages=[
+        {"role": "system", "content": "You are a helpful assistant."},
+        {"role": "user", "content": "Hello!"},
+    ],
+)
+print(response.choices[0].message.content)`;
+});
+
+// Python 请求示例（Anthropic SDK）
+const anthropicPythonRequest = computed(() => {
+  return `from anthropic import Anthropic
+
+# 标准 Anthropic 认证：api_key 会发送 x-api-key 头，网关已支持
+client = Anthropic(
+    base_url="${baseUrl.value}",
+    api_key="YOUR_API_KEY",
+)
+
+response = client.messages.create(
+    model="${modelName.value}",
+    max_tokens=1024,
+    system="You are a helpful assistant.",
+    messages=[{"role": "user", "content": "Hello!"}],
+)
+print(response.content[0].text)`;
+});
+
+// 当前显示的示例代码
+const currentExample = computed(() => {
+  if (activeExampleMode.value === 'response') {
+    switch (activeFormatTab.value) {
+      case 'openai': return openaiChatResponse.value;
+      case 'responses': return openaiResponsesResponse.value;
+      case 'anthropic': return anthropicResponse.value;
+    }
+  }
+  if (activeExampleTab.value === 'python') {
+    return activeFormatTab.value === 'anthropic'
+      ? anthropicPythonRequest.value
+      : openaiPythonRequest.value;
+  }
+  switch (activeFormatTab.value) {
+    case 'openai': return openaiChatRequest.value;
+    case 'responses': return openaiResponsesRequest.value;
+    case 'anthropic': return anthropicRequest.value;
+  }
+});
+
+// Codex 一键接入脚本下载
+const codexScriptUrl = computed(() => `${window.location.origin}/download/codex-starfire-setup.ps1`);
+
+const downloadCodexScript = () => {
+  const filename = 'codex-starfire-setup.ps1';
+  const downloadUrl = `${window.location.origin}/download/${filename}?filename=${encodeURIComponent(filename)}`;
+  const link = document.createElement('a');
+  link.href = downloadUrl;
+  link.download = filename;
+  link.style.display = 'none';
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+
+// 复制调用示例
+const copyExample = async () => {
+  const text = currentExample.value;
+  try {
+    await navigator.clipboard.writeText(text);
+    // 简单提示
+  } catch {
+    // ignore
+  }
+};
+
 // 支持的最大上下文：默认输入 128K，输出 32K
+const parameterSize = computed(() => modelName.value.split(':')[1] || $t('business.marketplace.parameters'));
 const maxContext = computed(() => {
   const input = 128 * 1024;
   const output = 32 * 1024;
@@ -617,6 +1044,7 @@ const fetchModelDetails = async (silent = false) => {
         name: model.name,
         type: model.type,
         size: model.size,
+        direct: model.direct,
         client_models: model.client_models
       };
       
@@ -643,9 +1071,25 @@ const fetchModelUsage = async () => {
     const response = await requestClient.get('/market/models/stats');
     const stats = Array.isArray(response) ? response : response?.data;
     const found = Array.isArray(stats) ? stats.find((item) => item.model === modelName.value) : null;
-    modelUsage.value = found ?? { calls: 0, total_tokens: 0, user_count: 0, client_count: 0 };
+    modelUsage.value = found ?? { calls: 0, total_tokens: 0, user_count: 0, client_count: 0, direct_count: 0 };
   } catch (error) {
     console.warn('获取模型调用统计失败:', error);
+  }
+};
+
+const fetchDirectBackends = async (silent = false) => {
+  const name = modelName.value;
+  if (!name) return;
+  if (!silent) directLoading.value = true;
+  try {
+    const response = await requestClient.get<{ backends: DirectBackendView[] }>('/market/models/direct', { params: { name } });
+    if (name !== modelName.value) return;
+    directBackends.value = response.backends || [];
+    directError.value = false;
+  } catch {
+    if (name === modelName.value) directError.value = true;
+  } finally {
+    if (name === modelName.value) directLoading.value = false;
   }
 };
 
@@ -653,12 +1097,14 @@ const fetchModelUsage = async () => {
 const refreshData = () => {
   fetchModelDetails();
   fetchModelUsage();
+  fetchDirectBackends();
 };
 
 // 静默刷新：不显示全页 loading，只更新变化的数据，避免页面闪烁
 const silentRefresh = () => {
   fetchModelDetails(true);
   fetchModelUsage();
+  fetchDirectBackends(true);
 };
 
 // 返回上一页
@@ -683,9 +1129,12 @@ const stopAutoRefresh = () => {
 
 // 监听模型名称变化
 watch(() => modelName.value, () => {
+  directBackends.value = [];
+  directError.value = false;
   if (modelName.value) {
     fetchModelDetails();
     fetchModelUsage();
+    fetchDirectBackends();
     startAutoRefresh();
   } else {
     stopAutoRefresh();

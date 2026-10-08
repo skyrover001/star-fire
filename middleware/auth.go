@@ -92,23 +92,33 @@ func APIKeyAuth(apiKeyService *service.APIKeyService, userDB *models.UserDB) gin
 }
 
 // AuthRequired
+// 支持两种认证方式（向后兼容）：
+//  1. Authorization: Bearer <token> —— OpenAI 风格 / JWT（现有方式）
+//  2. x-api-key: <key> —— 标准 Anthropic 风格（官方 SDK 用 api_key="..." 时发送此头）
 func AuthRequired(apiKeyService *service.APIKeyService, userDB *models.UserDB) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		authHeader := c.GetHeader("Authorization")
-		if authHeader == "" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "no Authorization header"})
+		apiKeyHeader := c.GetHeader("x-api-key")
+
+		var tokenString string
+		switch {
+		case authHeader != "":
+			parts := strings.Split(authHeader, " ")
+			if len(parts) != 2 || parts[0] != "Bearer" {
+				c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header format must be Bearer <token>"})
+				c.Abort()
+				return
+			}
+			tokenString = parts[1]
+		case apiKeyHeader != "":
+			// 标准 Anthropic 认证：x-api-key 头直接携带 API Key
+			tokenString = apiKeyHeader
+		default:
+			c.JSON(http.StatusUnauthorized, gin.H{"error": "no Authorization header or x-api-key header"})
 			c.Abort()
 			return
 		}
 
-		parts := strings.Split(authHeader, " ")
-		if len(parts) != 2 || parts[0] != "Bearer" {
-			c.JSON(http.StatusUnauthorized, gin.H{"error": "Authorization header format must be Bearer <token>"})
-			c.Abort()
-			return
-		}
-
-		tokenString := parts[1]
 		claims, err := utils.ValidateToken(tokenString)
 		if err == nil {
 			user, err := userDB.GetUserByID(claims.UserID)

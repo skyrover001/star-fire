@@ -25,10 +25,21 @@ func HandleClientConnection(client *models.Client, server *models.Server) {
 		keepAliveClient(client, server)
 	}()
 	handleClientMessages(client, server)
+	client.ControlConnMutex.Lock()
+	client.ControlConn = nil
+	client.ControlConnMutex.Unlock()
+	client.StopControlWriter()
 
 	// 连接断开，主动清理该 client 注册的所有模型
 	for _, m := range client.Models {
 		server.RemoveClientInstance(m.Name, client)
+	}
+
+	// 记录 client 掉线（smart 负载均衡：在线稳定性统计）
+	if server.ClientStatsDB != nil && client.ID != "" {
+		if err := server.ClientStatsDB.RecordOffline(client.ID); err != nil {
+			log.Printf("record client offline failed: %v", err)
+		}
 	}
 }
 
@@ -41,24 +52,15 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 	for {
 		select {
 		case <-ticker.C:
-			// 如果客户端连接断开，则关闭连接
-			client.ControlConnMutex.Lock()
-			if client.ControlConn == nil {
-				client.ControlConnMutex.Unlock()
-				log.Println("Client control connection is nil, closing connection")
-				client.Status = "offline"
-				return
-			}
 			pingTime := time.Now().UnixMilli()
 			client.LastPingTime = pingTime
-			err := client.ControlConn.WriteJSON(public.WSMessage{
+			err := client.SendControl(public.WSMessage{
 				Type: public.KEEPALIVE,
 				Content: public.PPMessage{
 					Type:      public.PING,
 					Timestamp: strconv.Itoa(int(pingTime)),
 				},
 			})
-			client.ControlConnMutex.Unlock()
 			if err != nil {
 				log.Println("Error while writing ping message:", err)
 				client.Status = "offline"
@@ -77,6 +79,16 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 			if isHeartbeatResponse {
 				client.SetLatency(int(latency))
 				fmt.Println("Client latency (ms):", client.GetLatency())
+			}
+
+			// 更新客户端上报的上行带宽（用于 smart 负载均衡带宽维度）
+			if pong.BandwidthMbps > 0 {
+				client.BandwidthMbps = pong.BandwidthMbps
+			}
+
+			// 更新客户端自定义连接数上限（Python 滑块配置，0~会员上限）
+			if pong.MaxConnections > 0 {
+				client.MaxConnectionsOverride = pong.MaxConnections
 			}
 
 			if isHeartbeatResponse && latency > public.MAXLATENCE {
@@ -99,8 +111,8 @@ func keepAliveClient(client *models.Client, server *models.Server) {
 				if m.IPPM > server.Conf.AllModelInputMaxPrice {
 					log.Printf("warning: model %s IPPM %.6f exceeds platform limit %.6f", m.Name, m.IPPM, server.Conf.AllModelInputMaxPrice)
 				}
+				// 心跳场景下重复注册静默返回，避免每次心跳刷屏日志
 				server.RegisterModel(m, client)
-				fmt.Println("Client available model:", m.Name, m)
 				// add trend for client keep alive
 				trends = append(trends, &models.Trend{
 					Name:        fmt.Sprintf("%s_%s", client.User.Username, "keep alive model: "+m.Name),
@@ -149,6 +161,7 @@ func handleClientMessages(client *models.Client, server *models.Server) {
 			client.ControlConnMutex.Lock()
 			client.ControlConn = nil
 			client.ControlConnMutex.Unlock()
+			client.StopControlWriter()
 			client.Status = "offline"
 			return
 		}

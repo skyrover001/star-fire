@@ -26,6 +26,28 @@ func (h *MarketHandler) ModelsHandler(c *gin.Context) {
 }
 
 // PublicHomepageHandler returns public landing-page data without requiring authentication.
+func (h *MarketHandler) DirectBackendsHandler(c *gin.Context) {
+	model := c.Query("name")
+	if model == "" {
+		c.JSON(400, gin.H{"error": "model is required"})
+		return
+	}
+	end := time.Now()
+	start := end.AddDate(0, 0, -30)
+	views := h.server.DirectBackendViews(model)
+	if len(views) > 0 {
+		stats, err := h.server.TokenUsageDB.GetDirectBackendUsage(model, start, end)
+		if err != nil {
+			c.JSON(500, gin.H{"error": "query direct usage failed"})
+			return
+		}
+		for index := range views {
+			views[index].DirectBackendUsageStat = stats[views[index].ID]
+		}
+	}
+	c.JSON(200, gin.H{"model": model, "window": "30d", "start_time": start, "end_time": end, "backends": views})
+}
+
 func (h *MarketHandler) PublicHomepageHandler(c *gin.Context) {
 	stats, err := h.server.TokenUsageDB.GetPublicHomepageStats(h.server.ClientDB, h.server.UserDB)
 	if err != nil {

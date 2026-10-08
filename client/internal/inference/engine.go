@@ -12,6 +12,9 @@ import (
 
 type Engine interface {
 	Name() string
+	// Format 返回该引擎的上游协议格式（openai | anthropic | responses）。
+	// 用于多格式路由：server 发送的 WSMessage.Format 决定选哪个引擎。
+	Format() string
 	Initialize(ctx context.Context, conf *config.Config) error
 	ListModels(ctx context.Context, conf *config.Config) ([]*public.Model, error)
 	SupportsModel(modelName string, conf *config.Config) bool

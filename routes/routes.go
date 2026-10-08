@@ -1,6 +1,8 @@
 package routes
 
 import (
+	"net/http"
+
 	client_handlers "star-fire/api/client_handlers"
 	user_handlers "star-fire/api/user_handlers"
 	"star-fire/internal/models"
@@ -26,6 +28,8 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	marketHandler := user_handlers.NewMarketHandler(server)
 	userHandler := user_handlers.NewUserHandler(server)
 	balanceHandler := user_handlers.NewBalanceHandler(server)
+	membershipHandler := user_handlers.NewMembershipHandler(server)
+	notificationHandler := user_handlers.NewNotificationHandler(server)
 
 	// 登录和注册路由
 	r.POST("/api/login", authHandler.Login)
@@ -46,6 +50,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	{
 		marketAPI.GET("/models", marketHandler.ModelsHandler)
 		marketAPI.GET("/models/stats", marketHandler.ModelStatsHandler)
+		marketAPI.GET("/models/direct", marketHandler.DirectBackendsHandler)
 		marketAPI.GET("/trends", marketHandler.TrendsHandler)
 		// marketAPI.POST("/messages", apiKeyHandler.CreateAPIKey)
 	}
@@ -79,6 +84,16 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		userAPI.POST("/recharge/confirm", balanceHandler.ConfirmRecharge)
 		userAPI.GET("/recharge/history", balanceHandler.GetRechargeHistory)
 
+		// Membership
+		userAPI.GET("/membership", membershipHandler.GetMembership)
+		userAPI.POST("/membership/buy", membershipHandler.BuyMembership)
+
+		// Notifications
+		userAPI.GET("/notifications", notificationHandler.ListNotifications)
+		userAPI.GET("/notifications/unread", notificationHandler.GetUnreadCount)
+		userAPI.PUT("/notifications/:id/read", notificationHandler.MarkNotificationRead)
+		userAPI.PUT("/notifications/read-all", notificationHandler.MarkAllNotificationsRead)
+
 		// Price cap configuration: userID is taken from JWT, not from the request body.
 		userAPI.GET("/price-caps", priceCapHandler.ListPriceCaps)
 		userAPI.PUT("/price-caps/:model", priceCapHandler.UpsertPriceCap)
@@ -95,6 +110,27 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 		// 聊天
 		api.POST("/chat/completions", func(c *gin.Context) {
 			service.HandleChatRequest(c, server)
+		})
+		// Anthropic Messages 格式
+		api.POST("/messages", func(c *gin.Context) {
+			service.HandleMultiFormatChatRequest(c, server, "anthropic")
+		})
+		// Anthropic Messages：GET 返回 405（标准要求），count_tokens 端点
+		api.GET("/messages", func(c *gin.Context) {
+			c.JSON(http.StatusMethodNotAllowed, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "invalid_request_error",
+					"message": "Method Not Allowed",
+				},
+			})
+		})
+		api.POST("/messages/count_tokens", func(c *gin.Context) {
+			service.HandleAnthropicCountTokens(c, server)
+		})
+		// OpenAI Responses 格式
+		api.POST("/responses", func(c *gin.Context) {
+			service.HandleMultiFormatChatRequest(c, server, "responses")
 		})
 		// Embedding
 		api.POST("/embeddings", func(c *gin.Context) {

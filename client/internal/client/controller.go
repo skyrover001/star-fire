@@ -7,9 +7,11 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strings"
+	"sync"
+
 	"star-fire/client/internal/config"
 	"star-fire/pkg/public"
-	"sync"
 
 	"github.com/gorilla/websocket"
 	"github.com/sashabaranov/go-openai"
@@ -124,6 +126,8 @@ func (c *Client) HandleMessages() {
 				c.handleIncome(message)
 			case public.MODEL_PRICE_UPDATE:
 				c.handleModelPriceUpdate(message)
+			case public.LATENCY_EXCEEDED:
+				c.handleLatencyExceeded(message)
 			case public.CLOSE:
 				if message.Content == public.ABORT {
 					c.handleAbort(message.FingerPrint)
@@ -151,6 +155,8 @@ func (c *Client) handleKeepAlive(message public.WSMessage) {
 		Type:            public.PONG,
 		Timestamp:       message.Content.(map[string]interface{})["timestamp"].(string),
 		AvailableModels: models,
+		BandwidthMbps:   c.bandwidthMbps(),
+		MaxConnections:  c.maxConnections(),
 	}
 	response := public.WSMessage{
 		Type:    public.KEEPALIVE,
@@ -214,6 +220,16 @@ func (c *Client) handleAbort(fingerprint string) {
 	}
 }
 
+// containsVideoPart 检测请求体 JSON 中是否含视频 part（video_url）。
+// go-openai 的 ChatMessagePart 不支持 video part，typed 路径反序列化会丢弃
+// video_url 对象，因此检测到视频时必须走原始 JSON 透传。
+func containsVideoPart(body []byte) bool {
+	if len(body) == 0 {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(body)), `"video_url"`)
+}
+
 func (c *Client) handleChatMessage(message public.WSMessage) {
 	log.Printf("recieve chat message request: %v", message.FingerPrint)
 
@@ -222,6 +238,34 @@ func (c *Client) handleChatMessage(message public.WSMessage) {
 	if err := json.Unmarshal(tmp, &openaiReq); err != nil {
 		log.Printf("parse message error: %v", err)
 		return
+	}
+
+	// 多格式：server 发送的 Content 是上游格式的原始 JSON（anthropic/responses）。
+	// 通过 WSMessage.Format 判断，并把原始 JSON 放入 Thinking 字段，供对应引擎读取。
+	format := message.Format
+	if format == "" {
+		format = "openai"
+	}
+	if format != "openai" {
+		openaiReq.Thinking = tmp
+	}
+
+	// 视频兜底：openai 上游格式下，若消息含 video part（video_url），说明 server
+	// 未走 RawBody 透传（旧版本 server）。此时把原始 JSON 放入 RawBody，让 openai
+	// 引擎走原始 JSON 直连上游，避免 ChatMessagePart 反序列化丢弃 video_url 对象。
+	// （ChatMessagePart 无 video 字段，typed 路径重序列化后只剩 {"type":"video_url"}，
+	// 上游会报 400 "video_url Field required"。）
+	if format == "openai" && len(openaiReq.RawBody) == 0 && containsVideoPart(tmp) {
+		openaiReq.RawBody = tmp
+	}
+
+	// ===== 链路日志：client 收到并解析后的请求体 =====
+	if c.Debug {
+		if rawBody, err := json.Marshal(openaiReq); err == nil {
+			log.Printf("[TRACE] client received chat request %s format=%s body=%s", message.FingerPrint, format, string(rawBody))
+		} else {
+			log.Printf("[TRACE] client marshal received request error: %v", err)
+		}
 	}
 
 	// 为每个请求创建独立的可取消 context，便于按 fingerprint 单独取消
@@ -234,7 +278,7 @@ func (c *Client) handleChatMessage(message public.WSMessage) {
 			requestCancels.Delete(message.FingerPrint)
 		}()
 
-		engine, err := c.findEngineForModel(openaiReq.Model)
+		engine, err := c.findEngineForModelFormat(openaiReq.Model, format)
 		if err != nil {
 			log.Printf("not found support model %s engine: %v", openaiReq.Model, err)
 			return
@@ -365,6 +409,40 @@ func (c *Client) handleIncome(message public.WSMessage) {
 		log.Printf("发送收益到 TCP 服务器失败: %v", err)
 	} else {
 		log.Printf("✓ 收益已发送: %.8f ¥ (模型: %v, 总收益: %v)", incomeValue, model, totalIncome)
+	}
+}
+
+// handleLatencyExceeded 处理 server 通知：网络延迟过高，暂不采纳该用户的模型算力。
+// 将消息转发给 Python 桌面应用，由其提示用户。
+func (c *Client) handleLatencyExceeded(message public.WSMessage) {
+	content, ok := message.Content.(map[string]interface{})
+	if !ok {
+		log.Printf("invalid latency_exceeded message content format")
+		return
+	}
+
+	model, _ := content["model"].(string)
+	latency, _ := content["latency"].(float64)
+	limit, _ := content["limit"].(float64)
+
+	log.Printf("⚠️ 网络延迟过高，暂不采纳模型算力: model=%s latency=%.0fms limit=%.0fms", model, latency, limit)
+
+	// 构造 JSON 消息（发送给 Python 桌面应用）
+	notice := map[string]interface{}{
+		"type":    "latency_exceeded",
+		"model":   model,
+		"latency": latency,
+		"limit":   limit,
+	}
+
+	jsonBytes, err := json.Marshal(notice)
+	if err != nil {
+		log.Printf("marshal latency_exceeded message error: %v", err)
+		return
+	}
+
+	if err := c.sendToTCPServer(string(jsonBytes)); err != nil {
+		log.Printf("发送延迟过高通知到 TCP 服务器失败: %v", err)
 	}
 }
 

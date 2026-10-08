@@ -51,6 +51,7 @@ interface UsageTotalStats {
   total_tokens: number;
   total_cost: number;
   client_count: number;
+  direct_count: number;
   model_count: number;
 }
 
@@ -67,6 +68,7 @@ const totalStatsData = ref<UsageTotalStats>({
   total_tokens: 0,
   total_cost: 0,
   client_count: 0,
+  direct_count: 0,
   model_count: 0,
 });
 
@@ -79,6 +81,7 @@ const statsData = ref<UsageTotalStats>({
   total_tokens: 0,
   total_cost: 0,
   client_count: 0,
+  direct_count: 0,
   model_count: 0,
 });
 
@@ -105,6 +108,7 @@ const totalTokenStats = computed(() => {
 const clientStats = computed(() => {
   return {
     totalClients: totalStatsData.value.client_count,
+    directBackends: totalStatsData.value.direct_count || 0,
     totalApiKeys: 0, // API key 统计已移除全量数据，暂不展示
   };
 });
@@ -333,12 +337,12 @@ onMounted(() => {
             </div>
           </div>
           <div class="ml-4">
-            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.analytics.clients') }}</p>
+            <p class="text-sm font-medium text-[var(--text-secondary)]">{{ $t('business.supply.source') }}</p>
             <p class="text-2xl font-semibold text-[var(--text-primary)]">
               <span v-if="loading" class="inline-block animate-pulse bg-[var(--bg-color-secondary)] rounded h-8 w-12"></span>
-              <span v-else>{{ clientStats.totalClients }}</span>
+              <span v-else>{{ clientStats.totalClients + clientStats.directBackends }}</span>
             </p>
-            <p class="text-xs text-[var(--text-tertiary)]">{{ $t('business.analytics.uniqueClients') }}</p>
+            <p class="text-xs text-[var(--text-tertiary)]">{{ $t('business.supply.personal') }}: {{ clientStats.totalClients }} · {{ $t('business.supply.direct') }}: {{ clientStats.directBackends }}</p>
           </div>
         </div>
       </div>
