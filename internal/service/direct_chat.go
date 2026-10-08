@@ -41,15 +41,49 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 	var reqBody []byte
 	if len(extendedRequest.RawBody) > 0 {
 		reqBody = extendedRequest.RawBody
-	} else {
+	} else if original, exists := c.Get("direct_request_body"); userConv == nil && exists {
+		reqBody, _ = original.([]byte)
+	}
+	if len(reqBody) == 0 {
 		var err error
 		reqBody, err = extendedRequest.BuildRequestBody()
 		if err != nil {
 			log.Printf("direct %s: marshal request error: %v", b.ID, err)
-			b.IncrFailures()
 			// 本地序列化错误，非后端过错，不采样可靠性
 			return false
 		}
+	}
+
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(reqBody, &fields); err != nil || fields == nil {
+		log.Printf("direct %s: invalid request body", b.ID)
+		return false
+	}
+	delete(fields, "raw_body")
+	delete(fields, "routing")
+	delete(fields, "max_latency_ms")
+	delete(fields, "min_stability")
+	if extendedRequest.ReasoningEffort != "" {
+		fields["reasoning_effort"], _ = json.Marshal(extendedRequest.ReasoningEffort)
+	}
+	if extendedRequest.Stream {
+		options := map[string]json.RawMessage{}
+		if raw := fields["stream_options"]; len(raw) > 0 {
+			if err := json.Unmarshal(raw, &options); err != nil {
+				log.Printf("direct %s: invalid stream_options: %v", b.ID, err)
+				return false
+			}
+		}
+		if options == nil {
+			options = make(map[string]json.RawMessage)
+		}
+		options["include_usage"] = json.RawMessage("true")
+		fields["stream_options"], _ = json.Marshal(options)
+	}
+	reqBody, err := json.Marshal(fields)
+	if err != nil {
+		log.Printf("direct %s: marshal upstream request error: %v", b.ID, err)
+		return false
 	}
 
 	// 流式不能设 Client.Timeout（会截断 SSE），用 context 超时控制整体时长
@@ -64,7 +98,6 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(reqBody))
 	if err != nil {
 		log.Printf("direct %s: create request error: %v", b.ID, err)
-		b.IncrFailures()
 		// 本地构造请求错误，非后端过错，不采样可靠性
 		return false
 	}
@@ -77,6 +110,7 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 	}
 
 	client := &http.Client{} // Timeout=0，靠 context 控制
+	startedAt := time.Now()
 	resp, err := client.Do(httpReq)
 	if err != nil {
 		log.Printf("direct %s: request error: %v", b.ID, err)
@@ -113,14 +147,14 @@ func handleDirectChat(c *gin.Context, server *models.Server, b *models.DirectBac
 
 	// 成功路径
 	if extendedRequest.Stream {
-		return handleDirectStream(c, server, b, resp, extendedRequest.Model, userIDStr, userConv)
+		return handleDirectStream(c, server, b, resp, extendedRequest.Model, userIDStr, userConv, startedAt)
 	}
-	return handleDirectNonStream(c, server, b, resp, extendedRequest.Model, userIDStr, userConv)
+	return handleDirectNonStream(c, server, b, resp, extendedRequest.Model, userIDStr, userConv, startedAt)
 }
 
 // handleDirectNonStream 非流式：读全量 body → 解析 usage → 原样写给用户 → 计费。
 func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.DirectBackend,
-	resp *http.Response, model, userIDStr string, userConv format.Converter) bool {
+	resp *http.Response, model, userIDStr string, userConv format.Converter, startedAt time.Time) bool {
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -131,8 +165,14 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 	}
 
 	// 解析 usage 用于计费
+	b.ObserveRequestLatency(time.Since(startedAt).Seconds()*1000, false)
 	var chatResp openai.ChatCompletionResponse
-	_ = json.Unmarshal(body, &chatResp)
+	if err := json.Unmarshal(body, &chatResp); err != nil {
+		log.Printf("direct %s: invalid OpenAI response: %v", b.ID, err)
+		b.IncrFailures()
+		b.UpdateReliability(0)
+		return false
+	}
 
 	if userConv == nil {
 		c.Data(http.StatusOK, "application/json", body)
@@ -140,7 +180,6 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 		upstreamConv, convErr := format.GetConverter(public.FormatOpenAI)
 		if convErr != nil {
 			log.Printf("direct %s: get OpenAI converter error: %v", b.ID, convErr)
-			b.IncrFailures()
 			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
@@ -148,7 +187,7 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 		if convErr != nil {
 			log.Printf("direct %s: parse OpenAI response error: %v", b.ID, convErr)
 			b.IncrFailures()
-			// 我方适配器错误，非后端过错，不采样可靠性
+			b.UpdateReliability(0)
 			return false
 		}
 		// 停止序列启发式：把请求中的 stop_sequences 带入响应，供 Anthropic
@@ -157,10 +196,10 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 		userBody, convErr := userConv.BuildResponse(canonicalResp)
 		if convErr != nil {
 			log.Printf("direct %s: build user response error: %v", b.ID, convErr)
-			b.IncrFailures()
 			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
+		saveResponseReasoning(c, server, canonicalResp)
 		c.Data(http.StatusOK, "application/json", userBody)
 	}
 
@@ -175,12 +214,14 @@ func handleDirectNonStream(c *gin.Context, server *models.Server, b *models.Dire
 // handleDirectStream 流式：逐行读 SSE → 原样写 + Flush；解析 usage 尾块计费。
 // 若已写出至少一个 chunk 后断流：终止流（写 [DONE]），done=true（不可重试）。
 func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectBackend,
-	resp *http.Response, model, userIDStr string, userConv format.Converter) bool {
+	resp *http.Response, model, userIDStr string, userConv format.Converter, startedAt time.Time) bool {
 
 	reader := bufio.NewReader(resp.Body)
 	var usage *openai.Usage
 	wroteAny := false
 	finishReason := ""
+	completed := false
+	latencyObserved := false
 	var upstreamConv format.Converter
 	var userWriter format.UserStreamWriter
 	if userConv != nil {
@@ -188,7 +229,6 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 		upstreamConv, err = format.GetConverter(public.FormatOpenAI)
 		if err != nil {
 			log.Printf("direct %s: get OpenAI converter error: %v", b.ID, err)
-			b.IncrFailures()
 			// 我方适配器错误，非后端过错，不采样可靠性
 			return false
 		}
@@ -197,26 +237,31 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 		c.Writer.Header().Set("Connection", "keep-alive")
 		userWriter = newUserStreamWriter(c, userConv, model)
 	}
+	c.Writer.Header().Set("Content-Type", "text/event-stream")
+	c.Writer.Header().Set("Cache-Control", "no-cache")
+	c.Writer.Header().Set("Connection", "keep-alive")
+	failStream := func(err error) bool {
+		log.Printf("direct %s: stream failed: %v", b.ID, err)
+		b.IncrFailures()
+		b.UpdateReliability(0)
+		if wroteAny {
+			if userConv != nil {
+				finishUserStream(c, userConv, userWriter, true)
+			} else {
+				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
+				c.Writer.Flush()
+			}
+		}
+		return wroteAny
+	}
 
 	for {
 		line, err := reader.ReadBytes('\n')
-		if err != nil {
-			if err == io.EOF {
+		if err != nil && len(line) == 0 {
+			if err == io.EOF && completed {
 				break
 			}
-			// 断流
-			log.Printf("direct %s: stream read error: %v", b.ID, err)
-			if wroteAny {
-				// 已写出内容，不可重试：终止流
-				_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
-				c.Writer.Flush()
-				b.IncrFailures()
-				b.UpdateReliability(0)
-				return true
-			}
-			b.IncrFailures()
-			b.UpdateReliability(0)
-			return false
+			return failStream(err)
 		}
 
 		line = bytes.TrimSpace(line)
@@ -229,34 +274,38 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 		data := bytes.TrimPrefix(line, []byte("data: "))
 
 		if bytes.Equal(data, []byte("[DONE]")) {
+			completed = true
 			break
 		}
-		wroteAny = true
+		var chunk openai.ChatCompletionStreamResponse
+		if err := json.Unmarshal(data, &chunk); err != nil {
+			return failStream(err)
+		}
+		if chunk.Usage != nil {
+			usage = chunk.Usage
+		}
+		if !latencyObserved && len(chunk.Choices) > 0 {
+			b.ObserveRequestLatency(time.Since(startedAt).Seconds()*1000, true)
+			latencyObserved = true
+		}
+		if len(chunk.Choices) > 0 && chunk.Choices[0].FinishReason != "" {
+			finishReason = string(chunk.Choices[0].FinishReason)
+			completed = true
+		}
 		if userConv == nil {
 			if _, werr := c.Writer.Write(append(append([]byte("data: "), data...), '\n', '\n')); werr != nil {
 				log.Printf("direct %s: write to user error: %v", b.ID, werr)
-				b.IncrFailures()
 				// 用户侧断连，非后端过错，不采样可靠性
 				return true
 			}
+			wroteAny = true
 			c.Writer.Flush()
 		} else {
 			ev, convErr := upstreamConv.ParseUpstreamStreamEvent(data)
 			if convErr != nil {
-				log.Printf("direct %s: parse OpenAI stream event error: %v", b.ID, convErr)
-				b.IncrFailures()
-				// 我方适配器错误，非后端过错，不采样可靠性
-				return true
+				return failStream(convErr)
 			}
 			if ev != nil && ev.Type == public.StreamEventDone {
-				finishReason = ev.FinishReason
-				if ev.Usage != nil {
-					usage = &openai.Usage{
-						PromptTokens:     ev.Usage.InputTokens,
-						CompletionTokens: ev.Usage.OutputTokens,
-						TotalTokens:      ev.Usage.TotalTokens,
-					}
-				}
 				continue
 			}
 			// writeUserStreamEvent 返回 true 表示适配层/用户侧错误（非后端过错），
@@ -264,20 +313,22 @@ func handleDirectStream(c *gin.Context, server *models.Server, b *models.DirectB
 			if writeUserStreamEvent(c, server, "", "", 0, 0, 0, model, ev, userConv, nil, userWriter) {
 				return true
 			}
+			wroteAny = c.Writer.Written()
 		}
 
-		// 解析 usage（尾块）
-		var chunk openai.ChatCompletionStreamResponse
-		if err := json.Unmarshal(data, &chunk); err == nil && chunk.Usage != nil {
-			usage = chunk.Usage
-		}
 	}
 	if userConv != nil {
 		done := &public.CanonicalStreamEvent{Type: public.StreamEventDone, FinishReason: finishReason}
 		if usage != nil {
 			done.Usage = &public.CanonicalUsage{InputTokens: usage.PromptTokens, OutputTokens: usage.CompletionTokens, TotalTokens: usage.TotalTokens}
+			if usage.PromptTokensDetails != nil {
+				done.Usage.CachedTokens = usage.PromptTokensDetails.CachedTokens
+			}
 		}
 		writeUserStreamEvent(c, server, "", "", 0, 0, 0, model, done, userConv, nil, userWriter)
+		if c.GetBool("user_stream_error") {
+			return true
+		}
 	} else {
 		_, _ = c.Writer.Write([]byte("data: [DONE]\n\n"))
 		c.Writer.Flush()
@@ -297,6 +348,13 @@ func recordDirectUsage(c *gin.Context, server *models.Server, b *models.DirectBa
 	if usage == nil {
 		log.Printf("direct %s: no usage in response, skip billing", b.ID)
 		return
+	}
+	if usage.PromptTokens > 0 {
+		cached := 0
+		if usage.PromptTokensDetails != nil {
+			cached = usage.PromptTokensDetails.CachedTokens
+		}
+		b.UpdateCacheHit(float64(cached) / float64(usage.PromptTokens))
 	}
 	ippm, oppm, cippm, ok := b.PriceFor(model)
 	if !ok {

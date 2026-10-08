@@ -72,6 +72,7 @@ func HandleChatRequest(c *gin.Context, server *models.Server) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "Invalid request"})
 		return
 	}
+	c.Set("direct_request_body", rawBody)
 
 	if len(rawBody) > 0 && containsVideoInput(rawBody) {
 		extendedRequest.RawBody = rawBody
@@ -587,6 +588,9 @@ func abortClientRequest(client *models.Client, fingerPrint string) {
 // 并将 fingerprint 状态更新为 completed（避免 transmitting 记录泄漏）。
 // 所有 chat 请求结束路径都应调用此函数，确保 fingerprint 不会永久停留在 transmitting。
 func cleanupChatRequest(server *models.Server, fingerPrint, clientID string, respConn *websocket.Conn) {
+	if fingerPrint == "" && clientID == "" && respConn == nil {
+		return
+	}
 	if respConn != nil {
 		_ = respConn.Close()
 	}

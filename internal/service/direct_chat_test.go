@@ -2,13 +2,16 @@ package service
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	configs "star-fire/config"
 	"star-fire/internal/models"
 	"star-fire/internal/service/format"
 	"star-fire/pkg/public"
@@ -204,7 +207,7 @@ func TestDirectChatAnthropicStream(t *testing.T) {
 				} else {
 					fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"hello\"}}]}\n\n")
 				}
-				fmt.Fprintf(writer, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":%q}]}\n\ndata: [DONE]\n\n", scenario.finishReason)
+				fmt.Fprintf(writer, "data: {\"choices\":[{\"delta\":{},\"finish_reason\":%q}]}\n\ndata: {\"choices\":[],\"usage\":{\"prompt_tokens\":2,\"completion_tokens\":1,\"total_tokens\":3}}\n\ndata: [DONE]\n\n", scenario.finishReason)
 			})
 			server := newDirectTestServer(t)
 			backend := &models.DirectBackend{ID: "anthropic-test", BaseURL: upstream.URL, Format: "openai", Enabled: true, MaxConns: 4}
@@ -222,6 +225,65 @@ func TestDirectChatAnthropicStream(t *testing.T) {
 			}
 			if !strings.Contains(body, `"stop_reason":"`+scenario.stopReason+`"`) || strings.Contains(body, "[DONE]") {
 				t.Fatalf("invalid Anthropic termination: %s", body)
+			}
+		})
+	}
+}
+
+func TestDirectStreamBilling(t *testing.T) {
+	for _, userFormat := range []string{public.FormatOpenAI, public.FormatAnthropic, public.FormatResponses} {
+		t.Run(userFormat, func(t *testing.T) {
+			upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+				var body struct {
+					StreamOptions struct {
+						IncludeUsage bool `json:"include_usage"`
+					} `json:"stream_options"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				writer.Header().Set("Content-Type", "text/event-stream")
+				fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n")
+				if body.StreamOptions.IncludeUsage {
+					fmt.Fprint(writer, "data: {\"choices\":[],\"usage\":{\"prompt_tokens\":10,\"completion_tokens\":2,\"total_tokens\":12,\"prompt_tokens_details\":{\"cached_tokens\":4}}}\n\n")
+				}
+				fmt.Fprint(writer, "data: [DONE]\n\n")
+			})
+			server := newDirectTestServer(t)
+			backend := &models.DirectBackend{ID: "billing", BaseURL: upstream.URL, Models: []*public.Model{{Name: "test-model", IPPM: 2, OPPM: 6, CIPPM: 0.5}}}
+			ctx, _ := newDirectGin()
+			request := public.ExtendedChatRequest{}
+			request.Model = "test-model"
+			request.Stream = true
+			request.Messages = []openai.ChatCompletionMessage{{Role: "user", Content: "hi"}}
+			var converter format.Converter
+			if userFormat != public.FormatOpenAI {
+				var err error
+				converter, err = format.GetConverter(userFormat)
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			if !handleDirectChat(ctx, server, backend, request, "u1", converter) {
+				t.Fatal("request failed")
+			}
+			usages, _, err := server.TokenUsageDB.GetUserTokenUsagePaged("u1", time.Now().Add(-time.Hour), time.Now().Add(time.Hour), 1, 10)
+			if err != nil || len(usages) != 1 {
+				t.Fatalf("want exactly one usage row, got %d: %v", len(usages), err)
+			}
+			if usages[0].ClientID != "direct:billing" || usages[0].CachedTokens != 4 || usages[0].TotalTokens != 12 {
+				t.Fatalf("incorrect usage: %+v", usages[0])
+			}
+			const expectedCost = 26.0 / 1000000
+			if math.Abs(usages[0].Cost-expectedCost) > 1e-12 {
+				t.Fatalf("cost = %v, want %v", usages[0].Cost, expectedCost)
+			}
+			balance, spent, err := server.UserDB.GetBalance("u1")
+			if err != nil || math.Abs(spent-expectedCost) > 1e-9 || math.Abs(balance-(1000-expectedCost)) > 1e-9 {
+				t.Fatalf("incorrect deduction: balance=%v spent=%v err=%v", balance, spent, err)
+			}
+			if backend.GetCacheHitEMA() != 0.4 {
+				t.Fatalf("cache feedback = %v, want 0.4", backend.GetCacheHitEMA())
 			}
 		})
 	}
@@ -314,6 +376,216 @@ func TestDirectChatConvertsResponseToResponsesFormat(t *testing.T) {
 	}
 	if len(response.Output) != 1 || len(response.Output[0].Content) != 1 || response.Output[0].Content[0].Text != "hello" {
 		t.Fatalf("unexpected converted response: %s", w.Body.String())
+	}
+}
+
+func TestDirectNonStreamReasoning(t *testing.T) {
+	upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(writer, `{"choices":[{"message":{"role":"assistant","reasoning_content":"plan","tool_calls":[{"id":"call_1","type":"function","function":{"name":"weather","arguments":"{}"}}]},"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":2,"completion_tokens":1,"total_tokens":3}}`)
+	})
+	server := newDirectTestServer(t)
+	backend := &models.DirectBackend{ID: "reasoning", BaseURL: upstream.URL}
+	ctx, _ := newDirectGin()
+	ctx.Set("reasoning_conv_key", "conversation")
+	request := public.ExtendedChatRequest{}
+	request.Model = "test-model"
+	if !handleDirectChat(ctx, server, backend, request, "u1", &format.AnthropicConverter{}) {
+		t.Fatal("request failed")
+	}
+	if got := server.GetReasoning("conversation")["call_1"]; got != "plan" {
+		t.Fatalf("saved reasoning = %q, want plan", got)
+	}
+}
+
+type failingDirectConverter struct {
+	format.AnthropicConverter
+}
+
+func (converter *failingDirectConverter) BuildResponse(response *public.CanonicalResponse) ([]byte, error) {
+	return nil, errors.New("local conversion failed")
+}
+
+func TestDirectAdapterErrorDoesNotCooldown(t *testing.T) {
+	upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(writer, `{"choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`)
+	})
+	server := newDirectTestServer(t)
+	backend := &models.DirectBackend{ID: "adapter", BaseURL: upstream.URL}
+	ctx, _ := newDirectGin()
+	if handleDirectChat(ctx, server, backend, public.ExtendedChatRequest{}, "u1", &failingDirectConverter{}) {
+		t.Fatal("conversion failure should not report success")
+	}
+	if backend.GetFailures() != 0 || backend.InCooldown() || backend.GetReliabilityEMA() != 0.5 {
+		t.Fatal("local conversion error must not penalize backend")
+	}
+}
+
+func TestDirectInvalidNonStreamResponse(t *testing.T) {
+	upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+		fmt.Fprint(writer, "<html>not JSON</html>")
+	})
+	server := newDirectTestServer(t)
+	backend := &models.DirectBackend{ID: "invalid", BaseURL: upstream.URL}
+	ctx, recorder := newDirectGin()
+	if handleDirectChat(ctx, server, backend, public.ExtendedChatRequest{}, "u1") {
+		t.Fatal("invalid upstream JSON must not be returned as success")
+	}
+	if recorder.Body.Len() != 0 || backend.GetFailures() != 1 {
+		t.Fatal("invalid upstream response should be retryable and count as backend failure")
+	}
+}
+
+func TestDirectStreamFailureTermination(t *testing.T) {
+	for _, userFormat := range []string{public.FormatAnthropic, public.FormatResponses} {
+		for _, failure := range []string{"invalid", "eof", "cut"} {
+			t.Run(userFormat+"/"+failure, func(t *testing.T) {
+				upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+					writer.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\n")
+					writer.(http.Flusher).Flush()
+					if failure == "invalid" {
+						fmt.Fprint(writer, "data: not-json\n\n")
+					} else if failure == "cut" {
+						panic("cut")
+					}
+				})
+				server := newDirectTestServer(t)
+				backend := &models.DirectBackend{ID: "failure", BaseURL: upstream.URL}
+				ctx, recorder := newDirectGin()
+				request := public.ExtendedChatRequest{}
+				request.Model = "test-model"
+				request.Stream = true
+				converter, err := format.GetConverter(userFormat)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !handleDirectChat(ctx, server, backend, request, "u1", converter) {
+					t.Fatal("must not retry after response started")
+				}
+				body := recorder.Body.String()
+				marker := `"type":"response.failed"`
+				if userFormat == public.FormatAnthropic {
+					marker = "event: error\n"
+				}
+				if !strings.Contains(body, marker) || (userFormat == public.FormatAnthropic && strings.Contains(body, "[DONE]")) {
+					t.Fatalf("missing format-specific error termination: %s", body)
+				}
+				if backend.GetFailures() != 1 || backend.GetReliabilityEMA() >= 0.5 {
+					t.Fatal("invalid/truncated upstream must count as backend failure")
+				}
+			})
+		}
+	}
+}
+
+func TestDirectChatPreservesUnknownFields(t *testing.T) {
+	previous := configs.Config.DirectBackendsEnabled
+	configs.Config.DirectBackendsEnabled = true
+	t.Cleanup(func() { configs.Config.DirectBackendsEnabled = previous })
+	for _, stream := range []bool{false, true} {
+		t.Run(fmt.Sprintf("stream=%v", stream), func(t *testing.T) {
+			upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+				var fields map[string]json.RawMessage
+				if err := json.NewDecoder(request.Body).Decode(&fields); err != nil {
+					t.Error(err)
+				}
+				if string(fields["vendor_option"]) != `{"value":1234567890123456789}` {
+					t.Errorf("unknown field lost or changed: %s", fields["vendor_option"])
+				}
+				if _, exists := fields["routing"]; exists {
+					t.Error("gateway-only routing must not reach upstream")
+				}
+				if stream {
+					writer.Header().Set("Content-Type", "text/event-stream")
+					fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+				} else {
+					fmt.Fprint(writer, `{"choices":[{"message":{"role":"assistant","content":"hi"},"finish_reason":"stop"}]}`)
+				}
+			})
+			server := newDirectTestServer(t)
+			backend := &models.DirectBackend{ID: "raw", BaseURL: upstream.URL, Format: public.FormatOpenAI, Enabled: true, MaxConns: 4, Models: []*public.Model{{Name: "test-model", IPPM: 2, OPPM: 6}}}
+			registerDirectBackend(t, server, backend)
+			ctx, _ := newDirectGin()
+			body := fmt.Sprintf(`{"model":"test-model","stream":%v,"routing":"stability","messages":[{"role":"user","content":"hi"}],"stream_options": null ,"vendor_option":{"value":1234567890123456789}}`, stream)
+			ctx.Request = httptest.NewRequest(http.MethodPost, "/v1/chat/completions", strings.NewReader(body))
+			ctx.Request.Header.Set("Content-Type", "application/json")
+			HandleChatRequest(ctx, server)
+		})
+	}
+}
+
+type failingDirectWriter struct {
+	format.UserStreamWriter
+	failOn string
+}
+
+func (writer *failingDirectWriter) Write(event *public.CanonicalStreamEvent) ([][]byte, error) {
+	if event.Type == writer.failOn {
+		return nil, errors.New("local stream conversion failed")
+	}
+	return writer.UserStreamWriter.Write(event)
+}
+
+type failingDirectStreamConverter struct {
+	format.ResponsesConverter
+	failOn string
+}
+
+func (converter *failingDirectStreamConverter) NewUserStreamWriter() format.UserStreamWriter {
+	return &failingDirectWriter{UserStreamWriter: converter.ResponsesConverter.NewUserStreamWriter(), failOn: converter.failOn}
+}
+
+func TestDirectStreamAdapterError(t *testing.T) {
+	for _, eventType := range []string{public.StreamEventTextDelta, public.StreamEventDone} {
+		t.Run(eventType, func(t *testing.T) {
+			upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+				fmt.Fprint(writer, "data: {\"choices\":[{\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n")
+			})
+			server := newDirectTestServer(t)
+			backend := &models.DirectBackend{ID: "adapter", BaseURL: upstream.URL}
+			ctx, recorder := newDirectGin()
+			request := public.ExtendedChatRequest{}
+			request.Stream = true
+			if !handleDirectChat(ctx, server, backend, request, "u1", &failingDirectStreamConverter{failOn: eventType}) {
+				t.Fatal("must not retry after writing error response")
+			}
+			if !strings.Contains(recorder.Body.String(), `"type":"response.failed"`) {
+				t.Fatalf("missing error termination: %s", recorder.Body.String())
+			}
+			if backend.GetFailures() != 0 || backend.InCooldown() || backend.GetReliabilityEMA() != 0.5 {
+				t.Fatal("local stream conversion error must not change backend reliability or cooldown")
+			}
+		})
+	}
+}
+
+func TestDirectRawStreamOptions(t *testing.T) {
+	for _, options := range []string{`null`, `{}`, `{"include_usage":false,"vendor_option":1234567890123456789}`} {
+		t.Run(options, func(t *testing.T) {
+			upstream := mockDirectBackend(t, func(writer http.ResponseWriter, request *http.Request) {
+				var body struct {
+					StreamOptions map[string]json.RawMessage `json:"stream_options"`
+				}
+				if err := json.NewDecoder(request.Body).Decode(&body); err != nil {
+					t.Error(err)
+				}
+				if string(body.StreamOptions["include_usage"]) != "true" {
+					t.Error("include_usage must be true")
+				}
+				if strings.Contains(options, "vendor_option") && string(body.StreamOptions["vendor_option"]) != "1234567890123456789" {
+					t.Error("existing stream options must be preserved exactly")
+				}
+				fmt.Fprint(writer, "data: [DONE]\n\n")
+			})
+			server := newDirectTestServer(t)
+			ctx, _ := newDirectGin()
+			request := public.ExtendedChatRequest{}
+			request.Stream = true
+			request.RawBody = json.RawMessage(`{"model":"test-model","stream":true,"stream_options":` + options + `}`)
+			if !handleDirectChat(ctx, server, &models.DirectBackend{ID: "raw-options", BaseURL: upstream.URL}, request, "u1") {
+				t.Fatal("request failed")
+			}
+		})
 	}
 }
 

@@ -50,6 +50,7 @@ func SetupRoutes(r *gin.Engine, server *models.Server) {
 	{
 		marketAPI.GET("/models", marketHandler.ModelsHandler)
 		marketAPI.GET("/models/stats", marketHandler.ModelStatsHandler)
+		marketAPI.GET("/models/direct", marketHandler.DirectBackendsHandler)
 		marketAPI.GET("/trends", marketHandler.TrendsHandler)
 		// marketAPI.POST("/messages", apiKeyHandler.CreateAPIKey)
 	}

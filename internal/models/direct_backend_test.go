@@ -1,6 +1,8 @@
 package models
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	configs "star-fire/config"
@@ -51,6 +53,40 @@ func registryBackend(t *testing.T, server *Server, id string) *DirectBackend {
 	}
 	t.Fatalf("backend %s not in registry", id)
 	return nil
+}
+
+func TestDirectMarketplaceViews(t *testing.T) {
+	server := &Server{DirectBackendDB: newTestDirectBackendDB(t)}
+	backend := testBackend("view", 3, 0, "direct-only")
+	backend.APIKey = "secret-api-key"
+	if err := server.DirectBackendDB.Save(backend); err != nil {
+		t.Fatal(err)
+	}
+	if err := server.LoadDirectBackends(); err != nil {
+		t.Fatal(err)
+	}
+	loaded := registryBackend(t, server, "view")
+	loaded.ObserveRequestLatency(12, true)
+	loaded.ObserveRequestLatency(40, false)
+	loaded.UpdateReliability(1)
+	if err := server.LoadDirectBackends(); err != nil {
+		t.Fatal(err)
+	}
+	views := server.DirectBackendViews("direct-only")
+	if len(views) != 1 || views[0].MaxConns != 1 || views[0].TTFTMs != 12 || views[0].ResponseLatencyMs != 40 || views[0].ReliabilityEMA <= 0.5 {
+		t.Fatalf("incorrect view after reload: %+v", views)
+	}
+	body, err := json.Marshal(views)
+	if err != nil || strings.Contains(string(body), "secret-api-key") || strings.Contains(string(body), "base_url") || strings.Contains(string(body), "api_key") {
+		t.Fatalf("unsafe view: %s, %v", body, err)
+	}
+	market := server.GetAllModels()
+	if len(market) != 1 || market[0].Direct == nil || market[0].Direct.Count != 1 || market[0].Direct.Healthy != 1 || market[0].Direct.Input != [2]float64{2, 2} {
+		t.Fatalf("incorrect direct-only marketplace: %+v", market)
+	}
+	if len(server.DirectBackendViews("unknown")) != 0 {
+		t.Fatal("unknown model must have empty direct supply")
+	}
 }
 
 func TestDirectBackendModelsRoundTrip(t *testing.T) {

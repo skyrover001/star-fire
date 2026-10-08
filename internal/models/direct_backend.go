@@ -37,6 +37,56 @@ type DirectBackend struct {
 	Healthy        int32           `json:"-" gorm:"-"` // atomic bool（健康检查结果）
 	CacheHitEMA    uint64          `json:"-" gorm:"-"` // atomic float64bits（实测 cache 命中率 EMA，仅 tiebreak）
 	ReliabilityEMA uint64          `json:"-" gorm:"-"` // atomic float64bits（真实请求可靠性 EMA，未初始化=0.5 中性值）
+	TTFTEMA        uint64          `json:"-" gorm:"-"`
+	ResponseEMA    uint64          `json:"-" gorm:"-"`
+}
+
+type DirectBackendView struct {
+	ID                string  `json:"id"`
+	Name              string  `json:"name"`
+	Format            string  `json:"format"`
+	Priority          int     `json:"priority"`
+	IPPM              float64 `json:"ippm"`
+	OPPM              float64 `json:"oppm"`
+	CIPPM             float64 `json:"cippm"`
+	Priced            bool    `json:"priced"`
+	Healthy           bool    `json:"healthy"`
+	InCooldown        bool    `json:"in_cooldown"`
+	ActiveConns       int32   `json:"active_conns"`
+	MaxConns          int     `json:"max_conns"`
+	HealthLatencyMs   float64 `json:"health_latency_ms"`
+	TTFTMs            float64 `json:"ttft_ms"`
+	ResponseLatencyMs float64 `json:"response_latency_ms"`
+	ReliabilityEMA    float64 `json:"reliability_ema"`
+	CacheHitEMA       float64 `json:"cache_hit_ema"`
+	RecentFailures    int32   `json:"recent_failures"`
+	DirectBackendUsageStat
+}
+
+type DirectSupplySummary struct {
+	Count   int        `json:"count"`
+	Healthy int        `json:"healthy"`
+	Input   [2]float64 `json:"input"`
+	Output  [2]float64 `json:"output"`
+	Cached  [2]float64 `json:"cached"`
+	Priced  bool       `json:"priced"`
+}
+
+func (b *DirectBackend) ObserveRequestLatency(ms float64, stream bool) {
+	field := &b.ResponseEMA
+	if stream {
+		field = &b.TTFTEMA
+	}
+	for {
+		old := atomic.LoadUint64(field)
+		next := ms
+		if old != 0 {
+			next = 0.2*ms + 0.8*math.Float64frombits(old)
+		}
+		if atomic.CompareAndSwapUint64(field, old, math.Float64bits(next)) {
+			return
+		}
+	}
 }
 
 // UpdateCacheHit 以 EMA(alpha=0.2) 更新实测命中率，h ∈ [0,1]。

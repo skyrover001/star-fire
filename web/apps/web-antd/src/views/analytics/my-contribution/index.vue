@@ -16,7 +16,7 @@
                   <SvgCakeIcon class="h-5 w-5 text-white" />
                 </div>
                 <div>
-                  <h2 class="text-base font-bold text-white leading-tight">💰 {{ $t('business.analytics.contribution.totalIncome') }}</h2>
+                  <h2 class="text-base font-bold text-white leading-tight">💰 {{ $t('business.supply.personalIncome') }}</h2>
                   <p class="text-white/60 text-xs leading-tight">{{ $t('business.analytics.contribution.cumulativeIncome') }}</p>
                 </div>
               </div>
@@ -188,7 +188,7 @@
 
     <!-- 收益详单表格 -->
     <div v-if="showDetailTable" class="mt-5">
-      <AnalysisChartCard :title="$t('business.analytics.contribution.incomeDetails')">
+      <AnalysisChartCard :title="$t('business.supply.personalIncome')">
         <div class="overflow-x-auto">
           <div v-if="loading" class="p-4">
             <div class="animate-pulse space-y-3">
@@ -546,6 +546,8 @@ interface TotalIncomeStats {
   models: number
   client_count: number
   unique_users: number
+  max_income: number
+  min_income: number
 }
 
 // 时段收益统计（来自 /income/stats，服务端聚合，避免详单分页导致今日/近7日/本月数值相同）
@@ -595,6 +597,8 @@ const totalStatsData = ref<TotalIncomeStats>({
   models: 0,
   client_count: 0,
   unique_users: 0,
+  max_income: 0,
+  min_income: 0,
 })
 
 // 时段收益数据（来自 /income/stats，服务端按时间段聚合）
@@ -716,18 +720,16 @@ const timeStatsData = computed(() => {
 
 // 计算属性
 const averageIncomePerCall = computed(() => {
-  if (incomeData.value.length === 0) return 0
+  if (timeStatsData.value.total.calls === 0) return 0
   return timeStatsData.value.total.income / timeStatsData.value.total.calls
 })
 
 const maxIncomePerCall = computed(() => {
-  if (incomeData.value.length === 0) return 0
-  return Math.max(...incomeData.value.map(record => calculateSingleCallIncome(record)))
+  return totalStatsData.value.max_income || 0
 })
 
 const minIncomePerCall = computed(() => {
-  if (incomeData.value.length === 0) return 0
-  return Math.min(...incomeData.value.map(record => calculateSingleCallIncome(record)))
+  return totalStatsData.value.min_income || 0
 })
 
 const averageTokensPerCall = computed(() => {
@@ -736,11 +738,11 @@ const averageTokensPerCall = computed(() => {
 })
 
 const uniqueClientsCount = computed(() => {
-  return new Set(incomeData.value.map(r => r.ClientID)).size
+  return totalStatsData.value.client_count
 })
 
 const uniqueUsersCount = computed(() => {
-  return new Set(incomeData.value.map(r => r.UserID)).size
+  return totalStatsData.value.unique_users
 })
 
 const topModel = computed(() => {
@@ -928,11 +930,13 @@ const fetchTrendData = async (startDate?: string, endDate?: string) => {
 }
 
 // 趋势图日期范围变更
-const onTrendDateChange = (dates: [Dayjs, Dayjs] | null) => {
+const onTrendDateChange = (dates: [Dayjs, Dayjs] | [string, string] | null) => {
   if (dates && dates.length === 2) {
-    const start = dates[0].format('YYYY-MM-DD')
-    const end = dates[1].format('YYYY-MM-DD')
-    trendDateRange.value = [dates[0], dates[1]]
+    const startDate = dayjs(dates[0])
+    const endDate = dayjs(dates[1])
+    const start = startDate.format('YYYY-MM-DD')
+    const end = endDate.format('YYYY-MM-DD')
+    trendDateRange.value = [startDate, endDate]
     fetchTrendData(start, end)
   }
 }

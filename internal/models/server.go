@@ -952,7 +952,7 @@ func (s *Server) RegisterModel(model *public.Model, client *Client) bool {
 
 // for model marketplace
 func (s *Server) GetAllModels() []*MarketplaceModel {
-	allClients := s.clients.Load().(map[string]map[string]*Client)
+	allClients, _ := s.clients.Load().(map[string]map[string]*Client)
 
 	var marketplaceModels []*MarketplaceModel
 	var toRemove []struct{ model, client string }
@@ -1021,7 +1021,55 @@ func (s *Server) GetAllModels() []*MarketplaceModel {
 		marketplaceModels = append(marketplaceModels, model)
 	}
 	s.directBackendsMu.RUnlock()
+	for _, model := range marketplaceModels {
+		views := s.DirectBackendViews(model.Name)
+		if len(views) == 0 {
+			continue
+		}
+		summary := &DirectSupplySummary{Count: len(views)}
+		for _, view := range views {
+			if view.Healthy && !view.InCooldown {
+				summary.Healthy++
+			}
+			if view.Priced {
+				if !summary.Priced {
+					summary.Input = [2]float64{view.IPPM, view.IPPM}
+					summary.Output = [2]float64{view.OPPM, view.OPPM}
+					summary.Cached = [2]float64{view.CIPPM, view.CIPPM}
+				} else {
+					summary.Input = [2]float64{math.Min(summary.Input[0], view.IPPM), math.Max(summary.Input[1], view.IPPM)}
+					summary.Output = [2]float64{math.Min(summary.Output[0], view.OPPM), math.Max(summary.Output[1], view.OPPM)}
+					summary.Cached = [2]float64{math.Min(summary.Cached[0], view.CIPPM), math.Max(summary.Cached[1], view.CIPPM)}
+				}
+				summary.Priced = true
+			}
+		}
+		model.Direct = summary
+	}
 	return marketplaceModels
+}
+
+func (s *Server) DirectBackendViews(model string) []DirectBackendView {
+	s.directBackendsMu.RLock()
+	backends := append([]*DirectBackend(nil), s.directBackends[model]...)
+	s.directBackendsMu.RUnlock()
+	views := make([]DirectBackendView, 0, len(backends))
+	for _, backend := range backends {
+		ippm, oppm, cippm, priced := backend.PriceFor(model)
+		maxConns := backend.MaxConns
+		if maxConns <= 0 {
+			maxConns = 1
+		}
+		views = append(views, DirectBackendView{
+			ID: backend.ID, Name: backend.Name, Format: backend.Format, Priority: backend.Priority,
+			IPPM: ippm, OPPM: oppm, CIPPM: cippm, Priced: priced,
+			Healthy: backend.IsHealthy(), InCooldown: backend.InCooldown(), ActiveConns: backend.GetActive(), MaxConns: maxConns,
+			HealthLatencyMs: backend.GetLatencyEMA(), TTFTMs: math.Float64frombits(atomic.LoadUint64(&backend.TTFTEMA)),
+			ResponseLatencyMs: math.Float64frombits(atomic.LoadUint64(&backend.ResponseEMA)),
+			ReliabilityEMA:    backend.GetReliabilityEMA(), CacheHitEMA: backend.GetCacheHitEMA(), RecentFailures: backend.GetFailures(),
+		})
+	}
+	return views
 }
 
 // for openAI api compatibility
@@ -1281,6 +1329,9 @@ func (s *Server) LoadDirectBackends() error {
 			atomic.StoreUint64(&b.LatencyEMA, atomic.LoadUint64(&old.LatencyEMA))
 			atomic.StoreInt32(&b.Healthy, atomic.LoadInt32(&old.Healthy))
 			atomic.StoreUint64(&b.CacheHitEMA, atomic.LoadUint64(&old.CacheHitEMA))
+			atomic.StoreUint64(&b.ReliabilityEMA, atomic.LoadUint64(&old.ReliabilityEMA))
+			atomic.StoreUint64(&b.TTFTEMA, atomic.LoadUint64(&old.TTFTEMA))
+			atomic.StoreUint64(&b.ResponseEMA, atomic.LoadUint64(&old.ResponseEMA))
 		} else {
 			b.SetHealthy(true) // 初始乐观，健康检查会纠正
 		}

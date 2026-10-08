@@ -199,10 +199,12 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 						}
 						time.Sleep(backoff(attempt))
 						continue
+					} else {
+						log.Printf("direct %s: build upstream request failed (attempt=%d): %v", b.ID, attempt, berr)
 					}
+				} else {
+					log.Printf("direct %s: get OpenAI converter failed: %v", b.ID, err)
 				}
-				// 转换失败：记失败并回退 crowdsource
-				b.IncrFailures()
 				time.Sleep(backoff(attempt))
 				continue
 			}
@@ -231,9 +233,12 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 							}
 							time.Sleep(backoff(attempt))
 							continue
+						} else {
+							log.Printf("direct %s: build upstream request failed (attempt=%d): %v", cb.ID, attempt, berr)
 						}
+					} else {
+						log.Printf("direct %s: get OpenAI converter failed: %v", cb.ID, err)
 					}
-					cb.IncrFailures()
 					time.Sleep(backoff(attempt))
 					continue
 				}
@@ -255,9 +260,12 @@ func handleMultiFormatWithRetry(c *gin.Context, server *models.Server, canonical
 								}
 								time.Sleep(backoff(attempt))
 								continue
+							} else {
+								log.Printf("direct %s: build upstream request failed (attempt=%d): %v", b.ID, attempt, berr)
 							}
+						} else {
+							log.Printf("direct %s: get OpenAI converter failed: %v", b.ID, err)
 						}
-						b.IncrFailures()
 						time.Sleep(backoff(attempt))
 						continue
 					}
@@ -606,7 +614,7 @@ func writeUserStreamEvent(c *gin.Context, server *models.Server, fingerPrint str
 		return false
 	}
 	// 记录 usage
-	if ev.Usage != nil && ev.Usage.TotalTokens > 0 {
+	if clientID != "" && ev.Usage != nil && ev.Usage.TotalTokens > 0 {
 		recordCanonicalUsage(c, server, fingerPrint, reqModel, *ev.Usage, clientID, ippm, oppm, cippm)
 	}
 
@@ -615,7 +623,10 @@ func writeUserStreamEvent(c *gin.Context, server *models.Server, fingerPrint str
 		events, err := userWriter.Write(ev)
 		if err != nil {
 			log.Println("user stream writer error:", err)
-			return false
+			c.Set("user_stream_error", true)
+			finishUserStream(c, userConv, userWriter, true)
+			cleanupChatRequest(server, fingerPrint, clientID, respConn)
+			return true
 		}
 		// ===== 链路日志：server 回传给用户的流式事件（含 function_call 的 call_id/name）=====
 		for _, e := range events {
@@ -663,7 +674,10 @@ func writeUserStreamEvent(c *gin.Context, server *models.Server, fingerPrint str
 	userEvent, err := userConv.BuildUserStreamEvent(ev)
 	if err != nil {
 		log.Println("build user stream event error:", err)
-		return false
+		c.Set("user_stream_error", true)
+		finishUserStream(c, userConv, userWriter, true)
+		cleanupChatRequest(server, fingerPrint, clientID, respConn)
+		return true
 	}
 	writeUserSSE(c, userConv, userEvent)
 	c.Writer.Flush()

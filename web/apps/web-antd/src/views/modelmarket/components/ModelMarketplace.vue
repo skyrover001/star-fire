@@ -216,7 +216,12 @@
               </span>
             </div>
 
-            <!-- 价格区间：输入 / 输出 / 缓存输入（¥/M tokens） -->
+            <!-- 提供者信息：Direct 后端 / Personal Clients（任一存在即显示） -->
+            <div v-if="model.directCount || model.clientCount" class="mb-3 text-xs font-medium text-teal-600 dark:text-teal-400">
+              <template v-if="model.directCount">{{ $t('business.supply.directBackends') }}: {{ model.directHealthy }} / {{ model.directCount }}</template>
+              <template v-if="model.directCount && model.clientCount"> · </template>
+              <template v-if="model.clientCount">{{ $t('business.supply.personalClients') }}: {{ model.clientCount }}</template>
+            </div>
             <div v-if="model.priceRange" class="mb-3 rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-2.5">
               <div class="mb-1.5 flex items-center text-xs font-medium text-emerald-600">
                 <svg class="w-3.5 h-3.5 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -391,7 +396,12 @@
                       </svg>
                       <span class="text-xs">{{ model.contributorCount || 0 }} {{ $t('business.marketplace.contributors') }} · {{ formatDuration(model.onlineTime) }}</span>
                     </span>
-                    <!-- 价格区间：输入 / 输出 / 缓存输入（¥/M tokens） -->
+                    <!-- 提供者信息：Direct 后端 / Personal Clients（任一存在即显示） -->
+                    <span v-if="model.directCount || model.clientCount" class="inline-flex items-center px-3 py-1 rounded-full bg-teal-500/10 text-teal-600 dark:text-teal-400 border border-teal-500/20">
+                      <template v-if="model.directCount">{{ $t('business.supply.directBackends') }}: {{ model.directHealthy }} / {{ model.directCount }}</template>
+                      <template v-if="model.directCount && model.clientCount"> · </template>
+                      <template v-if="model.clientCount">{{ $t('business.supply.personalClients') }}: {{ model.clientCount }}</template>
+                    </span>
                     <span v-if="model.priceRange" class="inline-flex items-center px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
                       <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/>
@@ -580,6 +590,7 @@ interface ApiModelItem {
   size: string;
   arch?: string; // 量化方式
   client_models: ClientModelPair[];
+  direct?: { count: number; healthy: number; priced: boolean; input: [number, number]; output: [number, number]; cached: [number, number] };
 }
 
 // 定义显示用的模型接口类型
@@ -596,6 +607,8 @@ interface ModelItem {
   size: string;
   type: string;
   clientCount?: number; // 可用客户端数量
+  directCount?: number;
+  directHealthy?: number;
   onlineClients?: number; // 在线客户端数量
   offlineClients?: number; // 离线客户端数量
   contributorCount?: number; // 贡献者（贡献用户）数量
@@ -783,6 +796,7 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
 
     // 确定模型状态：根据客户端状态来判断
     const getModelStatus = (): 'serving' | 'restricted' | 'offline' | 'maintenance' => {
+      if ((apiModel.direct?.healthy ?? 0) > 0) return 'serving';
       if (!apiModel.client_models || apiModel.client_models.length === 0) {
         return 'offline';
       }
@@ -817,6 +831,11 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
     const cachedPrices = clientModels
       .map(cm => cm.model?.cippm)
       .filter((price): price is number => typeof price === 'number');
+    if (apiModel.direct?.priced) {
+      inputPrices.push(...apiModel.direct.input);
+      outputPrices.push(...apiModel.direct.output);
+      cachedPrices.push(...apiModel.direct.cached);
+    }
     const priceRange = inputPrices.length > 0 && outputPrices.length > 0
       ? {
           input: [Math.min(...inputPrices), Math.max(...inputPrices)] as [number, number],
@@ -855,6 +874,8 @@ const transformApiModel = (apiModel: ApiModelItem): ModelItem => {
       size: formatSize(apiModel.size || '0'),
       type: apiModel.type || 'unknown',
       clientCount: clientModels.length,
+      directCount: apiModel.direct?.count ?? 0,
+      directHealthy: apiModel.direct?.healthy ?? 0,
       onlineClients: onlineClients.length,
       offlineClients: offlineClients.length,
       contributorCount: contributorSet.size,
@@ -1302,6 +1323,8 @@ const silentRefresh = async () => {
       // 仅更新可能变化的字段
       existing.status = fresh.status;
       existing.clientCount = fresh.clientCount;
+      existing.directCount = fresh.directCount;
+      existing.directHealthy = fresh.directHealthy;
       existing.onlineClients = fresh.onlineClients;
       existing.offlineClients = fresh.offlineClients;
       existing.contributorCount = fresh.contributorCount;
